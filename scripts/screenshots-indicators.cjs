@@ -1,8 +1,7 @@
 // Screenshots and a smoke run of examples/indicators.html in Chromium (light and dark): candles with SMA and Bollinger,
-// RSI and MACD on their own charts below. Writes docs/screenshots/indicators-light.png and indicators-dark.png and fails
+// RSI and MACD in their own panes of the same chart below. Writes docs/screenshots/indicators-light.png and indicators-dark.png and fails
 // on any console error. Needs Playwright importable on this machine (not a dev dependency): `node scripts/screenshots-indicators.cjs`.
-// The example reads the indicators entry as a <script> global; `npm run build` does not write one, so this script
-// builds dist/chartist-lite-indicators.iife.min.js with the package's own esbuild when it is missing.
+// The example reads the indicators entry as a <script> global; `npm run build` writes it.
 const { chromium } = require('playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -12,15 +11,10 @@ const out = path.join(root, 'docs', 'screenshots');
 const url = 'file://' + path.join(root, 'examples', 'indicators.html');
 
 async function ensureBundles() {
-  const core = path.join(root, 'dist', 'chartist-lite.iife.min.js');
-  if (!fs.existsSync(core)) throw new Error('run `npm run build` first (dist/chartist-lite.iife.min.js is missing)');
-  const ind = path.join(root, 'dist', 'chartist-lite-indicators.iife.min.js');
-  if (fs.existsSync(ind) && fs.statSync(ind).mtimeMs >= fs.statSync(path.join(root, 'dist', 'indicators.js')).mtimeMs) return;
-  const { build } = require(path.join(root, 'node_modules', 'esbuild'));
-  await build({
-    absWorkingDir: root, entryPoints: ['src/indicators/index.ts'], outfile: ind, bundle: true, format: 'iife',
-    globalName: 'ChartistLiteIndicators', minify: true, target: 'es2020', legalComments: 'none', logLevel: 'warning',
-  });
+  // `npm run build` writes both bundles (dist/chartist-lite.iife.min.js, dist/chartist-lite-indicators.iife.min.js).
+  for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js']) {
+    if (!fs.existsSync(path.join(root, 'dist', f))) throw new Error(`run \`npm run build\` first (dist/${f} is missing)`);
+  }
 }
 
 (async () => {
@@ -37,7 +31,7 @@ async function ensureBundles() {
   const report = {};
   report.counts = await page.evaluate(() => {
     const d = window.__demo;
-    return { candles: d.candles.data().length, charts: d.charts.length };
+    return { candles: d.candles.data().length, charts: d.charts.length, panes: d.price.panes().map(p => p.getHeight()) };
   });
   await page.screenshot({ path: path.join(out, 'indicators-light.png') });
 

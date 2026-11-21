@@ -15,13 +15,7 @@
   button { font: inherit; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge);
     background: var(--card); color: var(--ink); cursor: pointer; }
   button:focus-visible { outline: 2px solid #0066CC; outline-offset: 2px; }
-  .stack { border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
-  .stack > div + div { border-top: 1px solid var(--edge); }
-  #price { height: 340px; }
-  #rsi { height: 130px; }
-  #macd { height: 160px; }
-  .label { position: relative; }
-  .label::before { content: attr(data-label); position: absolute; z-index: 1; left: 10px; top: 6px; font-size: 12px; color: var(--muted); pointer-events: none; }
+  #chart { height: 640px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
 </style>
 </head>
 <body>
@@ -30,14 +24,9 @@
   <div><button id="theme" type="button">Dark theme</button> <button id="tick" type="button">Live tick</button></div>
 </header>
 <div id="legend"></div>
-<div class="stack">
-  <div id="price" class="label" data-label="Price, SMA 20, Bollinger 20 x 2"></div>
-  <div id="rsi" class="label" data-label="RSI 14"></div>
-  <div id="macd" class="label" data-label="MACD 12 26 9"></div>
-</div>
-<!-- Build first: `npm run build`, then `node scripts/screenshots-indicators.cjs` (it also writes the indicators script below
-     when `npm run build` has not). The indicators entry as a <script> global:
-     `npx esbuild src/indicators/index.ts --bundle --minify --format=iife --global-name=ChartistLiteIndicators --outfile=dist/chartist-lite-indicators.iife.min.js` -->
+<!-- One chart, three panes: price with SMA 20 and Bollinger 20 x 2 on top, RSI 14 and MACD 12 26 9 below. -->
+<div id="chart"></div>
+<!-- Build first: `npm run build` (writes both scripts below), then `node scripts/screenshots-indicators.cjs`. -->
 <script src="../dist/chartist-lite.iife.min.js"></script>
 <script src="../dist/chartist-lite-indicators.iife.min.js"></script>
 <script>
@@ -71,12 +60,10 @@
     light: { sma: '#0066CC', band: 'rgba(60,60,67,0.55)', rsi: '#B85C00', macd: '#0066CC', signal: '#B85C00', up: 'rgba(36,138,61,0.55)', down: 'rgba(215,0,21,0.55)', guide: 'rgba(60,60,67,0.45)' },
     dark: { sma: '#0A84FF', band: 'rgba(235,235,245,0.55)', rsi: '#FF9F0A', macd: '#0A84FF', signal: '#FF9F0A', up: 'rgba(48,209,88,0.6)', down: 'rgba(255,69,58,0.6)', guide: 'rgba(235,235,245,0.45)' },
   };
-  // The three charts are separate (multi-pane is not used here), so their price axes are as wide as their labels. Padding the
-  // lower labels with figure spaces (digit-wide) to the price axis' six characters keeps the bars of the three charts in line.
-  const padded = { localization: { priceFormatter: v => formatPrice(v, 2).padStart(6, '\u2007') } };
   const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
 
-  const price = createChart('price', { theme: 'light', ariaLabel: 'DEMO price chart', timeScale: { visible: false } });
+  // One chart: the panes share the time axis, the crosshair and the plot edges, so no syncing is needed.
+  const price = createChart('chart', { theme: 'light', ariaLabel: 'DEMO price chart with RSI and MACD' });
   const candles = price.addSeries(CandlestickSeries, { title: 'DEMO' });
   const avg = price.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'SMA 20' });
   const bb = bollinger(bars, { period: 20, mult: 2 });
@@ -87,25 +74,27 @@
   avg.setData(sma(bars, 20));
   basis.setData(bb.basis); upper.setData(bb.upper); lower.setData(bb.lower);
 
-  const rsiChart = createChart('rsi', { theme: 'light', ariaLabel: 'DEMO RSI', timeScale: { visible: false }, rightPriceScale: { scaleMargins: { top: 0.18, bottom: 0.1 } }, ...padded });
-  const rsiLine = rsiChart.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'RSI 14', lastValueVisible: true });
+  const rsiLine = price.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'RSI 14', lastValueVisible: true }, 1);
   rsiLine.setData(rsi(bars, 14));
   const guides = [70, 30].map(p => createPriceLine(rsiLine, { price: p, lineStyle: 'dotted', axisLabelVisible: true }));
 
-  const macdChart = createChart('macd', { theme: 'light', ariaLabel: 'DEMO MACD', ...padded, rightPriceScale: { scaleMargins: { top: 0.2, bottom: 0.1 } } });
   const m = macd(bars, { fast: 12, slow: 26, signal: 9 });
-  const hist = macdChart.addSeries(HistogramSeries, { lastValueVisible: false, priceLineVisible: false, title: 'Histogram' });
-  const macdLine = macdChart.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'MACD' });
-  const sigLine = macdChart.addSeries(LineSeries, { ...quiet, lineWidth: 1.5, title: 'Signal' });
+  const hist = price.addSeries(HistogramSeries, { lastValueVisible: false, priceLineVisible: false, title: 'Histogram' }, 2);
+  const macdLine = price.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'MACD' }, 2);
+  const sigLine = price.addSeries(LineSeries, { ...quiet, lineWidth: 1.5, title: 'Signal' }, 2);
   // Histogram columns coloured by sign: green above zero, red below (the sign is also the column direction).
   const colorHist = (rows, pal) => rows.map(r => (r.value === undefined ? r : { ...r, color: r.value >= 0 ? pal.up : pal.down }));
   macdLine.setData(m.macd); sigLine.setData(m.signal);
+  const [, rsiPane, macdPane] = price.panes();
+  rsiPane.setStretchFactor(1);
+  macdPane.setStretchFactor(1.2);
+  price.panes()[0].setStretchFactor(3);
 
-  const charts = [price, rsiChart, macdChart];
+  const charts = [price];
 
   function paint(name) {
     const p = palette[name];
-    for (const c of charts) c.applyOptions({ theme: name });
+    price.applyOptions({ theme: name });
     avg.applyOptions({ color: p.sma });
     for (const s of [basis, upper, lower]) s.applyOptions({ color: p.band });
     rsiLine.applyOptions({ color: p.rsi });
@@ -115,18 +104,7 @@
     hist.setData(colorHist(m.histogram, p));
   }
   paint('light');
-
-  // One shared view: the three charts show the same bars (their price axes differ by a few pixels of width).
-  let syncing = false;
-  for (const src of charts) {
-    src.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (!range || syncing) return;
-      syncing = true;
-      for (const dst of charts) if (dst !== src) dst.timeScale().setVisibleLogicalRange(range);
-      syncing = false;
-    });
-  }
-  for (const c of charts) c.timeScale().setVisibleLogicalRange({ from: bars.length - 130, to: bars.length + 2 });
+  price.timeScale().setVisibleLogicalRange({ from: bars.length - 130, to: bars.length + 2 });
 
   const at = (series, time) => { const r = series.data().find(x => x.time === time); return r ? formatPrice(r.value, 2) : 'n/a'; };
   const legend = document.getElementById('legend');
@@ -163,7 +141,7 @@
     themeBtn.textContent = dark ? 'Light theme' : 'Dark theme';
   });
 
-  window.__demo = { charts, price, rsiChart, macdChart, candles, bars, feed, live };
+  window.__demo = { charts, price, candles, bars, feed, live };
 </script>
 </body>
 </html>

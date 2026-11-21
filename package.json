@@ -47,7 +47,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
     "size": "node scripts/size.mjs",
-    "check": "npm run typecheck && npm test && npm run build && npm run size"
+    "check": "npm run typecheck && npm test && npm run build && npm run size",
+    "screenshots": "npm run build && node scripts/screenshots-all.mjs"
   },
   "peerDependencies": {
     "react": ">=18"

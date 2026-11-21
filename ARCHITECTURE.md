@@ -9,10 +9,10 @@ For contributors and stage-2 workers. Public README, licence and contributing gu
 | Install dev tools | `npm install` (TypeScript, Vitest, esbuild; no runtime dependencies) |
 | Typecheck (sources and tests) | `npm run typecheck` |
 | Unit tests | `npm test` |
-| Build `dist/` | `npm run build` (ESM per entry, `dist/chartist-lite.iife.min.js` global `ChartistLite`, `.d.ts` in `dist/types/`) |
-| Size | `npm run size` (each entry bundled + minified + gzip; fails if the core is over 45 KB gzip) |
+| Build `dist/` | `npm run build` (ESM per entry; IIFE globals `ChartistLite` (`chartist-lite.iife.min.js`), `ChartistLiteIndicators` (`chartist-lite-indicators.iife.min.js`), `ChartistLiteElement` (`chartist-lite.element.iife.min.js`, registers `<chartist-chart>` on load); `.d.ts` in `dist/types/`) |
+| Size | `npm run size` (each entry bundled + minified + gzip, and the three IIFE files as built; fails if the core is over 45 KB gzip) |
 | All of the above | `npm run check` |
-| Browser smoke + screenshots | `npm run build && node scripts/screenshots.cjs` (needs Playwright importable on the machine; not a dev dependency, not in CI) |
+| Browser smoke + screenshots | `npm run screenshots` (builds, then runs every `scripts/screenshots*.cjs`; needs Playwright importable on the machine; not a dev dependency, not in CI) |
 
 ## Modules
 
@@ -36,6 +36,7 @@ src/
     canvas.ts         one canvas sized on whole device pixels (DOM)
     text.ts           cached text measuring, tabular figures on canvas
     pixel.ts          device-pixel helpers, candle geometry (pure)
+    decimate.ts       min/max decimation: rows -> one entry per device-pixel column (pure)
   series/
     definition.ts     THE SERIES CONTRACT (types only)
     series-model.ts   one series' rows, times and slots
@@ -44,7 +45,8 @@ src/
   plugins/
     primitive.ts      THE PRIMITIVE CONTRACT (types only)
   chart/
-    chart.ts          the chart: DOM, state, scheduler, painters, public API implementation
+    chart.ts          the chart: DOM, panes, state, scheduler, painters, public API implementation
+    pane-layout.ts    stacked pane heights, separator moves, pane hit test (pure)
     input.ts          pointer / wheel / touch / keyboard -> view operations
   indicators/ element/ react/   reserved subpath entries (empty in stage 1)
 ```
@@ -68,11 +70,22 @@ last bar: appending a bar moves a live view with it, and a scrolled-back view (`
 Non-trading time has no slot, so it is never drawn as a gap. Rows of one series map to slots through
 `SeriesModel.pos` (binary search; every series need not have every slot).
 
-Layout (stage 1, one pane): pane = `[0, cssW - priceAxisWidth] x [0, cssH - timeAxisHeight]`, price axis on the
-right, time axis at the bottom. The axis width is measured from its labels (hysteresis of 8 px so a pan does not make
-it jitter). **Multi-pane is not built.** It is prepared for: price scales are per id and carry their own `height`,
-primitives receive a `pane` rect, series receive a device `pane` rect, and the painter clips per pane; adding panes
-means a `panes: { rect, scales }[]` list in `chart.ts` and a `paneIndex` series option, not a contract change.
+Layout (stage 2, 2026-11-21): panes are stacked vertically above one time axis. Horizontally every pane shares
+`[leftAxisWidth, cssW - rightAxisWidth]` (the plot), so bars line up across panes. Vertically the height left after the
+time axis is shared by stretch factor (`chart/pane-layout.ts`: whole px, 1 px separator, no pane under 32 px when they
+fit; the top pane starts at 3, a new pane at 1). Each pane owns its price scales: 'right', 'left' and any overlay id.
+An axis side takes width only while some pane shows that side (scale `visible` and holding data), so the left axis
+appears when a series uses `priceScaleId: 'left'`; the widest label of any pane sets the side's width (8 px hysteresis).
+
+Coordinates in the public API are pane-relative: `timeToCoordinate` / `logicalToCoordinate` are x from the plot's left
+edge; `series.priceToCoordinate` is y from the top of the series' pane; `MouseEventParams.point` is relative to the
+pane under the pointer (with `paneIndex`). Primitives and series renderers get chart (canvas) coordinates, as before:
+their scopes already include the plot and pane offsets. With one pane and no left axis, both are the same.
+
+Panes are created by `addSeries(def, opts, paneIndex)` (an index past the last pane appends one) or
+`series.moveToPane(i)`, and a pane below the top one is removed when its last series goes (later panes move up). The
+top pane always exists. Between panes a DOM `role="separator"` element (focusable; drag, or Up/Down arrows, Shift for
+40 px) moves the boundary; the new heights become the stretch factors, so proportions survive a resize.
 
 ## Render pipeline
 
@@ -80,21 +93,28 @@ means a `panes: { rect, scales }[]` list in `chart.ts` and a `paneIndex` series 
    options) or `LAYOUT` (size, DPR, theme, fonts). Masks are OR-ed and painted in ONE `requestAnimationFrame`.
 2. `LAYOUT`: read the container size and `devicePixelRatio`, size both canvases (`render/canvas.ts`: whole device
    pixels, device-pixel-content-box when the browser reports it), resolve the theme.
-3. `MAIN` (`paintMain`): `layout()` = time scale width and clamp, autoscale every price scale over the visible bars
-   (series `low/high` + primitives' `autoscale`), price ticks, axis width (repeat up to twice if it changed), time
-   ticks. Then paint: background, grid (1 device px), clip to pane, primitives `bottom`, series in add order,
-   primitives `normal`, last-value price lines, primitives `top`, unclip, price axis (tick labels, last-value tags,
-   primitive tags; tags pushed apart, labels under a tag hidden), time axis labels.
-4. Overlay (`paintOverlay`, always after the above, and alone on a pointer move): crosshair lines, hover dots
+3. `MAIN` (`paintMain`): `layout()` = pane boxes, time scale width and clamp, autoscale every price scale of every
+   pane over the visible bars (series `low/high(row, options)` + primitives' `autoscale`), price ticks per pane and
+   side, axis widths (repeat up to twice if they changed), time ticks. Then per pane: grid (1 device px), separator
+   line, clip to the pane, primitives `bottom`, the pane's series in add order, primitives `normal`, last-value price
+   lines, primitives `top`, unclip, left and right axes (tick labels, last-value tags, primitive tags; tags pushed
+   apart, labels under a tag hidden; a primitive tag whose price is off the pane is dropped unless `keepInView`).
+   Finally the time axis labels.
+4. Overlay (`paintOverlay`, always after the above, and alone on a pointer move): crosshair (vertical line through
+   every pane, horizontal line in the pane under the pointer), hover dots
    (`crosshairMarker`), primitives' `drawOverlay`, crosshair axis tags (the axis under a tag is blanked to whole
    labels), focus ring when focus is from the keyboard.
 
 A pointer move costs one overlay repaint; it never redraws series. Only visible rows are touched (`rowRange` by binary
-search, plus one row each side). Candles closer than 3 device px fold into one-pixel columns, lines closer than one
-device px into per-column min/max, so a zoomed-out chart costs one rectangle or four path points per pixel column.
-Scratch arrays in `candlestick.ts` are module-level and reused. Measured (Chromium, 1200 x 600, DPR 1, 100k
-one-minute bars, `scripts/screenshots.cjs`): `setData` + fit + first paint about 35-41 ms; pan frames (2000 bars in
-view) median 1.4-1.5 ms, worst 3.6-4.7 ms.
+search, plus one row each side). Zoom-out never stops before the whole series fits (`TimeScaleModel.minSpacing()` =
+the smaller of `minBarSpacing` and width / bars), so `fitContent` shows 100k+ bars; below the candle-width floor the
+painters draw a compressed form through min/max decimation (`render/decimate.ts`): candles and bars one column per
+device pixel from lowest low to highest high (coloured by first open vs last close), lines and areas the first,
+highest, lowest and last value per column. The time-axis planner visits only day/month start slots
+(`TimeIndex.dayStarts` / `monthStarts`) for its day, month and year cadences. Measured (Chromium headless, 1200 x 600,
+DPR 1, 100k one-minute bars, `scripts/screenshots.cjs`): `setData` + fit + first paint 44-46 ms; pan frames with 2000
+bars in view median 0.8 ms, worst 2.7-3.2 ms; `fitContent` + full paint with all 100k bars in view median 3.1 ms,
+worst 4.5-4.8 ms.
 
 `update(row)`: O(1) data path. Same time as the last row: replace it. Newer: append to the series and, if newer than
 every slot, append one slot to the shared axis (`TimeIndex.append`, calendar read for that slot only). A time that
@@ -114,7 +134,13 @@ change. Contract (`src/series/definition.ts`):
   (time only); throw `TypeError('Chartist Lite: ...')` naming the field for a bad row.
 - `value(row)` single value (last-value tag, percent base, magnet); `low(row)` / `high(row)` for autoscale.
 - `lastValueColor(row, options, colors)`; optional `crosshairMarker(row, options, colors)` for a hover dot.
+- `low(row, options?)` / `high(row, options?)`: the chart passes the series' options as a second argument (stage 2,
+  additive), e.g. a histogram's `base` is included in autoscale.
 - `draw(scope)`: DEVICE pixels, identity transform, clipped to the pane, `ctx.save/restore` done by the chart.
+  Stage 2 adds `scope.decimate(access)` (min/max per device-pixel column, shared buffer valid until the next call;
+  also exported as `decimateColumns` from `render/decimate.ts` and the package entry) and `scope.paneIndex`; both are
+  optional in the type so hand-made scopes in tests stay valid. Use the compressed form when `scope.barSpacing` is
+  under your type's floor (candles and bars: 3 device px; lines and areas: 1).
   Iterate `scope.from..scope.to` only, skip `null` rows, use `scope.x(i)` / `scope.y(price)` (NaN = not drawable),
   snap with `Math.round` / `render/pixel.ts` (`deviceWidth`, `crispCoord`, `candleLayout`), batch one path per
   colour, no allocation per bar. Colours default from `scope.colors` (theme) when the option is undefined, so a theme
@@ -130,7 +156,9 @@ Contract `src/plugins/primitive.ts`. A primitive is a plain object; attach to a 
 prices map through that series' scale) or the pane (`chart.attachPrimitive(p)`, scale `p.priceScaleId ?? 'right'`).
 Hooks: `attached(host)` (keep `host.requestUpdate`), `detached()`, `zOrder` ('bottom' | 'normal' | 'top'),
 `draw(scope)` (main layer, CSS px, transform set, clipped to the pane), `drawOverlay(scope)` (overlay layer, every
-pointer move, keep cheap), `priceAxisLabels()` (tags on the axis), `autoscale(range)`. Scope gives `timeToX`,
+pointer move, keep cheap), `priceAxisLabels(colors)` (tags on the axis; stage 2 passes the theme colours in use; a
+label whose price is off the pane shows no tag unless `keepInView: true`), `autoscale(range)`. A pane primitive goes
+on the top pane with `chart.attachPrimitive`, on another with `chart.panes()[i].attachPrimitive`. Scope gives `timeToX`,
 `logicalToX`, `priceToY`, `text()` / `measureText()` with tabular figures, `formatPrice` (the axis' own format).
 
 Planned stage-2 plugins, one file each in `src/plugins/`, exported from `src/index.ts` as functions so they tree-shake:
@@ -149,6 +177,16 @@ aligned. Same boundary rules; no import from `chart/`. Incremental (`next(row)`)
 `src/element/index.ts` exports `defineChartistElement(tagName = 'chartist-chart')` (registration only when called:
 the package is `sideEffects: false`). `src/react/index.ts` is a thin component; React is an optional peer dependency
 and must never become a runtime dependency of the core entry.
+
+### Keyboard and screen readers
+
+The chart root is focusable (`role="application"`, `aria-roledescription="chart"`, `aria-label`, and
+`aria-describedby` pointing at a hidden help text from the `ariaDescription` option). Outside inspect mode: Left/Right
+pan 2 bars (Shift 20), +/-/Up/Down zoom, Home/End jump. Enter or Space starts inspect mode: the crosshair sits on a bar
+(the hovered one, else the last visible), Left/Right step one bar (Shift 10), Home/End go to the first/last bar, the view
+scrolls by whole bars to keep it on screen, and a polite `aria-live` region reads the bar: stamp, then per visible
+series "open, high, low, close" (rows with those four numbers) or its value (`describeSlot` in `chart.ts`). Enter,
+Space or Escape ends it; a mouse move ends it too. Pane separators are separate tab stops (Up/Down move them).
 
 ## Conventions and ownership
 

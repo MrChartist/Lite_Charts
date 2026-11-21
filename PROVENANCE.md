@@ -18,6 +18,7 @@ settings, no imports outside the package) and simplified.
 | `src/render/pixel.ts` | `src/domains/charting/services/render/candleGeometry.ts` (`candleLayout`, `hairlineDev`, column mode below 3 device px, wick parity) and `drawingCrispLines.ts` (`deviceLineWidth`, `snapToDeviceGrid`) | Outline mode dropped; one function per rule; names shortened. |
 | `src/render/canvas.ts` | Rule described in `docs/features/chart-engine/README.md` "Canvas and DPR" (host `prepare-canvas.ts`: use `devicePixelContentBoxSize` when it is for the same CSS box and within one pixel of css x dpr) | Re-implemented as a small class owning one canvas; horizontal and vertical ratios kept separately. |
 | `src/series/candlestick.ts` (`normalize`, the validity rule) | `packages/chartist-core/src/kernel/candle.ts` (`isValidCandle`: the range must contain open and close) | A row whose high/low do not contain open/close is repaired (high = max, low = min) instead of rejected; non-finite values throw. |
+| `src/render/decimate.ts` | Idea from `src/domains/charting/services/render/candleGeometry.ts` (`aggregateColumns`: min low to max high per device pixel column when zoomed out) | Generalised to any row type through an accessor (high, low, first, last), with a row count per column; new code. |
 | Everything else in `src/` | New code for this package | Written for Chartist Lite (chart, series contract, primitives, input, theme, text painter, scales models). |
 
 Third-party code: none. Runtime dependencies: none. Development tools (not shipped): TypeScript, Vitest, esbuild.

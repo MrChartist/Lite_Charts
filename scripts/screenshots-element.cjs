@@ -30,8 +30,8 @@ const check = (ok, what) => { if (!ok) failures.push(what); console.log(`${ok ? 
 (async () => {
   fs.mkdirSync(out, { recursive: true });
   // Fresh builds of what the pages load.
-  if (!fs.existsSync(path.join(root, 'dist', 'element.js'))) execFileSync(process.execPath, [path.join(root, 'scripts', 'build.mjs')], { cwd: root, stdio: 'inherit' });
-  execFileSync(process.execPath, [path.join(root, 'scripts', 'build-element-iife.mjs')], { cwd: root, stdio: 'inherit' });
+  // `npm run build` writes dist/element.js and the element IIFE (dist/chartist-lite.element.iife.min.js).
+  if (!fs.existsSync(path.join(root, 'dist', 'chartist-lite.element.iife.min.js'))) execFileSync(process.execPath, [path.join(root, 'scripts', 'build.mjs')], { cwd: root, stdio: 'inherit' });
   execFileSync(process.execPath, [path.join(root, 'examples', 'react', 'build.mjs')], { cwd: root, stdio: 'inherit' });
   execFileSync(path.join(root, 'node_modules', '.bin', 'esbuild'), ['src/react/index.ts', '--bundle', '--format=esm', '--platform=node', '--target=es2020', `--outfile=${path.join(root, 'examples', 'react', 'dist', 'react-ssr.mjs')}`, '--log-level=warning'], { cwd: root, stdio: 'inherit' });
 
