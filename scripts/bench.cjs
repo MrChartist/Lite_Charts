@@ -54,6 +54,7 @@ const stat = xs => {
         for (const scenario of SCENARIOS[chart]) {
           await page.evaluate(() => window.__raster());
           const costs = await page.evaluate(([s, f, w]) => window.__run(s, f, w), [scenario, FRAMES, WARM]);
+          if (scenario === 'drag' && !(await page.evaluate(() => window.__dragMoved))) errors.push(`drag scenario did not move the drawing (${chart}, ${bars}, DPR ${dpr})`);
           const raster = stat((await page.evaluate(() => window.__raster())).slice(WARM));
           const st = stat(costs);
           const row = { chart, scenario, bars, dpr, frames: costs.length, ...st, rasterMedianCpu: raster.median, rasterP95Cpu: raster.p95, within120: st.p95 <= BUDGET_120, within144: st.p95 <= BUDGET_144 };

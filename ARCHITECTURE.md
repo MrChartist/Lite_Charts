@@ -52,6 +52,7 @@ src/
   indicators/         `./indicators` entry: pure indicator functions and incremental forms (no chart import)
   element/            `./element` entry: `<chartist-chart>` (`defineChartistElement`; `auto.ts` registers on load for the IIFE)
   react/              `./react` entry: `createChartistReact(React)`, React injected, never a dependency
+  drawings/           `./drawings` entry: drawing tools (see "Plugin input hooks and drawing tools")
   render/dom.ts       CSSOM style writes with `!important` resets (CSP-safe, immune to page CSS)
 ```
 
@@ -238,3 +239,48 @@ Restrained, after iOS / macOS Stocks: calm ink, colour only where it carries dir
   a press on it selects text instead of panning (`isLink`).
 - **Empty chart**: `localization.noDataText` (default 'No data') centred in the top pane.
 - **Pane separator**: a 1 px hairline on the canvas, an 11 px invisible DOM hit area.
+
+## Frame budget (120 Hz / 144 Hz, 2026-11-21)
+
+`npm run bench` (`scripts/bench.cjs`, page `scripts/bench-page.html` + `bench-page.js`) measures the COST of one frame
+on the production build: input handlers, every queued `requestAnimationFrame` callback (the bench runs them itself), and
+style / layout of DOM the frame wrote; canvas rasterisation is forced after each frame and reported apart (headless has
+no GPU). Results: `docs/PERFORMANCE.md`, `docs/performance.json`; exit 1 when a p95 is over 8.33 ms. What keeps it there:
+
+- **Typed fast path for dense drawing.** `SeriesModel` keeps `vals`, `lows`, `highs` (Float64Array per row) and the
+  scope passes them with `slots`, `xOrigin`, `xStep` (x of row i = `xOrigin + xStep * slots[i]`), plus `valueBlocks`
+  (min / max per 32 rows). The folded line, candle and histogram loops read these instead of row objects and closures,
+  and skip whole blocks inside a pixel column. Lines fold per CSS pixel and draw one or two vertices per column (each
+  canvas call crosses into the browser).
+- **Autoscale from cached extremes.** `SeriesModel.extents(a, b)` uses per-128-row min / max blocks, invalidated by
+  block on `update()`, so a live tick with 100k bars in view does not rescan them (log mode keeps the plain scan).
+- **One paint per frame, no timers.** Passive pointer listeners (only wheel, dblclick and keydown can cancel), the
+  latest pointer position painted by the next frame, time-based kinetic scroll and crosshair fade.
+
+## Plugin input hooks and drawing tools (2026-11-21)
+
+Core hooks (additive): `chart.addPointerHandler(handler)` returns a remover; a `ChartPointerHandler` may implement
+`pointerDown(e)` (return true to own the gesture: its moves and release go to `pointerMove` / `pointerUp`, the chart does
+not pan or zoom), `hover(e)`, `keyDown(e)` (asked before the chart's own keys; return true when handled) and
+`blocksTouch()` (true turns `touch-action` to none). `chart.setCursor(cursor | null)` forces the cursor.
+`ChartPointerEvent` carries `point` (plot / pane-relative), `paneIndex`, fractional `logical`, `area`, `pointerType` and
+the modifier keys. `timeScale().timeToLogical(time)` / `logicalToTime(logical)` interpolate between bars and extrapolate
+past either end at the median bar interval, so anchors in time survive zoom, resize, time zone and data changes.
+`PrimitiveHost.requestOverlay()` repaints only the overlay; `PrimitiveDrawScope.seriesRowAt(time)` reads a row.
+
+Entry `@mrchartist/chartist-lite/drawings` (`src/drawings/`, IIFE global `ChartistLiteDrawings`):
+
+| File | Role |
+|---|---|
+| `geometry.ts` | pure: distances, line clipping (segment / ray / extended), simplification, arrow heads, 45-degree constraint, Fibonacci, measure and position figures, magnet (nearest O/H/L/C) |
+| `tools.ts` | the catalogue (`TOOLS`), `renderDrawing` / `renderLabels` (CSS px, crisp axis-aligned edges), `hitDrawing` (handle index, `BODY` or -1), `handlePoints`, `paintBox` (culling) |
+| `controller.ts` | `createDrawingTools`: state, pointer and key handling through the hooks above, one series primitive per pane (main layer for settled drawings, overlay for hover, selection, the drawing being created and the one being dragged), undo / redo (snapshots, 100 deep), events, versioned JSON, opt-in `persist` |
+| `toolbar.ts` | the optional rail, style bar and text editor (shadow DOM, CSSOM styles, roving tab index) |
+
+**Writing a tool of your own** (outside this entry): a `ChartPrimitive` attached to a series paints it (main layer in
+`draw`, feedback in `drawOverlay`); a `ChartPointerHandler` creates and edits it. Anchor points in time and price:
+`timeScale().timeToLogical(time)` then `logicalToCoordinate`, and `series.priceToCoordinate(price)` for hit testing in
+the pointer's coordinates; in `draw`, `scope.logicalToX(logical)` and `scope.priceToY(price)` (chart coordinates). While
+something moves, repaint with `host.requestOverlay()` and paint the moving thing in `drawOverlay`, so the main layer is
+not redrawn on every pointer move. Inside this entry, a new tool is one `TOOLS` entry plus a case in `renderDrawing`,
+`hitDrawing` (and `renderLabels` / `handlePoints` when it has labels or special handles).

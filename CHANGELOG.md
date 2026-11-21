@@ -29,6 +29,12 @@ First version (not yet published).
   figures with stronger year and month labels, a built-in legend per pane (`legend: false` hides it), a "No data" text
   for empty charts, and a short crosshair fade-in (none under reduced motion).
 
+- Drawing tools entry (`./drawings`, script-tag file `chartist-lite-drawings.iife.min.js`): trend line, ray, extended
+  line, horizontal line and ray, vertical line, rectangle, parallel channel, Fibonacci retracement, measure, long and
+  short position, arrow, text note, brush; magnet, keep drawing, undo / redo, versioned JSON, optional toolbar.
+- Plugin input hooks: `chart.addPointerHandler`, `chart.setCursor`, `timeScale().timeToLogical` / `logicalToTime`.
+- Frame-cost bench (`npm run bench`, `docs/PERFORMANCE.md`): every measured gesture within a 120 Hz and a 144 Hz frame.
+
 ### Behaviour worth knowing
 
 - The wheel does not trap page scrolling by default (`interaction.wheelZoom: 'auto'`).

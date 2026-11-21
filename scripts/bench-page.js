@@ -107,6 +107,7 @@
     else if (scenario === 'drag') {
       // Drag one drawing (a horizontal line at the middle) up and down.
       const d = drawings.add({ tool: 'horizontal', points: [{ time: bars[bars.length - 1].time, price: candles.coordinateToPrice(H / 2) }] });
+      window.__dragFrom = d.points[0].price;
       drawings.select(d.id);
       chart.paint(); window.__flush();
       fire('pointerdown', W / 3, H / 2, { button: 0, buttons: 1 });
@@ -118,6 +119,11 @@
       if (k >= warm) costs.push(c);
     }
     if (scenario === 'pan' || scenario === 'drag') fire('pointerup', W / 2, H / 2, { button: 0, buttons: 0 });
+    if (scenario === 'drag') {
+      // The drag must have moved the line, or the scenario measured nothing.
+      const d = drawings.drawings().find(x => x.tool === 'horizontal' && x.id === drawings.selected()?.id);
+      window.__dragMoved = !!d && Math.abs(d.points[0].price - window.__dragFrom) > 0;
+    }
     window.__flush();
     chart.timeScale().resetTimeScale();
     window.__flush();
