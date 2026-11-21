@@ -216,7 +216,7 @@ chart.attachPrimitive(myBand);
 addPointerHandler(handler: ChartPointerHandler): () => void
 ```
 
-Lets a plugin take pointer gestures and keys before the chart does; returns a function that removes the handler. Handlers are asked in the order they were added. A `ChartPointerHandler` may implement `pointerDown(e)` (return `true` to own the gesture), `pointerMove(e)`, `pointerUp(e, cancelled)`, `hover(e)`, `keyDown(e)` (return `true` when handled) and `blocksTouch()`. A `ChartPointerEvent` has `point`, `paneIndex`, `logical`, `area` (`'pane' | 'price' | 'time' | 'none'`), `pointerType` and the modifier keys. Both interfaces are declared in `src/api.ts` but are not exported by name from the main entry in 0.1.0. See [Drawing tools](drawing-tools.md#write-a-tool-of-your-own).
+Lets a plugin take pointer gestures and keys before the chart does; returns a function that removes the handler. Handlers are asked in the order they were added. A `ChartPointerHandler` may implement `pointerDown(e)` (return `true` to own the gesture), `pointerMove(e)`, `pointerUp(e, cancelled)`, `hover(e)`, `keyDown(e)` (return `true` when handled) and `blocksTouch()`. A `ChartPointerEvent` has `point`, `paneIndex`, `logical`, `area` (`'pane' | 'price' | 'time' | 'none'`), `pointerType` and the modifier keys. Both interfaces are exported as types from the main entry. See [Drawing tools](drawing-tools.md#write-a-tool-of-your-own).
 
 ```js
 const off = chart.addPointerHandler({ pointerDown: e => e.shiftKey && e.area === 'pane' });
