@@ -48,7 +48,7 @@ createChart('chart', {
 });
 ```
 
-`colors` is a partial `ThemeColors` applied over the built-in theme, light and dark alike. If you need different overrides per theme, call `applyOptions({ colors })` together with the theme switch. Check contrast yourself when you override: the library does not validate it. `readableTextOn` is used inside the library to pick black or white text for a fill; it is not exported (Needs verification if you want it public).
+`colors` is a partial `ThemeColors` applied over the built-in theme, light and dark alike. If you need different overrides per theme, call `applyOptions({ colors })` together with the theme switch. Check contrast yourself when you override: the library does not validate it. Inside the library, text on a coloured tag is picked as black or white for contrast with that fill; that helper is not exported.
 
 ## Fonts and sizes
 
@@ -77,7 +77,7 @@ The chart fills its container and follows it with a `ResizeObserver` (`autoSize`
 
 ## The attribution link
 
-By default a small text link, "Chartist", pointing to `https://mrchartist.com`, is drawn on the chart at the bottom left. It is an option, not a licence condition: the package is Apache-2.0 and you may remove it.
+By default a small text link, "Chartist", pointing to `https://mrchartist.com`, is drawn on the chart at the bottom left. It is an option: nothing in the code forces it, and `attribution: false` hides it. The licence terms are in the `LICENSE` file.
 
 ```js
 createChart('chart', { attribution: false });                          // hide it
