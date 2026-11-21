@@ -1,0 +1,48 @@
+// Build: ESM per entry (readable, tree-shakeable), a minified IIFE global `ChartistLite` for <script> tags, and
+// .d.ts files from tsc. Run from the package folder: `npm run build`.
+import { build } from 'esbuild';
+import { execFileSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+export const ENTRIES = {
+  index: 'src/index.ts',
+  indicators: 'src/indicators/index.ts',
+  element: 'src/element/index.ts',
+  react: 'src/react/index.ts',
+};
+
+rmSync(join(root, 'dist'), { recursive: true, force: true });
+
+await build({
+  absWorkingDir: root,
+  entryPoints: ENTRIES,
+  outdir: 'dist',
+  bundle: true,
+  format: 'esm',
+  splitting: true,
+  chunkNames: 'chunks/[name]-[hash]',
+  target: 'es2020',
+  sourcemap: true,
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+
+await build({
+  absWorkingDir: root,
+  entryPoints: ['src/index.ts'],
+  outfile: 'dist/chartist-lite.iife.min.js',
+  bundle: true,
+  format: 'iife',
+  globalName: 'ChartistLite',
+  minify: true,
+  target: 'es2020',
+  sourcemap: true,
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+
+execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.build.json'], { cwd: root, stdio: 'inherit' });
+console.log('built dist/');

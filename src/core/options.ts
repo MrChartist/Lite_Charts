@@ -1,0 +1,126 @@
+// Chart options, their defaults and the deep merge used by `applyOptions`.
+
+import type { ThemeColors } from './theme';
+import type { DateOrder } from './format';
+import type { Time } from './time';
+import type { PriceScaleOptions } from '../scales/price-scale';
+import type { TimeScaleOptions } from '../scales/time-scale';
+
+export type ThemeName = 'light' | 'dark' | 'auto';
+
+export type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends (...args: never[]) => unknown ? T[K]
+    : T[K] extends readonly unknown[] ? T[K]
+      : T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
+
+export interface LocalizationOptions {
+  /** Replaces the price text everywhere (axis, last value, crosshair). */
+  priceFormatter?: (price: number) => string;
+  /** Replaces the crosshair's time stamp. Receives the bar's time as given in the data. */
+  timeFormatter?: (time: Time) => string;
+  /** 12-hour clock on the axis and crosshair. Default false (24-hour). */
+  hours12: boolean;
+  /** "29 Sep" ('day-month', default) or "Sep 29" ('month-day'). */
+  dateOrder: DateOrder;
+}
+
+export interface CrosshairOptions {
+  /** 'normal' follows the pointer; 'magnet' snaps the horizontal line to the first series' value; 'hidden'. */
+  mode: 'normal' | 'magnet' | 'hidden';
+  /** Axis tags under the crosshair lines. */
+  labels: boolean;
+}
+
+export interface InteractionOptions {
+  /** Wheel or trackpad zoom, anchored at the pointer. Horizontal trackpad scroll pans. */
+  wheelZoom: boolean;
+  /** Mouse, pen and one-finger drag pans; a drag on the price axis stretches the price scale. */
+  dragPan: boolean;
+  /** Two-finger pinch zoom. */
+  pinchZoom: boolean;
+  /** A fast drag keeps gliding after release (off under prefers-reduced-motion). */
+  kinetic: boolean;
+  /** Arrows pan, + and - zoom, Home and End jump, when the chart has focus. */
+  keyboard: boolean;
+  /** Double-click resets the view and turns autoscale back on. */
+  doubleClickReset: boolean;
+}
+
+export interface ChartTimeScaleOptions extends TimeScaleOptions {
+  visible: boolean;
+  /**
+   * IANA zone the axis and crosshair read instants in, e.g. 'America/New_York', 'Asia/Kolkata', 'local'.
+   * Default 'UTC'. Business-day data (YYYY-MM-DD) are dates and ignore it.
+   */
+  timeZone: string;
+}
+
+export interface AttributionOptions {
+  visible: boolean;
+  position: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+}
+
+export interface ChartOptions {
+  /** CSS px; ignored while `autoSize` is on. */
+  width: number;
+  height: number;
+  /** Follow the container's size (ResizeObserver). */
+  autoSize: boolean;
+  theme: ThemeName;
+  /** Overrides applied over the built-in theme (light and dark alike). */
+  colors: Partial<ThemeColors>;
+  fontFamily: string;
+  /** CSS px; never below 12. */
+  fontSize: number;
+  grid: { vertLines: boolean; horzLines: boolean };
+  crosshair: CrosshairOptions;
+  timeScale: ChartTimeScaleOptions;
+  rightPriceScale: PriceScaleOptions;
+  localization: LocalizationOptions;
+  interaction: InteractionOptions;
+  attribution: AttributionOptions;
+  /** Accessible name of the chart. */
+  ariaLabel: string;
+}
+
+export const SYSTEM_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+export const MIN_FONT_SIZE = 12;
+
+export function defaultChartOptions(): ChartOptions {
+  return {
+    width: 0,
+    height: 0,
+    autoSize: true,
+    theme: 'light',
+    colors: {},
+    fontFamily: SYSTEM_FONT,
+    fontSize: 12,
+    grid: { vertLines: true, horzLines: true },
+    crosshair: { mode: 'normal', labels: true },
+    timeScale: { barSpacing: 8, minBarSpacing: 0.5, maxBarSpacing: 64, rightOffset: 2, visible: true, timeZone: 'UTC' },
+    rightPriceScale: { mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true },
+    localization: { hours12: false, dateOrder: 'day-month' },
+    interaction: { wheelZoom: true, dragPan: true, pinchZoom: true, kinetic: true, keyboard: true, doubleClickReset: true },
+    attribution: { visible: true, position: 'bottom-left' },
+    ariaLabel: 'Price chart',
+  };
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+/** Merge `patch` into `target` in place (plain objects recurse; anything else replaces). Returns target. */
+export function mergeInto<T extends object>(target: T, patch: unknown): T {
+  if (!isPlainObject(patch)) return target;
+  const t = target as Record<string, unknown>;
+  for (const key of Object.keys(patch)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+    const v = patch[key];
+    if (v === undefined) continue;
+    if (isPlainObject(v) && isPlainObject(t[key])) mergeInto(t[key] as object, v);
+    else t[key] = isPlainObject(v) ? mergeInto({}, v) : v;
+  }
+  return target;
+}
