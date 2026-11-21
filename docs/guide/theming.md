@@ -67,7 +67,7 @@ The default `fontFamily` is the system stack (`-apple-system, BlinkMacSystemFont
 | `crosshair.labels` | Axis tags under the crosshair lines |
 | `rightPriceScale`, `leftPriceScale` | `{ mode: 'linear' \| 'log' \| 'percent', autoScale, scaleMargins: { top, bottom }, visible }` |
 | `timeScale` | `barSpacing`, `minBarSpacing`, `maxBarSpacing`, `rightOffset`, `visible`, `timeZone` |
-| `interaction` | `wheelZoom`, `dragPan`, `pinchZoom`, `kinetic`, `keyboard`, `doubleClickReset` (all default true) |
+| `interaction` | `wheelZoom` (`'auto'` default, `true`, `'modifier'`, `false`), `dragPan`, `pinchZoom`, `kinetic`, `keyboard`, `doubleClickReset` (default true) |
 
 A fast drag keeps gliding after release; that is turned off under `prefers-reduced-motion`.
 
@@ -77,14 +77,14 @@ The chart fills its container and follows it with a `ResizeObserver` (`autoSize`
 
 ## The attribution link
 
-By default a small text link, "Chartist", pointing to `https://mrchartist.com`, is drawn on the chart at the bottom left. It is an option: nothing in the code forces it, and `attribution: false` hides it. The licence terms are in the `LICENSE` file.
+By default a small text link, "Chartist", pointing to `https://mrchartist.com`, sits in the empty corner under the price axis, beside the time axis, so it never covers data. It is an option: nothing in the code forces it, and `attribution: false` hides it. The licence terms are in the `LICENSE` file.
 
 ```js
 createChart('chart', { attribution: false });                          // hide it
-createChart('chart', { attribution: { position: 'bottom-right' } });   // move it
+createChart('chart', { attribution: { position: 'bottom-left' } });    // move it into the top pane
 ```
 
-`position` is `'bottom-left'` (default), `'bottom-right'`, `'top-left'` or `'top-right'`. On the element it is `attribution="false"`. Keeping it is appreciated and costs one small link.
+`position` is `'axis-corner'` (default; the top pane's bottom-left corner when no price axis is drawn), `'bottom-left'`, `'bottom-right'`, `'top-left'` or `'top-right'`. The link lives in its own closed shadow root, so the page's `a {}` rules cannot restyle it, and it can be clicked (the chart leaves pointer input on it alone). On the element it is `attribution="false"`. Keeping it is appreciated and costs one small link.
 
 ## Page theme and the chart together
 

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- A strict policy: no inline styles or scripts. The chart and <chartist-chart> must still draw. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+<title>Chartist Lite: hostile page</title>
+<link rel="stylesheet" href="hostile.css">
+</head>
+<body>
+<h1>Hostile host page: strict CSP, right-to-left, broad CSS rules</h1>
+<div id="chart" class="box"></div>
+<chartist-chart id="el" type="candlestick" height="260" src="../data/demo-daily.json" loading="eager"></chartist-chart>
+<div id="hidden-box" class="box hidden"></div>
+<div class="spacer">Tall page so the wheel can scroll it.</div>
+<script src="../../dist/chartist-lite.iife.min.js"></script>
+<script src="../../dist/chartist-lite.element.iife.min.js"></script>
+<script src="hostile.js"></script>
+</body>
+</html>

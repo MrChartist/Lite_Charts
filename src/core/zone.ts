@@ -4,7 +4,6 @@
 // Ported and generalised from the host engine's exchange-time kernel (see PROVENANCE.md).
 
 const MINUTE_MS = 60_000;
-const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
 /** Whole UTC hours per table block (about 24 weeks). */
@@ -12,6 +11,7 @@ const BLOCK_HOURS = 4096;
 /** Intl is sampled once a week inside a block; a change between two samples is narrowed by binary search. */
 const SAMPLE_HOURS = 168;
 
+/** `starts` are whole UTC MINUTES (a change can fall on a half hour: St John's, Lord Howe). */
 interface OffsetBlock { starts: number[]; offsets: number[] }
 
 interface ZoneTable {
@@ -20,7 +20,7 @@ interface ZoneTable {
   fixed: number;
   fmt: Intl.DateTimeFormat | null;
   blocks: Map<number, OffsetBlock>;
-  /** The last answer's run of hours [from, to): consecutive bars almost always share it. */
+  /** The last answer's run of minutes [from, to): consecutive bars almost always share it. */
   runFrom: number;
   runTo: number;
   runOffset: number;
@@ -66,9 +66,9 @@ function tableFor(tz: string): ZoneTable {
   return t;
 }
 
-/** Offset at the start of whole UTC hour `hour`, read from Intl (slow). */
-function intlOffsetAtHour(t: ZoneTable, hour: number): number {
-  const start = hour * HOUR_MS;
+/** Offset at the start of whole UTC minute `minute`, read from Intl (slow). */
+function intlOffsetAtMinute(t: ZoneTable, minute: number): number {
+  const start = minute * MINUTE_MS;
   let year = 1970, month = 1, day = 1, h = 0, m = 0, s = 0;
   for (const part of (t.fmt as Intl.DateTimeFormat).formatToParts(start)) {
     const v = Number(part.value);
@@ -85,26 +85,37 @@ function intlOffsetAtHour(t: ZoneTable, hour: number): number {
   return Date.UTC(year, month - 1, day, h, m, s) - start;
 }
 
+const intlOffsetAtHour = (t: ZoneTable, hour: number): number => intlOffsetAtMinute(t, hour * 60);
+
 function buildBlock(t: ZoneTable, block: number): OffsetBlock {
   const first = block * BLOCK_HOURS;
   const last = first + BLOCK_HOURS - 1;
-  const starts = [first];
+  const starts = [first * 60];
   const offsets = [intlOffsetAtHour(t, first)];
   let lo = first;
   let loOff = offsets[0];
   for (let probe = Math.min(last, first + SAMPLE_HOURS); ; probe = Math.min(last, probe + SAMPLE_HOURS)) {
     const probeOff = intlOffsetAtHour(t, probe);
     while (loOff !== probeOff) {
+      // The first whole hour that no longer reads `loOff` ...
       let l = lo;
       let r = probe;
       while (r - l > 1) {
         const mid = Math.floor((l + r) / 2);
         if (intlOffsetAtHour(t, mid) === loOff) l = mid; else r = mid;
       }
+      // ... then the first minute inside the hour before it (changes on a half or quarter hour).
+      let ml = l * 60;
+      let mr = r * 60;
+      while (mr - ml > 1) {
+        const mid = Math.floor((ml + mr) / 2);
+        if (intlOffsetAtMinute(t, mid) === loOff) ml = mid; else mr = mid;
+      }
       lo = r;
       loOff = intlOffsetAtHour(t, r);
-      starts.push(r);
-      offsets.push(loOff);
+      starts.push(mr);
+      offsets.push(intlOffsetAtMinute(t, mr));
+      if (offsets[offsets.length - 1] !== loOff) { starts.push(r * 60); offsets.push(loOff); }
     }
     lo = probe;
     loOff = probeOff;
@@ -115,16 +126,17 @@ function buildBlock(t: ZoneTable, block: number): OffsetBlock {
 
 /**
  * UTC offset of zone `tz` at instant `epochMs`, in ms (Kolkata +19800000; New York -14400000 in summer,
- * -18000000 in winter). DST changes fall on whole UTC hours, so the offset is resolved per hour.
- * Honesty note: a change undone within one week (A -> B -> A between two samples) would be missed.
+ * -18000000 in winter). Resolved to the whole UTC minute, so a change on a half hour (America/St_Johns,
+ * Australia/Lord_Howe) is exact. Honesty note: a change undone within one week (A -> B -> A between two samples)
+ * would be missed.
  */
 export function zoneOffsetMs(tz: string, epochMs: number): number {
   const t = tableFor(tz);
   if (!Number.isNaN(t.fixed)) return t.fixed;
-  const hour = Math.floor(epochMs / HOUR_MS);
-  if (hour >= t.runFrom && hour < t.runTo) return t.runOffset;
-  if (!Number.isFinite(hour)) return 0;
-  const b = Math.floor(hour / BLOCK_HOURS);
+  const minute = Math.floor(epochMs / MINUTE_MS);
+  if (minute >= t.runFrom && minute < t.runTo) return t.runOffset;
+  if (!Number.isFinite(minute)) return 0;
+  const b = Math.floor(minute / 60 / BLOCK_HOURS);
   let block = t.blocks.get(b);
   if (!block) {
     try {
@@ -136,9 +148,9 @@ export function zoneOffsetMs(tz: string, epochMs: number): number {
   }
   const { starts, offsets } = block;
   let k = starts.length - 1;
-  while (k > 0 && starts[k] > hour) k--;
+  while (k > 0 && starts[k] > minute) k--;
   t.runFrom = starts[k];
-  t.runTo = k + 1 < starts.length ? starts[k + 1] : (b + 1) * BLOCK_HOURS;
+  t.runTo = k + 1 < starts.length ? starts[k + 1] : (b + 1) * BLOCK_HOURS * 60;
   t.runOffset = offsets[k];
   return offsets[k];
 }

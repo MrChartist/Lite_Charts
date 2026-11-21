@@ -80,3 +80,16 @@ export function formatStamp(
   const stamp = `${WEEKDAY_NAMES[f.weekday]} ${date}`;
   return kind === 'intraday' ? `${stamp} ${formatClock(Math.floor(f.minute / 60), f.minute % 60, opts.hours12)}` : stamp;
 }
+
+/**
+ * A series' price format from what the caller gave: `minMove` alone sets the precision it needs (0.25 -> 2, 5 -> 0),
+ * `precision` alone sets `minMove` to 10^-precision; both are kept as given. Bad numbers fall back to the defaults.
+ */
+export function resolvePriceFormat(given: { precision?: unknown; minMove?: unknown } | undefined): { precision: number; minMove: number } {
+  const p = typeof given?.precision === 'number' && Number.isFinite(given.precision) && given.precision >= 0 ? Math.min(10, Math.round(given.precision)) : NaN;
+  const m = typeof given?.minMove === 'number' && Number.isFinite(given.minMove) && given.minMove > 0 ? given.minMove : NaN;
+  if (!Number.isNaN(p) && !Number.isNaN(m)) return { precision: p, minMove: m };
+  if (!Number.isNaN(m)) return { precision: precisionOfMinMove(m), minMove: m };
+  if (!Number.isNaN(p)) return { precision: p, minMove: Math.pow(10, -p) };
+  return { precision: 2, minMove: 0.01 };
+}

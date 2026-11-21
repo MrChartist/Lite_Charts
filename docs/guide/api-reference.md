@@ -255,8 +255,8 @@ Every field with its default.
 | `rightPriceScale` | `PriceScaleOptions` | `{ mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true }` |
 | `leftPriceScale` | `PriceScaleOptions`; the left axis of the top pane, shown only while a series uses `priceScaleId: 'left'` | same as the right |
 | `localization` | `{ priceFormatter?, timeFormatter?, hours12, dateOrder }` | `{ hours12: false, dateOrder: 'day-month' }` |
-| `interaction` | `{ wheelZoom, dragPan, pinchZoom, kinetic, keyboard, doubleClickReset }` | all `true` |
-| `attribution` | `{ visible, position }` | `{ visible: true, position: 'bottom-left' }` |
+| `interaction` | `{ wheelZoom, dragPan, pinchZoom, kinetic, keyboard, doubleClickReset }` | `wheelZoom: 'auto'`, the rest `true` |
+| `attribution` | `{ visible, position }` | `{ visible: true, position: 'axis-corner' }` |
 | `ariaLabel` | string | `'Price chart'` |
 | `ariaDescription` | string | the keyboard help text quoted in [Accessibility](accessibility.md) |
 
@@ -266,7 +266,15 @@ Every field with its default.
 
 **localization**: `priceFormatter(price: number): string` replaces the price text everywhere; `timeFormatter(time: Time): string` replaces the crosshair's time stamp; `hours12`; `dateOrder` is `'day-month'` or `'month-day'`.
 
-**attribution.position**: `'bottom-left'`, `'bottom-right'`, `'top-left'` or `'top-right'`.
+**attribution.position**: `'axis-corner'` (default: the empty cell under the price axis), `'bottom-left'`, `'bottom-right'`, `'top-left'` or `'top-right'` (corners of the top pane).
+
+**interaction.wheelZoom**: `'auto'` (default): a plain vertical wheel zooms only when the chart has focus or the page cannot scroll that way; ctrl/cmd + wheel (trackpad pinch) always zooms; a horizontal wheel pans; otherwise the page scrolls. `true`: a vertical wheel always zooms. `'modifier'`: only ctrl/cmd + wheel zooms. `false`: the wheel is ignored.
+
+**Numbers in options**: `NaN` and infinite values are ignored and the previous value is kept. **priceFormat**: `minMove` alone sets `precision` (0.25 gives 2, 5 gives 0) and is the smallest axis step.
+
+**Price scale handles**: `chart.priceScale(id, paneIndex)` throws a `RangeError` for a pane that does not exist. A handle stays bound to the scale it was taken from; after `series.moveToPane` take a new one with `series.priceScale()` (an overlay scale's options move with the series).
+
+**View requests**: `fitContent`, `setVisibleRange` and `setVisibleLogicalRange` made while the chart has no width or no data are kept and applied when it has both.
 
 **PriceScaleOptions**: `mode` (`'linear'`, `'log'` or `'percent'`), `autoScale` (fit the visible data on every repaint; dragging the axis turns it off and double-click turns it back on), `scaleMargins` (`{ top, bottom }`, shares of the pane height left empty, 0 to 1), `visible`. Overlay scales (any id other than `'right'` and `'left'`) are never drawn.
 

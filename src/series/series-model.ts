@@ -27,8 +27,26 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
     this.options = options;
   }
 
-  /** Replace every row. Throws on unsorted or duplicate times, naming the row. */
-  setData(input: readonly (Record<string, unknown> & { time: Time })[]): void {
+  /** Bumped on every data change (setData, update). */
+  version = 0;
+  private dataCache: R[] | null = null;
+
+  /** The non-whitespace rows, as one array cached until the next change (O(n) once per change, then O(1)). */
+  data(): readonly R[] {
+    if (!this.dataCache) {
+      const out: R[] = [];
+      for (let i = 0; i < this.count; i++) { const r = this.rows[i]; if (r) out.push(r); }
+      this.dataCache = out;
+    }
+    return this.dataCache;
+  }
+
+  /**
+   * Replace every row. Throws on unsorted or duplicate times, naming the row. `kind` is the kind of time the chart's
+   * other series use (true = business days), checked BEFORE anything changes, so a rejected call leaves the series as
+   * it was.
+   */
+  setData(input: readonly (Record<string, unknown> & { time: Time })[], kind: boolean | null = null): void {
     const n = input.length;
     const rows: (R | null)[] = new Array(n);
     const times = new Float64Array(Math.max(16, n));
@@ -40,6 +58,7 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
       const b = isBusinessDayInput(row.time);
       if (business === null) business = b;
       else if (business !== b) throw new TypeError(`Chartist Lite: row ${i} mixes business days and timestamps`);
+      if (kind !== null && b !== kind) throw new TypeError(kindError(kind));
       if (i > 0 && !(t > times[i - 1])) {
         throw new TypeError(`Chartist Lite: rows must be in ascending time order without duplicates (row ${i})`);
       }
@@ -51,21 +70,26 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
     this.count = n;
     this.pos = new Int32Array(times.length);
     this.businessDays = n > 0 ? business : null;
+    this.version++;
+    this.dataCache = null;
   }
 
   /**
    * Replace the last row (same time) or add one after it. 'insert' means the time is new to the shared axis but
    * not after its last slot: the caller must rebuild the axis. Throws for a time before the last row.
    */
-  update(row: Record<string, unknown> & { time: Time }): { kind: UpdateKind; t: number } {
+  update(row: Record<string, unknown> & { time: Time }, kind: boolean | null = null): { kind: UpdateKind; t: number } {
     const t = timeToSeconds(row.time);
     const b = isBusinessDayInput(row.time);
     if (this.businessDays !== null && this.businessDays !== b) throw new TypeError('Chartist Lite: update mixes business days and timestamps');
+    if (kind !== null && b !== kind) throw new TypeError(kindError(kind));
     const value = this.def.normalize(row);
     if (this.count > 0) {
       const last = this.times[this.count - 1];
       if (t === last) {
         this.rows[this.count - 1] = value;
+        this.version++;
+        this.dataCache = null;
         return { kind: 'replace', t };
       }
       if (t < last) throw new RangeError('Chartist Lite: update() accepts the last bar or a newer one, not an older bar');
@@ -82,6 +106,8 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
     this.rows.push(value);
     this.count++;
     this.businessDays = b;
+    this.version++;
+    this.dataCache = null;
     return { kind: 'append', t };
   }
 
@@ -121,4 +147,9 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
     }
     return null;
   }
+}
+
+function kindError(chartUsesBusinessDays: boolean): string {
+  return `Chartist Lite: this chart's series use ${chartUsesBusinessDays ? 'business days (YYYY-MM-DD)' : 'timestamps (UNIX seconds)'}; `
+    + 'all series of one chart must use the same kind of time';
 }

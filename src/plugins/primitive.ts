@@ -30,6 +30,11 @@ export interface PrimitiveDrawScope {
   measureText(text: string, weight?: number): number;
   /** Format a price the way the axis does. */
   formatPrice(price: number): string;
+  /**
+   * Series primitives only: the owning series' row at `time` (O(log n), no copy), or null. Undefined for a pane
+   * primitive. Prefer it to `series.data()` inside `draw`.
+   */
+  seriesRowAt?(time: Time): object | null;
 }
 
 export interface PriceAxisLabel {

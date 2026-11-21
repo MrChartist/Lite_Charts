@@ -33,8 +33,13 @@ export interface CrosshairOptions {
 }
 
 export interface InteractionOptions {
-  /** Wheel or trackpad zoom, anchored at the pointer. Horizontal trackpad scroll pans. */
-  wheelZoom: boolean;
+  /**
+   * Wheel and trackpad. `'auto'` (default): a plain vertical wheel zooms only when the chart has focus (clicked or
+   * tabbed into) or the page cannot scroll that way, so a chart never traps page scrolling; ctrl/cmd + wheel (and a
+   * trackpad pinch) always zooms; a horizontal wheel pans. `true`: a vertical wheel always zooms. `'modifier'`: only
+   * ctrl/cmd + wheel zooms. `false`: the chart ignores the wheel. Zoom is anchored at the pointer.
+   */
+  wheelZoom: boolean | 'auto' | 'modifier';
   /** Mouse, pen and one-finger drag pans; a drag on the price axis stretches the price scale. */
   dragPan: boolean;
   /** Two-finger pinch zoom. */
@@ -58,7 +63,11 @@ export interface ChartTimeScaleOptions extends TimeScaleOptions {
 
 export interface AttributionOptions {
   visible: boolean;
-  position: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+  /**
+   * 'axis-corner' (default): the empty cell under the price axis, beside the time axis, so it never covers data; it
+   * falls back to the top pane's bottom-left corner when no price axis is drawn. The others are corners of the top pane.
+   */
+  position: 'axis-corner' | 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
 }
 
 export interface ChartOptions {
@@ -106,16 +115,19 @@ export function defaultChartOptions(): ChartOptions {
     rightPriceScale: { mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true },
     leftPriceScale: { mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true },
     localization: { hours12: false, dateOrder: 'day-month' },
-    interaction: { wheelZoom: true, dragPan: true, pinchZoom: true, kinetic: true, keyboard: true, doubleClickReset: true },
-    attribution: { visible: true, position: 'bottom-left' },
+    interaction: { wheelZoom: 'auto', dragPan: true, pinchZoom: true, kinetic: true, keyboard: true, doubleClickReset: true },
+    attribution: { visible: true, position: 'axis-corner' },
     ariaLabel: 'Price chart',
     ariaDescription: 'Left and right arrows pan, plus and minus zoom, Home and End jump to the first and last bar. '
       + 'Press Enter to inspect bars one at a time with the arrow keys; Escape stops.',
   };
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+/** A plain object from any realm (an iframe's `{}` has another `Object.prototype`, whose own prototype is null). */
+export function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === null || Object.getPrototypeOf(proto) === null;
 }
 
 /** Merge `patch` into `target` in place (plain objects recurse; anything else replaces). Returns target. */
@@ -126,8 +138,18 @@ export function mergeInto<T extends object>(target: T, patch: unknown): T {
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     const v = patch[key];
     if (v === undefined) continue;
+    // A number that is NaN or infinite is ignored and the previous value kept.
+    if (typeof v === 'number' && !Number.isFinite(v)) continue;
     if (isPlainObject(v) && isPlainObject(t[key])) mergeInto(t[key] as object, v);
     else t[key] = isPlainObject(v) ? mergeInto({}, v) : v;
   }
   return target;
+}
+
+/** CSS `touch-action` for the chart: the browser keeps every gesture the chart does not handle. */
+export function touchActionFor(o: Pick<InteractionOptions, 'dragPan' | 'pinchZoom'>): string {
+  if (o.dragPan && o.pinchZoom) return 'pan-y';
+  if (o.dragPan) return 'pan-y pinch-zoom';
+  if (o.pinchZoom) return 'pan-x pan-y';
+  return 'auto';
 }

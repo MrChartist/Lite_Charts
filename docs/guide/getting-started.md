@@ -34,7 +34,7 @@ The shortest path. Load one script, then use the tag anywhere in the page:
   time-zone="Asia/Kolkata" aria-label="Daily price"></chartist-chart>
 ```
 
-Loading the script registers the tag `chartist-chart`. The data comes from a `src` URL (JSON or CSV), a `.data` property, or a child `<script type="application/json">`. The chart is created when the element nears the viewport, so a page with many charts stays light. The full list of attributes, events and the data formats is in `docs/EMBEDDING.md` in the repository and summarised in [Accessibility](accessibility.md) (fallback content) and the [API reference](api-reference.md).
+Loading the script registers the tag `chartist-chart`. The data comes from a `src` URL (JSON or CSV), a `.data` property, or a child `<script type="application/json">`. The chart is created when the element nears the viewport, so a page with many charts stays light. The full list of attributes, events and the data formats is in [Embedding the chart](embedding.md) and summarised in [Accessibility](accessibility.md) (fallback content) and the [API reference](api-reference.md).
 
 ## 2. ES module and createChart
 

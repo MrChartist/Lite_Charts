@@ -11,14 +11,15 @@ import type {
   AnySeriesDefinition, ChartApi, LogicalRangeChangeHandler, MouseEventHandler, MouseEventParams, PaneApi, PriceScaleApi,
   SeriesApi, TimeRange, TimeScaleApi,
 } from '../api';
-import { formatPercent, formatPrice, formatStamp, precisionOfMinMove } from '../core/format';
-import { defaultChartOptions, mergeInto, MIN_FONT_SIZE, type ChartOptions, type ChartTimeScaleOptions, type DeepPartial } from '../core/options';
+import { formatPercent, formatPrice, formatStamp, resolvePriceFormat } from '../core/format';
+import { defaultChartOptions, mergeInto, MIN_FONT_SIZE, touchActionFor, type ChartOptions, type ChartTimeScaleOptions, type DeepPartial } from '../core/options';
 import { darkTheme, lightTheme, readableTextOn, type ThemeColors } from '../core/theme';
 import { timeToSeconds, type Time } from '../core/time';
 import { TimeIndex } from '../core/time-index';
 import { isValidTimeZone, localTimeZone, weekdayOfDay } from '../core/zone';
 import type { ChartPrimitive, PrimitiveDrawScope } from '../plugins/primitive';
 import { CanvasLayer } from '../render/canvas';
+import { css, cssReset } from '../render/dom';
 import { decimateColumns } from '../render/decimate';
 import { TextPainter } from '../render/text';
 import { priceTicks, type PriceTick } from '../scales/price-ticks';
@@ -59,6 +60,9 @@ interface Pane {
 
 let uid = 0;
 
+/** A view request made before the chart had a width or data; applied by the first layout that can. */
+type PendingView = { kind: 'fit' } | { kind: 'logical'; range: LogicalRange } | { kind: 'time'; range: TimeRange };
+
 function commonDefaults(): SeriesCommonOptions {
   return {
     priceScaleId: 'right', visible: true, lastValueVisible: true, priceLineVisible: true,
@@ -71,14 +75,14 @@ function clone<T extends object>(o: T): T {
 }
 
 function hideVisually(el: { style: CSSStyleDeclaration }): void {
-  const s = el.style;
-  s.position = 'absolute';
-  s.width = '1px';
-  s.height = '1px';
-  s.overflow = 'hidden';
-  s.clipPath = 'inset(50%)';
-  s.whiteSpace = 'nowrap';
-  s.margin = '-1px';
+  cssReset(el, { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', 'clip-path': 'inset(50%)', 'white-space': 'nowrap', margin: '-1px' });
+}
+
+/** Series options with the price format resolved (minMove alone sets the precision; see `resolvePriceFormat`). */
+function withPriceFormat(options: object, given: unknown): void {
+  const pf = (given as { priceFormat?: { precision?: unknown; minMove?: unknown } } | undefined)?.priceFormat;
+  if (!pf) return;
+  (options as SeriesCommonOptions).priceFormat = resolvePriceFormat(pf);
 }
 
 class SeriesHandle<D extends AnySeriesDefinition> implements SeriesApi<D> {
@@ -86,9 +90,10 @@ class SeriesHandle<D extends AnySeriesDefinition> implements SeriesApi<D> {
   seriesType(): string { return this.model.def.type; }
   setData(data: readonly unknown[]): void { this.chart.setSeriesData(this.model, data as never); }
   update(row: unknown): void { this.chart.updateSeries(this.model, row as never); }
-  data(): never[] { return this.model.rows.slice(0, this.model.count).filter(r => r !== null) as never[]; }
+  data(): never[] { return this.model.data() as never[]; }
   applyOptions(options: object): void {
     mergeInto(this.model.options, options);
+    withPriceFormat(this.model.options, options);
     this.chart.scaleFor(this.model);
     this.chart.invalidate(LAYOUT | MAIN | OVERLAY);
   }
@@ -152,6 +157,10 @@ export class Chart implements ChartApi, InputTarget {
   private clickSubs = new Set<MouseEventHandler>();
   private rangeSubs = new Set<LogicalRangeChangeHandler>();
   private cleanups: (() => void)[] = [];
+  /** Price-scale options a NEW pane starts from: the chart's creation options plus later chart-level patches only. */
+  private paneScaleDefaults!: { right: PriceScaleOptions; left: PriceScaleOptions };
+  private pendingView: PendingView | null = null;
+  private linkAnchor: HTMLAnchorElement | null = null;
   private darkQuery: MediaQueryList | null = null;
   private motionQuery: MediaQueryList | null = null;
 
@@ -163,18 +172,17 @@ export class Chart implements ChartApi, InputTarget {
     this.win = win;
     this.opts = defaultChartOptions();
     this.applyOptionPatch(options);
+    this.paneScaleDefaults = { right: clone(this.opts.rightPriceScale), left: clone(this.opts.leftPriceScale) };
     this.ts = new TimeScaleModel(this.opts.timeScale);
     this.index.setZone(this.zone());
 
     const root = this.doc.createElement('div');
-    const st = root.style;
-    st.position = 'relative';
-    st.overflow = 'hidden';
-    st.userSelect = 'none';
-    st.webkitUserSelect = 'none';
-    st.touchAction = 'pan-y';
-    st.outline = 'none';
-    (st as CSSStyleDeclaration & { webkitTapHighlightColor: string }).webkitTapHighlightColor = 'transparent';
+    cssReset(root, {
+      position: 'relative', overflow: 'hidden', display: 'block', 'user-select': 'none', '-webkit-user-select': 'none',
+      '-webkit-tap-highlight-color': 'transparent', direction: 'ltr', 'text-align': 'left',
+    });
+    // The canvases place text runs left to right themselves: an RTL page must not flip them.
+    root.setAttribute('dir', 'ltr');
     root.tabIndex = 0;
     root.setAttribute('role', 'application');
     root.setAttribute('aria-roledescription', 'chart');
@@ -187,7 +195,8 @@ export class Chart implements ChartApi, InputTarget {
     this.topText = new TextPainter(this.top.ctx);
 
     // Screen-reader help and the polite live region that reads the inspected bar.
-    const id = `chartist-lite-${++uid}`;
+    // A random part as well: two copies of the library on one page each count from 1.
+    const id = `chartist-lite-${++uid}-${Math.random().toString(36).slice(2, 8)}`;
     const help = this.doc.createElement('div');
     help.id = `${id}-help`;
     hideVisually(help);
@@ -244,6 +253,9 @@ export class Chart implements ChartApi, InputTarget {
   applyOptions(patch: DeepPartial<ChartOptions> & { attribution?: unknown }): void {
     const ts = (patch as { timeScale?: Partial<ChartTimeScaleOptions> }).timeScale;
     this.applyOptionPatch(patch);
+    const p = patch as { rightPriceScale?: unknown; leftPriceScale?: unknown };
+    if (p.rightPriceScale) mergeInto(this.paneScaleDefaults.right, p.rightPriceScale);
+    if (p.leftPriceScale) mergeInto(this.paneScaleDefaults.left, p.leftPriceScale);
     if (ts?.barSpacing !== undefined) this.ts.barSpacing = this.opts.timeScale.barSpacing;
     if (ts?.rightOffset !== undefined) this.ts.rightOffset = this.opts.timeScale.rightOffset;
     if (this.index.setZone(this.zone())) this.cross = null;
@@ -263,43 +275,69 @@ export class Chart implements ChartApi, InputTarget {
     this.root.setAttribute('aria-label', o.ariaLabel);
     const help = this.root.querySelector(`#${CSS_ESCAPE(this.root.getAttribute('aria-describedby') ?? '')}`);
     if (help) help.textContent = o.ariaDescription;
-    this.root.style.width = o.autoSize ? '100%' : `${o.width}px`;
-    this.root.style.height = o.autoSize ? '100%' : `${o.height}px`;
-    if (o.attribution.visible && !this.link) {
-      const a = this.doc.createElement('a');
-      a.href = ATTRIBUTION_URL;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      a.textContent = 'Chartist';
-      a.title = 'Chart by Chartist Lite';
-      const s = a.style;
-      s.position = 'absolute';
-      s.zIndex = '1';
-      s.padding = '2px 4px';
-      s.borderRadius = '4px';
-      s.textDecoration = 'none';
-      s.lineHeight = '16px';
-      s.opacity = '0.75';
-      this.root.appendChild(a);
-      this.link = a;
-    } else if (!o.attribution.visible && this.link) {
+    css(this.root, {
+      width: o.autoSize ? '100%' : `${o.width}px`,
+      height: o.autoSize ? '100%' : `${o.height}px`,
+      'touch-action': touchActionFor(o.interaction),
+    });
+    if (o.attribution.visible && !this.link) this.makeLink();
+    else if (!o.attribution.visible && this.link) {
       this.link.remove();
       this.link = null;
+      this.linkAnchor = null;
     }
   }
 
+  /**
+   * The attribution link. It lives in a closed shadow root on a small host, so the page's `a {}` / `a::after {}`
+   * rules cannot restyle it; every style is a CSSOM write (CSP-safe). Pointer input on it is left to the browser
+   * (see `isLink`), so a click opens it.
+   */
+  private makeLink(): void {
+    const host = this.doc.createElement('span');
+    cssReset(host, { position: 'absolute', 'z-index': '1', display: 'block', width: 'auto', height: 'auto' });
+    host.setAttribute('data-chartist-attribution', '');
+    const a = this.doc.createElement('a');
+    a.href = ATTRIBUTION_URL;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'Chartist';
+    a.title = 'Chart by Chartist Lite';
+    cssReset(a, {
+      display: 'block', position: 'static', padding: '2px 4px', 'border-radius': '4px', 'line-height': '16px',
+      opacity: '0.75', cursor: 'pointer', 'white-space': 'nowrap', 'pointer-events': 'auto',
+    });
+    let root: ShadowRoot | null = null;
+    try { root = host.attachShadow({ mode: 'closed' }); } catch { root = null; }
+    if (root) root.appendChild(a); else host.appendChild(a);
+    this.root.appendChild(host);
+    this.link = host as unknown as HTMLAnchorElement;
+    this.linkAnchor = a;
+  }
+
+  /** True for an event target that is the attribution link (or its host): input leaves it to the browser. */
+  isLink(target: EventTarget | null): boolean {
+    return !!this.link && (target === this.link || target === this.linkAnchor);
+  }
+
   private placeLink(): void {
-    const a = this.link;
-    if (!a) return;
+    const host = this.link;
+    const a = this.linkAnchor;
+    if (!host || !a) return;
     const p0 = this.paneList[0];
-    const s = a.style;
-    s.font = `400 ${MIN_FONT_SIZE}px ${this.opts.fontFamily}`;
-    s.color = this.colors.mutedText;
+    css(a, { font: `400 ${MIN_FONT_SIZE}px ${this.opts.fontFamily}`, color: this.colors.mutedText });
     const pos = this.opts.attribution.position;
     const inset = 6;
-    s.left = s.right = s.top = s.bottom = '';
-    if (pos.endsWith('left')) s.left = `${this.plotL + inset}px`; else s.right = `${this.rightW + inset}px`;
-    if (pos.startsWith('bottom')) s.bottom = `${this.cssH - (p0.top + p0.height) + inset}px`; else s.top = `${p0.top + inset}px`;
+    const box: Record<string, string> = { left: 'auto', right: 'auto', top: 'auto', bottom: 'auto' };
+    if (pos === 'axis-corner' && (this.rightW > 0 || this.leftW > 0) && this.timeH > 0) {
+      // The empty cell under a price axis, beside the time axis: it never covers data.
+      if (this.rightW > 0) box.right = '2px'; else box.left = '2px';
+      box.top = `${this.panesH + Math.max(0, (this.timeH - 20) / 2)}px`;
+    } else {
+      if (pos.endsWith('right')) box.right = `${this.rightW + inset}px`; else box.left = `${this.plotL + inset}px`;
+      if (pos.startsWith('top')) box.top = `${p0.top + inset}px`; else box.bottom = `${this.cssH - (p0.top + p0.height) + inset}px`;
+    }
+    css(host, box);
   }
 
   private watchPixelRatio(): void {
@@ -358,8 +396,10 @@ export class Chart implements ChartApi, InputTarget {
 
   private newPane(index: number): Pane {
     const scales = new Map<string, PriceScaleModel>();
-    scales.set('right', new PriceScaleModel('right', index === 0 ? this.opts.rightPriceScale : clone(this.opts.rightPriceScale)));
-    scales.set('left', new PriceScaleModel('left', index === 0 ? this.opts.leftPriceScale : clone(this.opts.leftPriceScale)));
+    // Pane 0 IS the chart's rightPriceScale / leftPriceScale; a later pane starts from the creation-time options
+    // (plus chart-level patches), never from what pane 0 became at run time (log mode, autoscale off after a drag).
+    scales.set('right', new PriceScaleModel('right', index === 0 ? this.opts.rightPriceScale : clone(this.paneScaleDefaults.right)));
+    scales.set('left', new PriceScaleModel('left', index === 0 ? this.opts.leftPriceScale : clone(this.paneScaleDefaults.left)));
     const pane: Pane = {
       scales, stretch: index === 0 ? 3 : 1, top: 0, height: 0, prims: [],
       ticks: { left: [], right: [] }, tags: { left: [], right: [] }, shown: { left: false, right: false }, divider: null,
@@ -377,15 +417,7 @@ export class Chart implements ChartApi, InputTarget {
     d.setAttribute('aria-label', 'Resize panes');
     d.setAttribute('aria-valuemin', '0');
     d.setAttribute('aria-valuemax', '100');
-    const s = d.style;
-    s.position = 'absolute';
-    s.left = '0';
-    s.height = '9px';
-    s.cursor = 'row-resize';
-    s.zIndex = '2';
-    s.touchAction = 'none';
-    s.outline = 'none';
-    s.borderRadius = '4px';
+    cssReset(d, { position: 'absolute', left: '0', height: '9px', cursor: 'row-resize', 'z-index': '2', 'touch-action': 'none', 'border-radius': '4px', display: 'block' });
     const indexOf = (): number => this.paneList.findIndex(p => p.divider === d);
     let start: { y: number; heights: number[] } | null = null;
     const stop = (e: Event): void => e.stopPropagation();
@@ -414,9 +446,7 @@ export class Chart implements ChartApi, InputTarget {
       this.applyHeights(moveSeparator(this.paneList.map(p => p.height), indexOf() - 1, dy, MIN_PANE));
     });
     const ring = (): void => {
-      let visible = false;
-      try { visible = this.doc.activeElement === d && d.matches(':focus-visible'); } catch { visible = this.doc.activeElement === d; }
-      s.boxShadow = visible ? `inset 0 0 0 2px ${this.colors.focusRing}` : '';
+      css(d, { 'box-shadow': focusVisibleOn(d) ? `inset 0 0 0 2px ${this.colors.focusRing}` : 'none' });
     };
     d.addEventListener('focus', ring);
     d.addEventListener('blur', ring);
@@ -456,7 +486,12 @@ export class Chart implements ChartApi, InputTarget {
   }
 
   moveSeries(model: AnyModel, i: number): void {
+    const id = model.options.priceScaleId;
+    const from = this.paneOf(model.paneIndex).scales.get(id);
     model.paneIndex = this.claimPane(i);
+    // An overlay scale's settings (margins, mode) travel with the series when the target pane does not have that id.
+    const to = this.paneOf(model.paneIndex);
+    if (from && id !== 'right' && id !== 'left' && !to.scales.has(id)) to.scales.set(id, new PriceScaleModel(id, clone(from.options)));
     this.prunePanes();
     this.scaleFor(model);
     this.invalidate(LAYOUT | MAIN | OVERLAY);
@@ -481,6 +516,7 @@ export class Chart implements ChartApi, InputTarget {
       throw new TypeError('Chartist Lite: addSeries needs a series definition, e.g. CandlestickSeries');
     }
     const opts = mergeInto(mergeInto(commonDefaults(), clone(def.defaults as object)), options) as object & SeriesCommonOptions;
+    withPriceFormat(opts, options);
     const model = new SeriesModel(def as SeriesDefinition<RowBase, object>, opts);
     model.paneIndex = this.claimPane(paneIndex);
     this.series.push(model);
@@ -503,24 +539,20 @@ export class Chart implements ChartApi, InputTarget {
     this.invalidate(LAYOUT | MAIN | OVERLAY);
   }
 
-  private checkKind(model: AnyModel): void {
-    for (const s of this.series) {
-      if (s !== model && s.businessDays !== null && model.businessDays !== null && s.businessDays !== model.businessDays) {
-        throw new TypeError('Chartist Lite: all series must use the same kind of time (business days or timestamps)');
-      }
-    }
+  /** The kind of time the OTHER series use (true = business days), or null when none has data. */
+  private kindOf(model: AnyModel): boolean | null {
+    for (const s of this.series) if (s !== model && s.businessDays !== null) return s.businessDays;
+    return null;
   }
 
   setSeriesData(model: AnyModel, data: readonly (Record<string, unknown> & { time: Time })[]): void {
     if (!Array.isArray(data)) throw new TypeError('Chartist Lite: setData needs an array of rows');
-    model.setData(data);
-    this.checkKind(model);
+    model.setData(data, this.kindOf(model));
     this.rebuildIndex();
   }
 
   updateSeries(model: AnyModel, row: Record<string, unknown> & { time: Time }): void {
-    const { kind, t } = model.update(row);
-    this.checkKind(model);
+    const { kind, t } = model.update(row, this.kindOf(model));
     if (kind === 'replace') { this.invalidate(MAIN | OVERLAY); return; }
     const idx = this.index;
     if (idx.count === 0 || t > idx.times[idx.count - 1]) {
@@ -539,12 +571,15 @@ export class Chart implements ChartApi, InputTarget {
 
   private rebuildIndex(): void {
     const hadData = this.index.count > 0;
+    const prevCount = this.index.count;
     const business = this.series.some(s => s.businessDays === true);
     this.index.setZone(this.zone());
     this.index.rebuild(this.series.map(s => ({ times: s.times, count: s.count })), business);
     for (const s of this.series) s.remap(this.index);
     this.ts.count = this.index.count;
     if (!hadData && this.index.count > 0) this.needsInitialView = true;
+    // Fewer bars than the scrolled-back view needs: back to the live edge rather than a near-empty screen.
+    else this.ts.onShrink(prevCount);
     this.cross = null;
     this.invalidate(MAIN | OVERLAY);
   }
@@ -593,11 +628,13 @@ export class Chart implements ChartApi, InputTarget {
     return null;
   }
 
-  private precisionOf(scaleId: string, pane: number): number {
+  private formatOf(scaleId: string, pane: number): { precision: number; minMove: number } {
     const s = this.mainSeriesOf(scaleId, pane);
-    if (!s) return 2;
-    const pf = s.options.priceFormat;
-    return Number.isFinite(pf.precision) ? pf.precision : precisionOfMinMove(pf.minMove);
+    return resolvePriceFormat(s?.options.priceFormat);
+  }
+
+  private precisionOf(scaleId: string, pane: number): number {
+    return this.formatOf(scaleId, pane).precision;
   }
 
   /** Axis / tag / crosshair text for a price on a scale. */
@@ -634,7 +671,8 @@ export class Chart implements ChartApi, InputTarget {
               const row = rows[i];
               if (!row) continue;
               take(def.low(row, s.options), def.high(row, s.options));
-              if (Number.isNaN(base)) base = def.value(row);
+              // Percent base: the first value that is not zero (a zero base has no percent change).
+              if (Number.isNaN(base)) { const v = def.value(row); if (v !== 0 && Number.isFinite(v)) base = v; }
             }
           }
           if (r) for (const p of s.primitives) { const a = p.autoscale?.(r); if (a) take(a.min, a.max); }
@@ -666,7 +704,7 @@ export class Chart implements ChartApi, InputTarget {
         const { lo, hi } = scale.edgePrices();
         const pMin = Math.min(lo, hi);
         const pMax = Math.max(lo, hi);
-        const minMove = Math.pow(10, -this.precisionOf(side, pi));
+        const minMove = this.formatOf(side, pi).minMove;
         pane.ticks[side] = priceTicks({
           pMin, pMax, priceH: pane.height, mode: scale.options.mode, minGapPx: fs * 2.6,
           anchor: scale.base, minStep: scale.options.mode === 'linear' ? minMove : 0,
@@ -686,6 +724,7 @@ export class Chart implements ChartApi, InputTarget {
     this.panesH = Math.max(0, this.cssH - this.timeH);
     const boxes = layoutPanes(this.paneList.map(p => p.stretch), this.panesH, SEPARATOR, MIN_PANE);
     this.paneList.forEach((p, i) => { p.top = boxes[i].top; p.height = boxes[i].height; });
+    let appliedView = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       this.plotL = this.leftW;
       this.plotW = Math.max(0, this.cssW - this.leftW - this.rightW);
@@ -694,6 +733,12 @@ export class Chart implements ChartApi, InputTarget {
       if (this.needsInitialView && this.index.count > 0 && this.plotW > 0) {
         this.ts.reset();
         this.needsInitialView = false;
+      }
+      // Applied on every pass, so the view fits the final plot width once the axis widths settle.
+      if (this.pendingView && this.index.count > 0 && this.plotW > 0) {
+        this.needsInitialView = false;
+        this.applyView(this.pendingView);
+        appliedView = true;
       }
       this.ts.clamp();
       this.autoscale();
@@ -708,6 +753,7 @@ export class Chart implements ChartApi, InputTarget {
       }
       if (!changed) break;
     }
+    if (appliedView) this.pendingView = null;
     this.timeTicks = [];
     const vis = this.ts.visibleBars();
     if (this.opts.timeScale.visible && vis) {
@@ -871,12 +917,22 @@ export class Chart implements ChartApi, InputTarget {
       text: (t, x, y, color, weight, align) => text.draw(t, x, y, color, weight, align),
       measureText: (t, weight) => text.measure(t, weight),
       formatPrice: price => this.priceText(scale, price, pi),
+      seriesRowAt: owner
+        ? (time: Time) => {
+          const slot = this.index.indexOf(timeToSeconds(time));
+          const r = slot >= 0 ? owner.rowAtSlot(slot) : -1;
+          return r >= 0 ? owner.rows[r] : null;
+        }
+        : undefined,
     };
   }
 
   private eachPrimitive(pi: number, fn: (p: ChartPrimitive, owner: AnyModel | null) => void): void {
-    for (const p of this.paneOf(pi).prims) fn(p, null);
-    for (const s of this.series) if (s.paneIndex === pi && s.options.visible) for (const p of s.primitives) fn(p, s);
+    // A copy: a primitive that detaches itself (or another) while drawing must not make the loop skip one.
+    const list: [ChartPrimitive, AnyModel | null][] = [];
+    for (const p of this.paneOf(pi).prims) list.push([p, null]);
+    for (const s of this.series) if (s.paneIndex === pi && s.options.visible) for (const p of s.primitives) list.push([p, s]);
+    for (const [p, owner] of list) fn(p, owner);
   }
 
   private drawPrimitives(pi: number, z: 'bottom' | 'normal' | 'top'): void {
@@ -1090,9 +1146,27 @@ export class Chart implements ChartApi, InputTarget {
     this.drawTag(this.topText, ctx, side, pane.top + ty, this.priceText(scale, scale.yToPrice(y), pi), this.colors.tagBackground, this.colors.tagText);
   }
 
-  private focusVisible(): boolean {
-    if (this.doc.activeElement !== this.root) return false;
-    try { return this.root.matches(':focus-visible'); } catch { return true; }
+  private focusVisible(): boolean { return focusVisibleOn(this.root); }
+
+  /** The chart or one of its parts has focus (works inside a shadow root, where the document sees only the host). */
+  hasFocus(): boolean {
+    try { return this.root.matches(':focus-within'); } catch { return false; }
+  }
+
+  /** Could the page scroll by (dx, dy) from the chart's position? Walks the scrollable ancestors and the page. */
+  pageCanScroll(dx: number, dy: number): boolean {
+    let el: Element | null = this.root.parentElement ?? ((this.root.getRootNode() as ShadowRoot).host ?? null);
+    const scroller = this.doc.scrollingElement;
+    while (el) {
+      const st = this.win.getComputedStyle(el);
+      const isPage = el === scroller;
+      const canY = isPage || /(auto|scroll|overlay)/.test(st.overflowY);
+      const canX = isPage || /(auto|scroll|overlay)/.test(st.overflowX);
+      if (dy !== 0 && canY && (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0)) return true;
+      if (dx !== 0 && canX && (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0)) return true;
+      el = el.parentElement ?? (((el.getRootNode() as ShadowRoot).host as Element | undefined) ?? null);
+    }
+    return false;
   }
 
   /** The first visible series of a pane, preferring the right scale. */
@@ -1312,13 +1386,33 @@ export class Chart implements ChartApi, InputTarget {
 
   // ── public API ──
 
+  private applyView(v: PendingView): void {
+    const ts = this.ts;
+    if (v.kind === 'fit') ts.fitContent();
+    else if (v.kind === 'logical') ts.setVisibleLogicalRange(v.range);
+    else {
+      const a = this.index.lowerBound(timeToSeconds(v.range.from));
+      const toS = timeToSeconds(v.range.to);
+      let b = this.index.lowerBound(toS);
+      if (b >= this.index.count || this.index.times[b] > toS) b -= 1;
+      if (b >= a) ts.setVisibleLogicalRange({ from: a, to: b });
+    }
+  }
+
   timeScale(): TimeScaleApi {
     const chart = this;
     const ts = this.ts;
     const done = (): void => { chart.refreshCrossSlot(); chart.invalidate(MAIN | OVERLAY); };
     const ensureWidth = (): void => { if (!(ts.width > 0) || chart.dirty & LAYOUT) { chart.measure(); chart.layout(); } };
+    // With no width or no data yet the request is kept and applied by the first layout that can (`pendingView`).
+    const request = (v: PendingView): void => {
+      ensureWidth();
+      if (ts.width > 0 && chart.index.count > 0) { chart.pendingView = null; chart.needsInitialView = false; chart.applyView(v); }
+      else chart.pendingView = v;
+      done();
+    };
     return {
-      fitContent() { ensureWidth(); ts.fitContent(); chart.needsInitialView = false; done(); },
+      fitContent() { request({ kind: 'fit' }); },
       scrollToRealTime() { ts.scrollToRealTime(); done(); },
       resetTimeScale() { ts.reset(); done(); },
       getVisibleRange(): TimeRange | null {
@@ -1329,18 +1423,9 @@ export class Chart implements ChartApi, InputTarget {
         if (a > b) return null;
         return { from: chart.timeAt(a) as Time, to: chart.timeAt(b) as Time };
       },
-      setVisibleRange(range: TimeRange) {
-        ensureWidth();
-        const a = chart.index.lowerBound(timeToSeconds(range.from));
-        let b = chart.index.lowerBound(timeToSeconds(range.to));
-        if (b >= chart.index.count || chart.index.times[b] > timeToSeconds(range.to)) b -= 1;
-        if (b < a) return;
-        ts.setVisibleLogicalRange({ from: a, to: b });
-        chart.needsInitialView = false;
-        done();
-      },
+      setVisibleRange(range: TimeRange) { request({ kind: 'time', range: { from: range.from, to: range.to } }); },
       getVisibleLogicalRange: () => { const r = ts.visibleLogicalRange(); return r ? { ...r } : null; },
-      setVisibleLogicalRange(range: LogicalRange) { ensureWidth(); ts.setVisibleLogicalRange(range); chart.needsInitialView = false; done(); },
+      setVisibleLogicalRange(range: LogicalRange) { request({ kind: 'logical', range: { from: range.from, to: range.to } }); },
       scrollPosition: () => ts.rightOffset,
       timeToCoordinate(time: Time) {
         const slot = chart.index.indexOf(timeToSeconds(time));
@@ -1360,7 +1445,14 @@ export class Chart implements ChartApi, InputTarget {
     };
   }
 
+  /**
+   * A handle on one scale of one pane. A pane that does not exist is an error (RangeError), never silently pane 0.
+   * The handle stays bound to that scale: after `series.moveToPane`, take a new one with `series.priceScale()`.
+   */
   priceScale(id = 'right', paneIndex = 0): PriceScaleApi {
+    if (!Number.isInteger(paneIndex) || paneIndex < 0 || paneIndex >= this.paneList.length) {
+      throw new RangeError(`Chartist Lite: there is no pane ${paneIndex} (the chart has ${this.paneList.length}); add a series to it first`);
+    }
     const scale = this.ensureScale(id, paneIndex);
     const chart = this;
     return {
@@ -1446,7 +1538,13 @@ export class Chart implements ChartApi, InputTarget {
     this.input.destroy();
     for (const f of this.cleanups) f();
     this.cleanups = [];
-    this.paneList.forEach((_, i) => this.eachPrimitive(i, p => p.detached?.()));
+    // Every primitive, those on hidden series included.
+    const all: ChartPrimitive[] = [];
+    for (const p of this.paneList) all.push(...p.prims);
+    for (const s of this.series) all.push(...s.primitives);
+    for (const p of this.paneList) p.prims = [];
+    for (const s of this.series) s.primitives = [];
+    for (const p of all) p.detached?.();
     this.crossSubs.clear();
     this.clickSubs.clear();
     this.rangeSubs.clear();
@@ -1471,4 +1569,9 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+/** Keyboard focus on `el` (`:focus-visible`), read on the element itself so it also works inside a shadow root. */
+function focusVisibleOn(el: Element): boolean {
+  try { return el.matches(':focus-visible'); } catch { try { return el.matches(':focus'); } catch { return false; } }
 }

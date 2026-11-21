@@ -85,10 +85,10 @@ function Price({ candles, average }) {
 | Themes | Light, dark and auto (follows the system setting), colour overrides, system font stack, switch at runtime |
 | Plugins | Price lines, series markers, and a primitive contract for your own overlays |
 | Accessibility | Focusable chart with a name and spoken help, keyboard pan, zoom and bar-by-bar inspection through a live region, kinetic glide off under reduced motion, minimum text size 12 px. Tested in Chromium only; not tested with screen readers |
-| Interaction | Wheel and pinch zoom, drag pan with kinetic glide, price axis stretch, double-click reset, crosshair modes |
+| Interaction | Wheel and pinch zoom that does not trap page scrolling (`wheelZoom: 'auto'`), drag pan with kinetic glide, price axis stretch, double-click reset, crosshair modes |
 | Embedding | `<chartist-chart>` element, ES module, React wrapper, or an iframe page |
-| Size (gzip) | Core entry 26.5 KB, indicators entry 5.1 KB, element entry 31.0 KB, React entry 28.1 KB. The core has a 45 KB budget that `npm run size` enforces |
-| Speed | One recorded measurement, in Chromium at 1200 by 600 and device pixel ratio 1, with 100000 one-minute bars: setting the data, fitting the view and the first paint took about 35 to 41 ms, and pan frames with 2000 bars in view took a median of 1.4 to 1.5 ms. The machine is not recorded, so treat it as an order of magnitude and measure on your own hardware (`ARCHITECTURE.md`, `scripts/screenshots.cjs`) |
+| Size (gzip) | Core entry 28.2 KB (24.1 KB for a page that imports only `createChart`, candlesticks and lines), indicators entry 5.2 KB, element entry 30.7 KB, React entry 27.6 KB. Script-tag files: core 28.5 KB, indicators 5.5 KB, element 31.0 KB. The core has a 45 KB budget that `npm run size` enforces |
+| Speed | One recorded measurement, in Chromium at 1200 by 600 and device pixel ratio 1, with 100000 one-minute bars: setting the data, fitting the view and the first paint took about 35 to 41 ms, and pan frames with 2000 bars in view took a median of 0.8 ms, and showing all 100000 bars took a median of 3.1 ms per frame. The machine is not recorded, so treat it as an order of magnitude and measure on your own hardware (`ARCHITECTURE.md`, `scripts/screenshots.cjs`) |
 
 The sizes are bundled, minified and gzipped by `npm run size` (esbuild, gzip level 9), measured on the 0.1.0 working tree. Run `npm run build && npm run size` for the current numbers. Dependencies: none at runtime. React is an optional peer dependency used only by the `react` entry.
 
@@ -101,7 +101,7 @@ The sizes are bundled, minified and gzipped by `npm run size` (esbuild, gzip lev
 
 ## Browser support
 
-Tested in Chromium (driven by Playwright): the example pages draw, with no console errors, in light and dark. Firefox, Safari and mobile browsers: Needs verification. The library uses the canvas 2D API and `ResizeObserver`; the web component also uses custom elements and `IntersectionObserver` (it falls back to creating the chart at once without the latter).
+Tested in Chromium (driven by Playwright): the example pages draw, with no console errors, in light and dark, including a page with a strict Content-Security-Policy (`style-src 'self'`), right-to-left text and hostile global CSS. Firefox, Safari and mobile browsers: Needs verification. The library uses the canvas 2D API and `ResizeObserver`; the web component also uses custom elements and `IntersectionObserver` (it falls back to creating the chart at once without the latter).
 
 ## How it differs in approach
 
@@ -112,11 +112,11 @@ Tested in Chromium (driven by Playwright): the example pages draw, with no conso
 - **A custom element.** One script tag and one HTML tag give you a chart, with fallback content that crawlers and screen readers can read.
 - **Calm defaults.** System fonts, Apple-style system colours with no purple, text never below 12 px, tabular figures on the axes.
 
-The way you create a chart and add series (`createChart`, `addSeries`, `setData` and `update`) will feel familiar on purpose. The code is written from scratch; `PROVENANCE.md` lists where each part came from.
+The way you create a chart and add series (`createChart`, `addSeries`, `setData` and `update`) will feel familiar on purpose: many public names follow TradingView's Lightweight Charts so code moves over easily. The code and documentation are written from scratch, and same-named things do not always behave the same: see [Coming from Lightweight Charts](docs/guide/coming-from-lightweight-charts.md). `PROVENANCE.md` lists where each part came from.
 
 ## Attribution
 
-By default a small "Chartist" link to https://mrchartist.com is drawn at the bottom left of the chart. It is an option: `attribution: false` hides it (on the element, `attribution="false"`), and `attribution: { position: 'bottom-right' }` moves it. Keeping it is appreciated.
+By default a small "Chartist" link to https://mrchartist.com sits in the empty corner under the price axis, where it never covers data. It is an option: `attribution: false` hides it (on the element, `attribution="false"`), and `attribution: { position: 'bottom-left' }` moves it into a corner of the top pane. Keeping it is appreciated.
 
 ## Documentation
 
@@ -130,6 +130,7 @@ By default a small "Chartist" link to https://mrchartist.com is drawn at the bot
 - [Plugins and primitives](docs/guide/plugins.md)
 - [Accessibility](docs/guide/accessibility.md)
 - [API reference](docs/guide/api-reference.md)
+- [Coming from Lightweight Charts](docs/guide/coming-from-lightweight-charts.md): same names, different behaviour
 
 A static documentation site with live charts is built from these files: `npm run build && npm run site`, then open `site/dist/index.html`. For contributors: `ARCHITECTURE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`.
 

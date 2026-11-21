@@ -1,8 +1,8 @@
 # Provenance
 
 Where every piece of Chartist Lite came from. Rule: nothing enters `src/` without a line here. No code or
-documentation text is taken from Lightweight Charts or any other charting library; the API shape (createChart,
-addSeries, setData/update) is familiar on purpose, the code is written from scratch.
+documentation text is taken from Lightweight Charts or any other charting library; the public names follow Lightweight
+Charts on purpose (see the last section), the code is written from scratch.
 
 "Host" below is the Scanner Pro repository this package was started in. Ported files were written by the same owner
 for the host's own chart engine; they were copied, made independent of the host (no active-market globals, no app
@@ -39,3 +39,42 @@ which imports both). No third-party code.
 | `src/indicators/aggregate.ts` | `src/domains/charting/services/candleAggregation.ts` (`groupBy`, `foldGroup`, `aggregateWeekly`, `aggregateMonthly`) | Zone is a parameter instead of the active market; day bucket and "every n bars" added; bad rows are skipped; no session alignment of intraday buckets. |
 | `src/indicators/shared.ts` | `kernel/indicators/sanitize.ts` (`sanitizeSeries`: carry the last finite value forward, back-fill a leading gap; `clampPeriod`; the bad-bar mask of `robustIndicator`) | One small helper set instead of a wrapper around every function. |
 | `src/indicators/create-indicator.ts`, `time-util.ts`, `index.ts`, `README.md` | New code for this package | |
+
+## API naming similarity with TradingView Lightweight Charts
+
+The public vocabulary of Chartist Lite deliberately follows names used by TradingView's open-source Lightweight
+Charts, so that people who know that library can move over easily. No code and no documentation text was copied from
+it: every file was written for this package (or ported from the host repository as listed above), and the guides were
+written from this package's own behaviour.
+
+Shared or closely matching public names:
+
+- Chart: `createChart`, `addSeries`, `removeSeries`, `applyOptions`, `options`, `resize`, `remove`, `takeScreenshot`,
+  `timeScale`, `priceScale`, `panes`, `subscribeCrosshairMove` / `unsubscribeCrosshairMove`, `subscribeClick` /
+  `unsubscribeClick`, `attachPrimitive` / `detachPrimitive`, `autoSize`.
+- Series: `CandlestickSeries`, `LineSeries`, `AreaSeries`, `BarSeries`, `HistogramSeries`, `BaselineSeries` (passed to
+  `addSeries`), `setData`, `update`, `data`, `priceToCoordinate`, `coordinateToPrice`, `priceScaleId`,
+  `lastValueVisible`, `priceLineVisible`, `priceFormat` (`precision`, `minMove`), `upColor` / `downColor`,
+  `wickUpColor` / `wickDownColor`, `lineWidth`, `lineStyle`, `lineType`, `crosshairMarkerVisible`, `baseValue`,
+  whitespace rows (`{ time }` only), business days as `'YYYY-MM-DD'` or `{ year, month, day }`.
+- Time scale: `fitContent`, `scrollToRealTime`, `resetTimeScale`, `getVisibleRange` / `setVisibleRange`,
+  `getVisibleLogicalRange` / `setVisibleLogicalRange`, `scrollPosition`, `timeToCoordinate`, `coordinateToTime`,
+  `logicalToCoordinate`, `coordinateToLogical`, `subscribeVisibleLogicalRangeChange`, `barSpacing`, `minBarSpacing`,
+  `rightOffset`.
+- Price scale: `scaleMargins` (`top`, `bottom`), `autoScale`, `mode`, `rightPriceScale` / `leftPriceScale`, overlay
+  scales by id.
+- Plugins: `createPriceLine`, `createSeriesMarkers` (`aboveBar`, `belowBar`, `inBar`, `arrowUp`, `arrowDown`, `circle`,
+  `square`), `priceAxisLabels`, `autoscale`, `zOrder`, primitives with `attached` / `detached` / `draw`.
+- Options and events: `crosshair.mode` (`normal`, `magnet`, `hidden`), `localization.priceFormatter` /
+  `timeFormatter`, `MouseEventParams` (`time`, `logical`, `point`, `seriesData`, `paneIndex`).
+
+Shared model: the time scale is a bar-spacing model. One logical index per distinct time across all series, bars
+equally spaced `barSpacing` px apart, the view anchored to the last bar by `rightOffset` bars, and visible ranges
+expressed as logical (fractional bar index) ranges. That idea, and the choice of the same option names for it, is
+shared with Lightweight Charts; the code here was written independently (`src/scales/time-scale.ts`).
+
+Where same-named things behave differently is listed for users in `docs/guide/coming-from-lightweight-charts.md`.
+
+API naming similarity: owner / counsel decision, Needs verification. Whether reusing these public names (and the
+bar-spacing model) is acceptable, and how the docs should refer to Lightweight Charts and TradingView, is for the owner
+and counsel to confirm before the package is published. Nothing has been renamed.

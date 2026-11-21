@@ -1,3 +1,5 @@
+import { css, cssReset } from './dom';
+
 // A canvas sized to its CSS box on whole device pixels.
 //
 // At a fractional device pixel ratio a CSS box is a fractional number of device pixels (999 x 1.25 = 1248.75) and
@@ -29,12 +31,7 @@ export class CanvasLayer {
 
   constructor(doc: Document, onDeviceResize: () => void) {
     this.canvas = doc.createElement('canvas');
-    const st = this.canvas.style;
-    st.position = 'absolute';
-    st.left = '0';
-    st.top = '0';
-    st.display = 'block';
-    st.pointerEvents = 'none';
+    cssReset(this.canvas, { position: 'absolute', left: '0', top: '0', display: 'block', 'pointer-events': 'none' });
     const ctx = this.canvas.getContext('2d', { alpha: true });
     if (!ctx) throw new Error('Chartist Lite: 2D canvas is not available');
     this.ctx = ctx;
@@ -66,8 +63,7 @@ export class CanvasLayer {
     const bh = backingStoreSize(cssH, dpr, sameH ? this.reportedH : null);
     const changed = bw !== this.canvas.width || bh !== this.canvas.height || cssW !== this.cssW || cssH !== this.cssH;
     if (cssW !== this.cssW || cssH !== this.cssH) {
-      this.canvas.style.width = `${cssW}px`;
-      this.canvas.style.height = `${cssH}px`;
+      css(this.canvas, { width: `${cssW}px`, height: `${cssH}px` });
     }
     if (bw !== this.canvas.width) this.canvas.width = bw;
     if (bh !== this.canvas.height) this.canvas.height = bh;

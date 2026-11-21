@@ -164,8 +164,10 @@ export function createSeriesMarkers(series: MarkerSeries, markers: readonly Seri
     detached() { host = null; },
     draw(s: PrimitiveDrawScope) {
       if (list.length === 0) return;
-      const rows = series.data() as readonly { time: Time }[];
-      if (rows.length === 0) return;
+      // The bar of each marker on screen is looked up by time in O(log n) (`seriesRowAt`); markers off screen are
+      // skipped before any lookup. `series.data()` is only the fallback for a host without that hook.
+      const rowAt = s.seriesRowAt;
+      let rows: readonly { time: Time }[] | null = null;
       const { ctx, pane, pixelRatio: r } = s;
       const fontSize = Math.max(12, s.fontSize);
       const textH = fontSize + 2;
@@ -192,8 +194,14 @@ export function createSeriesMarkers(series: MarkerSeries, markers: readonly Seri
           barX = NaN;
           const x = s.timeToX(p.m.time);
           if (x !== null && x >= pane.x - 20 && x <= pane.x + pane.width + 20) {
-            const idx = findRow(rows, p.t);
-            const ext = idx >= 0 ? rowExtent(rows[idx]) : null;
+            let row: object | null = null;
+            if (rowAt) row = rowAt(p.m.time);
+            else {
+              rows ??= series.data() as readonly { time: Time }[];
+              const idx = findRow(rows, p.t);
+              row = idx >= 0 ? rows[idx] : null;
+            }
+            const ext = row ? rowExtent(row) : null;
             const yHigh = ext ? s.priceToY(ext[1]) : null;
             const yLow = ext ? s.priceToY(ext[0]) : null;
             if (yHigh !== null && yLow !== null) {

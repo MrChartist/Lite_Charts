@@ -45,7 +45,8 @@ export class PriceScaleModel {
   toScale(price: number): number {
     switch (this.options.mode) {
       case 'log': return price > 0 ? Math.log(price) : NaN;
-      case 'percent': return this.base !== 0 && Number.isFinite(this.base) ? (price / this.base - 1) * 100 : NaN;
+      // Divided by |base|, so a negative base still reads "up" as positive.
+      case 'percent': return this.base !== 0 && Number.isFinite(this.base) ? ((price - this.base) / Math.abs(this.base)) * 100 : NaN;
       default: return price;
     }
   }
@@ -53,7 +54,7 @@ export class PriceScaleModel {
   fromScale(v: number): number {
     switch (this.options.mode) {
       case 'log': return Math.exp(v);
-      case 'percent': return this.base * (1 + v / 100);
+      case 'percent': return this.base + (Math.abs(this.base) * v) / 100;
       default: return v;
     }
   }
@@ -84,7 +85,8 @@ export class PriceScaleModel {
     if (!Number.isFinite(a) || !Number.isFinite(b)) { this.min = NaN; this.max = NaN; return; }
     if (a > b) { const t = a; a = b; b = t; }
     if (b - a < 1e-12 * Math.max(1, Math.abs(a))) {
-      const pad = this.options.mode === 'log' ? 0.01 : Math.max(Math.abs(a) * 0.01, 0.5);
+      // Relative to the value, so 0.00012 is not drawn on a +/-0.5 range; a flat zero opens by 1.
+      const pad = this.options.mode === 'log' ? 0.01 : a !== 0 ? Math.abs(a) * 0.01 : 1;
       a -= pad;
       b += pad;
     }

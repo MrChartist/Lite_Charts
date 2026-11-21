@@ -28,6 +28,8 @@ export interface ChartistErrorDetail { message: string; error: unknown }
 
 const OBSERVED = ['type', 'theme', 'height', 'time-zone', 'volume', 'attribution', 'src', 'aria-label'] as const;
 
+// The shadow root's rules. Adopted as a constructable stylesheet (CSSOM), so a strict Content-Security-Policy
+// (`style-src 'self'`, no 'unsafe-inline') does not block them the way it blocks a <style> element.
 const STYLE = `
 :host{display:block;position:relative;height:360px;min-width:0;overflow:hidden}
 :host([hidden]){display:none}
@@ -39,6 +41,24 @@ const STYLE = `
 .msg{position:absolute;left:8px;right:8px;bottom:6px;font:12px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;opacity:.75;pointer-events:none}
 .msg[hidden]{display:none}
 `;
+
+const sheets = new WeakMap<object, CSSStyleSheet>();
+
+/** One shared constructable sheet per window, or null where the browser has none (Safari before 16.4). */
+function sheetFor(win: (Window & typeof globalThis) | null): CSSStyleSheet | null {
+  if (!win || typeof win.CSSStyleSheet !== 'function') return null;
+  let sheet = sheets.get(win);
+  if (!sheet) {
+    try {
+      sheet = new win.CSSStyleSheet();
+      sheet.replaceSync(STYLE);
+    } catch {
+      return null;
+    }
+    sheets.set(win, sheet);
+  }
+  return sheet;
+}
 
 /**
  * Register the custom element. Returns the class, or null where there is no DOM (server rendering). Calling it twice
@@ -55,7 +75,6 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
     private wrap!: HTMLDivElement;
     private frame!: HTMLDivElement;
     private msg!: HTMLDivElement;
-    private heightStyle!: HTMLStyleElement;
     private chartApi: ChartApi | null = null;
     private mainSeries: SeriesApi<AnySeriesDefinition> | null = null;
     private volSeries: SeriesApi<AnySeriesDefinition> | null = null;
@@ -71,9 +90,14 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
     constructor() {
       super();
       const root = this.attachShadow({ mode: 'open' });
-      const style = this.ownerDocument.createElement('style');
-      style.textContent = STYLE;
-      this.heightStyle = this.ownerDocument.createElement('style');
+      const sheet = sheetFor(this.ownerDocument.defaultView as (Window & typeof globalThis) | null);
+      if (sheet && 'adoptedStyleSheets' in root) root.adoptedStyleSheets = [sheet];
+      else {
+        // Fallback for browsers without constructable sheets; blocked by a strict CSP (documented).
+        const style = this.ownerDocument.createElement('style');
+        style.textContent = STYLE;
+        root.appendChild(style);
+      }
       const wrap = this.ownerDocument.createElement('div');
       wrap.className = 'wrap';
       this.wrap = wrap;
@@ -91,7 +115,7 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       msg.hidden = true;
       this.msg = msg;
       wrap.append(fb, frame, msg);
-      root.append(style, this.heightStyle, wrap);
+      root.append(wrap);
       this.syncHeight();
     }
 
@@ -111,7 +135,12 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
         const rows = sortRows(canonicalRows(value));
         this.explicit = rows;
         this.rows = rows;
-        if (this.chartApi) this.showRows(rows);
+        if (this.waitDoc || !this.started) return; // the first load reads `explicit`
+        // `.data` wins over a `src` fetch in flight: abort it and make its answer stale.
+        this.token++;
+        this.abort?.abort();
+        this.abort = null;
+        this.showRows(rows);
       } catch (e) { this.fail(e); }
     }
 
@@ -179,9 +208,11 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       return parseElementConfig(n => this.getAttribute(n));
     }
 
+    /** The `height` attribute as a CSSOM write on the host (CSP-safe); without it the sheet's 360px applies. */
     private syncHeight(): void {
+      if (!this.hasAttribute('height')) { this.style.removeProperty('height'); return; }
       const { height } = this.config().config;
-      this.heightStyle.textContent = `:host{height:${height}}`;
+      this.style.setProperty('height', height);
     }
 
     private start(): void {
@@ -285,7 +316,6 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       const wanted = config.volume && rows.some(r => r.volume !== undefined);
       const def = wanted ? resolveSeriesDefinition('histogram') : null;
       if (def && !this.volSeries) {
-        // TODO(volume): needs HistogramSeries from the core; until it exists `volume` is quietly ignored.
         this.volSeries = chart.addSeries(def, { priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false });
         chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
       } else if (!def && this.volSeries) {

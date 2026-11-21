@@ -116,6 +116,21 @@ export class TimeScaleModel {
     return Math.max(1e-6, Math.min(this.options.minBarSpacing, fit));
   }
 
+  /**
+   * The series got shorter (`setData` with fewer rows). When the view was scrolled back past what is left, it would
+   * show a couple of bars: return to the live edge instead. Returns true when the view was reset.
+   */
+  onShrink(prevCount: number): boolean {
+    if (this.count >= prevCount || this.count === 0 || !(this.width > 0)) return false;
+    const r = this.visibleLogicalRange();
+    if (!r) return false;
+    const shown = Math.min(this.last(), r.to) - Math.max(0, r.from) + 1;
+    const fits = Math.min(this.count, this.width / this.barSpacing);
+    if (shown >= fits * 0.5) return false;
+    this.scrollToRealTime();
+    return true;
+  }
+
   maxSpacing(): number {
     return Math.max(this.minSpacing(), Math.min(this.options.maxBarSpacing, this.width > 0 ? this.width / 2 : Infinity));
   }

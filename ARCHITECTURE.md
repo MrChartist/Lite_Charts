@@ -48,7 +48,10 @@ src/
     chart.ts          the chart: DOM, panes, state, scheduler, painters, public API implementation
     pane-layout.ts    stacked pane heights, separator moves, pane hit test (pure)
     input.ts          pointer / wheel / touch / keyboard -> view operations
-  indicators/ element/ react/   reserved subpath entries (empty in stage 1)
+  indicators/         `./indicators` entry: pure indicator functions and incremental forms (no chart import)
+  element/            `./element` entry: `<chartist-chart>` (`defineChartistElement`; `auto.ts` registers on load for the IIFE)
+  react/              `./react` entry: `createChartistReact(React)`, React injected, never a dependency
+  render/dom.ts       CSSOM style writes with `!important` resets (CSP-safe, immune to page CSS)
 ```
 
 Dependency direction: `core` and `scales` are pure and import nothing from `render`, `series` or `chart`.
@@ -199,3 +202,17 @@ Space or Escape ends it; a mouse move ends it too. Pane separators are separate 
   `series/series-model.ts`, `plugins/primitive.ts`. Stage-2 workers add new files and one export line in
   `src/index.ts` each; a contract change goes through the lead and this file.
 - Every port from the host repository gets a line in `PROVENANCE.md`.
+
+## Embedding robustness (review of 2026-11-21)
+
+- **No inline style markup.** Every style is a CSSOM write (`render/dom.ts`), so `style-src 'self'` works; the element
+  adopts a constructable stylesheet. Each created element (root, canvases, separators, hidden help and live region)
+  resets margin, padding, border, sizing and max-width with `!important`, so page rules do not reach it. The
+  attribution link sits in a closed shadow root and the input layer leaves pointer input on it alone (pointer capture
+  starts only once a press becomes a drag).
+- **Direction.** The root is `dir="ltr"` and text contexts are `direction = 'ltr'`.
+- **Wheel.** `wheelAction` in `chart/input.ts` (pure): `'auto'` zooms on a plain vertical wheel only with focus
+  (`:focus-within`, which works inside shadow roots) or when no ancestor can scroll that way.
+- **Ids** are `chartist-lite-<counter>-<random>`, unique when two copies of the library load.
+- **Checks.** Pure parts in `src/__tests__/review-fixes.test.ts`; DOM parts in `scripts/screenshots-review.cjs` with the
+  page `examples/hostile/` (strict CSP, RTL, hostile CSS).

@@ -33,6 +33,28 @@ export interface InputTarget {
   paneWidth(): number;
   reducedMotion(): boolean;
   focusChanged(): void;
+  /** The attribution link (or its host): pointer input on it is left to the browser so it can be clicked. */
+  isLink(target: EventTarget | null): boolean;
+  /** The chart or one of its parts has keyboard / click focus. */
+  hasFocus(): boolean;
+  /** Could the page (or a scrollable ancestor) scroll by this wheel delta? */
+  pageCanScroll(dx: number, dy: number): boolean;
+}
+
+/**
+ * What a wheel event does. Pure: `zoom` (anchored at the pointer), `pan` (by -dx), or `none` (left to the page,
+ * no preventDefault). See `InteractionOptions.wheelZoom`.
+ */
+export function wheelAction(
+  mode: boolean | 'auto' | 'modifier', e: { dx: number; dy: number; modifier: boolean }, focused: boolean, pageCanScroll: boolean,
+): 'zoom' | 'pan' | 'none' {
+  if (mode === false) return 'none';
+  if (e.modifier) return 'zoom';
+  if (Math.abs(e.dx) > Math.abs(e.dy)) return e.dx !== 0 ? 'pan' : 'none';
+  if (e.dy === 0) return 'none';
+  if (mode === true) return 'zoom';
+  if (mode === 'modifier') return 'none';
+  return focused || !pageCanScroll ? 'zoom' : 'none';
 }
 
 interface Pt { x: number; y: number }
@@ -85,16 +107,22 @@ export class InputController {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
+  private capture(id: number): void {
+    try { this.t.root.setPointerCapture(id); } catch { /* capture is best effort */ }
+  }
+
   private down(e: PointerEvent): void {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // The attribution link: no gesture and no pointer capture (capture would retarget its click to the chart).
+    if (this.t.isLink(e.target)) return;
     this.stopKinetic();
     const p = this.local(e);
     this.pointers.set(e.pointerId, p);
-    try { this.t.root.setPointerCapture(e.pointerId); } catch { /* capture is best effort */ }
     const opts = this.t.interaction();
     if (this.pointers.size === 2 && opts.pinchZoom) {
       const [a, b] = [...this.pointers.values()];
       this.mode = 'pinch';
+      for (const id of this.pointers.keys()) this.capture(id);
       this.pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
       this.pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       this.t.setCrosshair(null);
@@ -128,6 +156,8 @@ export class InputController {
     }
     if (this.mode === 'pan' || this.mode === 'price') {
       if (!this.moved && Math.hypot(p.x - this.start.x, p.y - this.start.y) < DRAG_THRESHOLD) return;
+      // Captured only once it is a drag, so a plain click lands where it was aimed.
+      if (!this.moved) this.capture(e.pointerId);
       this.moved = true;
       const dx = p.x - this.last.x;
       const dy = p.y - this.last.y;
@@ -199,18 +229,18 @@ export class InputController {
 
   private wheel(e: WheelEvent): void {
     const opts = this.t.interaction();
-    if (!opts.wheelZoom) return;
     const p = this.local(e);
     if (this.t.hit(p.x, p.y) === 'none') return;
-    e.preventDefault();
-    this.stopKinetic();
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.t.paneWidth() : 1;
     const dx = e.deltaX * unit;
     const dy = e.deltaY * unit;
-    if (Math.abs(dx) > Math.abs(dy) && !e.ctrlKey) {
-      this.t.pan(-dx, 0);
-      return;
-    }
+    const modifier = e.ctrlKey || e.metaKey;
+    const mode = opts.wheelZoom;
+    const action = wheelAction(mode, { dx, dy, modifier }, this.t.hasFocus(), mode === 'auto' && !modifier ? this.t.pageCanScroll(dx, dy) : true);
+    if (action === 'none') return;
+    e.preventDefault();
+    this.stopKinetic();
+    if (action === 'pan') { this.t.pan(-dx, 0); return; }
     // ctrl + wheel is a trackpad pinch: its deltas are small, so it zooms faster per pixel.
     const k = e.ctrlKey ? WHEEL_ZOOM_PER_PX * 4 : WHEEL_ZOOM_PER_PX;
     const clamped = Math.max(-200, Math.min(200, dy));

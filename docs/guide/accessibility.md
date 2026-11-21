@@ -35,7 +35,7 @@ Keys with Alt, Ctrl or Meta held are left to the browser. Escape is not captured
 
 ## Pointer and touch
 
-Drag pans, the wheel or a trackpad zooms at the pointer, two fingers pinch, double-click resets the view. Each can be switched off through the `interaction` options. A fast drag keeps gliding after release unless the visitor prefers reduced motion; then it stops when released.
+Drag pans, the wheel or a trackpad zooms at the pointer, two fingers pinch, double-click resets the view. By default (`wheelZoom: 'auto'`) a plain wheel over an unfocused chart scrolls the page instead of zooming, so a chart never traps a visitor scrolling past it; click or tab into the chart, or hold ctrl/cmd, to zoom. `touch-action` follows `dragPan` and `pinchZoom`, so a gesture the chart does not handle stays with the browser. Each can be switched off through the `interaction` options. A fast drag keeps gliding after release unless the visitor prefers reduced motion; then it stops when released.
 
 ## Text for crawlers and screen readers
 
@@ -62,4 +62,4 @@ The smallest text the chart draws is 12 CSS px: `fontSize` is raised to 12 if yo
 
 ## What has been tested
 
-Tested in Chromium only (Playwright scripts in `scripts/`): the example pages draw, and the element, React and iframe embeds behave as `docs/EMBEDDING.md` lists. The keyboard, inspect and live-region behaviour described above is read from the source; this package records no browser test of it. Not tested: screen readers (no VoiceOver, NVDA or JAWS run is recorded), other browsers, forced-colours mode. Treat the roles and the live region as implemented but unverified with assistive technology (Needs verification).
+Tested in Chromium only (Playwright scripts in `scripts/`): the example pages draw, and the element, React and iframe embeds behave as [Embedding](embedding.md) lists. In Chromium, `scripts/screenshots.cjs` drives inspect mode (Enter, arrows, Home) and reads the live region's text, and `scripts/screenshots-review.cjs` checks the focus ring inside `<chartist-chart>`. Not tested: screen readers (no VoiceOver, NVDA or JAWS run is recorded), other browsers, forced-colours mode. Treat the roles and the live region as implemented but unverified with assistive technology (Needs verification).

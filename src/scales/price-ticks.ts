@@ -127,10 +127,12 @@ export function priceTicks(input: PriceTickInput): PriceTick[] {
   if (input.mode === 'percent') {
     const anchor = input.anchor ?? NaN;
     if (!(anchor > 0) && !(anchor < 0)) return [];
-    const lo = Math.min((pMin / anchor - 1) * 100, (pMax / anchor - 1) * 100);
-    const hi = Math.max((pMin / anchor - 1) * 100, (pMax / anchor - 1) * 100);
+    // Change from the anchor over |anchor| (the price scale's percent mode), so a negative anchor reads the same way.
+    const k = Math.abs(anchor) / 100;
+    const lo = Math.min((pMin - anchor) / k, (pMax - anchor) / k);
+    const hi = Math.max((pMin - anchor) / k, (pMax - anchor) / k);
     const out: PriceTick[] = linearTicks(lo, hi, priceH, minGapPx, false, 0, 8)
-      .map(pct => ({ price: anchor * (1 + pct / 100), pct: Math.abs(pct) < 1e-9 ? 0 : pct }));
+      .map(pct => ({ price: anchor + k * pct, pct: Math.abs(pct) < 1e-9 ? 0 : pct }));
     return out.sort((a, b) => a.price - b.price);
   }
   const prices = input.mode === 'log' && pMin > 0

@@ -87,7 +87,27 @@ The chart is created when the element first comes within 200 px of the viewport 
 
 ### Text for search engines and screen readers
 
-A canvas has no text for a crawler. Put the facts inside the element as ordinary content; it shows until the chart draws, then hides. See [Accessibility](accessibility.md).
+A canvas has no text for a crawler. Put the facts inside the element as ordinary content; it shows until the chart draws, then hides (the chart has its own accessible name and keyboard control). See [Accessibility](accessibility.md).
+
+```html
+<chartist-chart type="line" src="/data/weekly.csv" aria-label="Weekly values">
+  <table>
+    <caption>Weekly values, sample data</caption>
+    <tr><th>Week of</th><th>Value</th></tr>
+    <tr><td>2024-01-01</td><td>100.00</td></tr>
+    <tr><td>2024-03-18</td><td>120.70</td></tr>
+  </table>
+</chartist-chart>
+```
+
+This content stays in the page source and shows for visitors without JavaScript (the element is then an unknown tag). A `<noscript>` block is not needed. The data script is hidden by the browser and is not a substitute for visible text.
+
+### Strict Content-Security-Policy, hostile page CSS, right-to-left pages
+
+- **CSP.** Nothing needs `'unsafe-inline'`: the chart writes its styles through the CSSOM (`style.setProperty`), and `<chartist-chart>` adopts a constructable stylesheet into its shadow root and sets `height` on itself through the CSSOM. A page with `style-src 'self'; script-src 'self'` works (checked in Chromium, `examples/hostile/`). Browsers without constructable stylesheets (Safari before 16.4) fall back to a `<style>` element, which such a policy blocks. Scripts: load the library from a file, not an inline script.
+- **Page CSS.** Every element the chart creates resets margin, padding, border, sizing, max-width and the like with important inline values, so rules such as `div { padding: 1em }` or `canvas { width: 100% !important }` do not reach it; the attribution link lives in a closed shadow root, so `a {}` and `a::after {}` rules cannot touch it.
+- **Right-to-left.** The chart root is `dir="ltr"` and the canvases draw left to right, so axis labels keep their spacing on an RTL page.
+- **`.data` wins.** Setting `.data` while a `src` request is still loading aborts the request; the rows you set stay.
 
 ## 2. ES module
 
@@ -140,4 +160,4 @@ The repository's `examples/frame.html` is such a page; it reads `src`, `type`, `
 
 ## What was tested
 
-In Chromium: the four ways as example pages in light and dark; lazy creation; removing and re-adding an element twelve times; attribute changes; a missing `src`; React updates without re-creation; React under `StrictMode` including unmount; React server rendering with `react-dom/server`; no console errors. Not tested: other browsers, a page with JavaScript off (the fallback content rule follows from how browsers treat unknown tags), any specific CMS, content security policies, styling through `::part(frame)`, and React versions other than 19.
+In Chromium: the four ways as example pages in light and dark; lazy creation; removing and re-adding an element twelve times; attribute changes; a missing `src`; React updates without re-creation; React under `StrictMode` including unmount; React server rendering with `react-dom/server`; a page with `style-src 'self'`, right-to-left text and hostile global CSS (`scripts/screenshots-review.cjs`); the focus ring inside the element; `.data` over a slow `src`; no console errors. Not tested: Firefox, Safari, real touch devices, a page with JavaScript off (the fallback content rule follows from how browsers treat unknown tags), any specific CMS, styling through `::part(frame)`, and React 18 (only React 19 was run).

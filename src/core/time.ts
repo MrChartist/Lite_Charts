@@ -5,7 +5,7 @@
 // midnight of that date. Business days are always read on the UTC calendar, so '2026-03-09' is 9 March for every
 // viewer whatever the time zone option says.
 
-import { daysFromCivil } from './zone';
+import { civilKeyFromDays, daysFromCivil } from './zone';
 
 export interface BusinessDay {
   year: number;
@@ -44,7 +44,12 @@ export function businessDayToSeconds(d: BusinessDay): number {
   if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day) || month < 1 || month > 12 || day < 1 || day > 31) {
     throw new TypeError(`Chartist Lite: invalid business day ${JSON.stringify(d)}`);
   }
-  return daysFromCivil(year, month, day) * DAY_S;
+  const days = daysFromCivil(year, month, day);
+  // 2024-02-31 would roll over into March: a date that does not exist is refused.
+  if (civilKeyFromDays(days) !== year * 10_000 + month * 100 + day) {
+    throw new TypeError(`Chartist Lite: ${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} is not a real date`);
+  }
+  return days * DAY_S;
 }
 
 /** Bar granularity, inferred from the data; decides which calendar boundaries the time axis may label. */

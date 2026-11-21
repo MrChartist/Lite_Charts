@@ -35,6 +35,7 @@ export class TextPainter {
     this.ctx.save();
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.font = this.font(weight);
+    this.ctx.direction = 'ltr';
     const dw = this.digitWidth(weight);
     let w = 0;
     let run = '';
@@ -85,6 +86,8 @@ export class TextPainter {
     ctx.fillStyle = color;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
+    // Runs are placed left to right by hand: an RTL page must not flip them or eat the spaces between them.
+    ctx.direction = 'ltr';
     const dw = this.digitWidth(weight);
     let run = '';
     for (let i = 0; i < text.length; i++) {
