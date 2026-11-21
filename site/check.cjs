@@ -266,6 +266,55 @@ async function interactive(browser, origin) {
     await ctx.close();
   }
 
+  // Drawing tools playground: a trend line drawn with real pointer input, then exported as JSON and undone.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    await page.evaluate(() => document.getElementById('ch-drawings').scrollIntoView());
+    await page.waitForFunction(() => { const el = document.querySelector('[data-demo="draw"]'); return el && el.dataset.ready === '1' && el._demo && el._demo.tools.length; }, null, { timeout: 8000 }).catch(() => {});
+    const count = () => page.evaluate(() => document.querySelector('[data-demo="draw"]')._demo.tools[0].drawings().length);
+    const before = await count();
+    await page.locator('[data-demo="draw"] [aria-label="Trend line"]').click();
+    const box = await page.locator('[data-demo="draw"]').boundingBox();
+    const x1 = box.x + box.width * 0.35; const y1 = box.y + box.height * 0.7;
+    const x2 = box.x + box.width * 0.7; const y2 = box.y + box.height * 0.35;
+    await page.mouse.move(x1, y1); await page.mouse.down();
+    await page.mouse.move(x2, y2, { steps: 12 }); await page.mouse.up();
+    await page.waitForTimeout(200);
+    const after = await count();
+    const trend = await page.evaluate(() => document.querySelector('[data-demo="draw"]')._demo.tools[0].drawings().filter((d) => d.tool === 'trend').length);
+    ok(after === before + 1 && trend >= 1, `playground: a press, drag and release with the trend tool adds a trend line (${before} to ${after})`);
+    await page.click('[data-draw="export"]');
+    const exported = await page.evaluate(() => { try { return JSON.parse(document.querySelector('#ch-drawings ~ * [data-out], [data-stage] [data-out]').textContent); } catch (e) { return null; } });
+    ok(!!exported && exported.format === 'chartist-lite-drawings' && exported.drawings.length === after && exported.drawings.some((d) => d.tool === 'trend'), 'playground: Export JSON shows the drawings, the new trend line included');
+    await page.click('[data-draw="undo"]');
+    ok(await count() === before, 'playground: Undo removes the trend line again');
+    await page.click('[data-draw="import"]');
+    ok(await count() === after, 'playground: importing the exported text brings it back');
+    ok(errs.length === 0, 'playground: no console errors ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  // 120 Hz figures: read from docs/performance.json, shown on the home page and on the performance page.
+  {
+    const perf = JSON.parse(fs.readFileSync(path.join(here, '..', 'docs', 'performance.json'), 'utf8'));
+    const rows = perf.results.filter((r) => r.scenario && typeof r.p95 === 'number');
+    const worst = Math.max(...rows.map((r) => r.p95));
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    const chip = await page.evaluate(() => document.querySelector('.fc-2').textContent);
+    ok(chip.includes(`${worst.toFixed(1)} ms of 8.33`), `120 Hz: the hero chip shows the measured worst p95 (${chip})`);
+    const big = await page.evaluate(() => document.querySelector('.bench .big').textContent);
+    ok(big.startsWith(worst.toFixed(2)), `120 Hz: the speed chapter shows ${worst.toFixed(2)} ms (${big})`);
+    await page.goto(`${origin}/performance.html`, { waitUntil: 'load' });
+    const pp = await page.evaluate(() => ({ h1: document.querySelector('h1').textContent, rows: Math.max(...Array.from(document.querySelectorAll('table')).map((t) => t.querySelectorAll('tbody tr').length)) }));
+    ok(/Performance/.test(pp.h1) && pp.rows >= rows.length, `performance page: renders the full table (${pp.rows} rows for ${rows.length} scenarios)`);
+    ok(errs.length === 0, '120 Hz pages: no console errors ' + errs.join(' | '));
+    await ctx.close();
+  }
+
   // Fonts: the brand faces load over http, and their arrival barely moves the layout.
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -318,6 +367,7 @@ async function screenshots(browser, origin) {
   await shot('site-guide-phone', 'guide/indicators.html', { width: 390, height: 844, mobile: true, prep: guidePrep });
   await shot('site-examples-light', 'examples.html', { theme: 'light', prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.getElementById('ex-gallery').getBoundingClientRect().top + scrollY - 150)); } });
   await shot('site-api-light', 'guide/api-reference.html', { theme: 'light', prep: async (page) => { await page.fill('#api-filter', 'scale'); await page.evaluate(() => window.scrollTo(0, document.getElementById('api-filter').getBoundingClientRect().top + scrollY - 120)); } });
+  await shot('site-drawings-dark', 'index.html', { prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.querySelector('.playground').getBoundingClientRect().top + scrollY - 150)); await page.waitForTimeout(600); } });
   await shot('site-search-light', 'guide/getting-started.html', { theme: 'light', prep: async (page) => { await page.keyboard.press('/'); await page.keyboard.type('price scale'); await page.waitForTimeout(300); await page.keyboard.press('ArrowDown'); } });
   console.log('screenshots written to docs/screenshots/site-*.png');
 }

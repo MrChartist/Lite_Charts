@@ -20,6 +20,7 @@ Every public export, with its signature as written in the source (`src/index.ts`
 | `@mrchartist/chartist-lite` | `createChart`, the six series, price lines, markers, themes, formatting helpers, types | `chartist-lite.iife.min.js`, `ChartistLite` |
 | `@mrchartist/chartist-lite/indicators` | Indicator functions | `chartist-lite-indicators.iife.min.js`, `ChartistLiteIndicators` |
 | `@mrchartist/chartist-lite/element` | `defineChartistElement` and the element's parsing helpers | `chartist-lite.element.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
+| `@mrchartist/chartist-lite/drawings` | `createDrawingTools`, `TOOLS`, the JSON helpers | `chartist-lite-drawings.iife.min.js`, `ChartistLiteDrawings` |
 | `@mrchartist/chartist-lite/react` | `createChartistReact` and the controller | none |
 
 The package is `sideEffects: false`, and importing any entry touches no DOM.
@@ -207,6 +208,30 @@ A primitive drawn on the top pane, not tied to a series. For another pane, use `
 
 ```js
 chart.attachPrimitive(myBand);
+```
+
+### `chart.addPointerHandler`
+
+```sig
+addPointerHandler(handler: ChartPointerHandler): () => void
+```
+
+Lets a plugin take pointer gestures and keys before the chart does; returns a function that removes the handler. Handlers are asked in the order they were added. A `ChartPointerHandler` may implement `pointerDown(e)` (return `true` to own the gesture), `pointerMove(e)`, `pointerUp(e, cancelled)`, `hover(e)`, `keyDown(e)` (return `true` when handled) and `blocksTouch()`. A `ChartPointerEvent` has `point`, `paneIndex`, `logical`, `area` (`'pane' | 'price' | 'time' | 'none'`), `pointerType` and the modifier keys. Both interfaces are declared in `src/api.ts` but are not exported by name from the main entry in 0.1.0. See [Drawing tools](drawing-tools.md#write-a-tool-of-your-own).
+
+```js
+const off = chart.addPointerHandler({ pointerDown: e => e.shiftKey && e.area === 'pane' });
+```
+
+### `chart.setCursor`
+
+```sig
+setCursor(cursor: string | null): void
+```
+
+Forces the pointer cursor over the chart, for a plugin's tool; `null` gives it back to the chart.
+
+```js
+chart.setCursor('crosshair');
 ```
 
 ### `chart.element`
@@ -441,6 +466,19 @@ Converts between a time or logical index and x in CSS px from the plot's left ed
 
 ```js
 const x = chart.timeScale().timeToCoordinate('2024-03-04');
+```
+
+### `timeScale.timeToLogical`
+
+```sig
+timeToLogical(time: Time | number): number | null
+logicalToTime(logical: number): number | null
+```
+
+A time's logical index, and the time (UNIX seconds) at a logical index: exact for a bar's time, interpolated between bars, extrapolated past either end at the median bar interval. `null` before any data. Drawings anchor to times through these, so they survive zoom, resize and new data.
+
+```js
+const t = chart.timeScale().logicalToTime(chart.timeScale().coordinateToLogical(x));
 ```
 
 ### `timeScale.width`
@@ -694,7 +732,7 @@ createSeriesMarkers(candles, [{ time: '2024-03-04', position: 'belowBar', shape:
 { attached?(host); detached?(); zOrder?: 'bottom' | 'normal' | 'top'; draw?(scope); drawOverlay?(scope); priceAxisLabels?(colors); autoscale?(range); priceScaleId? }
 ```
 
-The contract price lines and markers are made from. Every hook is optional. `draw` gets a scope with `ctx`, `pixelRatio`, `pane`, `colors`, `fontFamily`, `fontSize`, `visibleLogicalRange`, `timeToX`, `logicalToX`, `priceToY`, `text`, `measureText` and `formatPrice`. Related types: `PrimitiveDrawScope`, `PrimitiveHost` (`{ requestUpdate(), series }`), `PriceAxisLabel` (`{ price, text?, keepInView?, color, textColor? }`), `CssRect`.
+The contract price lines, markers and drawings are made from. Every hook is optional. `draw` gets a scope with `ctx`, `pixelRatio`, `pane`, `colors`, `fontFamily`, `fontSize`, `visibleLogicalRange`, `timeToX`, `logicalToX`, `priceToY`, `text`, `measureText`, `formatPrice` and, where available, `seriesRowAt(time)`. Related types: `PrimitiveDrawScope`, `PrimitiveHost` (`{ requestUpdate(), series }`, and `requestOverlay()` to repaint only the overlay layer), `PriceAxisLabel` (`{ price, text?, keepInView?, color, textColor? }`), `CssRect`.
 
 ```js
 candles.attachPrimitive({ draw: s => { const y = s.priceToY(100); if (y !== null) s.ctx.fillRect(s.pane.x, y, s.pane.width, 1); } });
@@ -903,6 +941,132 @@ An `IndicatorRow` is `{ time, value?, open?, high?, low?, close?, volume? }`; an
 ```js
 /** @type {import('@mrchartist/chartist-lite/indicators').IndicatorPoint[]} */
 const points = sma(bars, 20);
+```
+
+## Drawings
+
+From `@mrchartist/chartist-lite/drawings`. Behaviour, tools and keys: [Drawing tools](drawing-tools.md).
+
+### `createDrawingTools`
+
+```sig
+createDrawingTools(chart, series, { toolbar?, magnet?, keepDrawing?, defaultStyle?, persist? }?): DrawingToolsController
+```
+
+Adds drawing tools to a chart, anchored to `series`. `toolbar` is `true` or `{ position: 'left' | 'top' }` (default off); `magnet` snaps to open, high, low or close (default on); `keepDrawing` stays on the tool (default off); `defaultStyle` is `{ color?, width: 1 | 2 | 3, dash: 'solid' | 'dashed' }`; `persist` is `{ key, storage? }`.
+
+```js
+const tools = createDrawingTools(chart, candles, { toolbar: true });
+```
+
+### `tools.setTool`
+
+```sig
+setTool(id: ToolId | null): void
+tool(): ToolId | null
+tools(): readonly ToolInfo[]
+```
+
+Arms a tool (the next press on the chart starts it) or returns to the cursor with `null`. An unknown id throws a `TypeError`.
+
+```js
+tools.setTool('fib');
+```
+
+### `tools.add`
+
+```sig
+add(spec: DrawingSpec): Drawing
+update(id: string, patch): Drawing | null
+remove(id: string): boolean
+clear(): void
+drawings(): Drawing[]
+```
+
+Creates, changes and removes drawings from code. A spec is `{ tool, points: [{ time, price }], style?, text?, pane?, locked?, id? }`; times may be UNIX seconds, `'YYYY-MM-DD'` or business-day objects and are stored as UNIX seconds. `drawings()` returns copies.
+
+```js
+tools.add({ tool: 'horizontal', points: [{ time: '2024-06-03', price: 104.9 }], text: 'Resistance' });
+```
+
+### `tools.select`
+
+```sig
+select(id: string | null): void
+selected(): Drawing | null
+```
+
+Selects a drawing (or clears the selection) as a click would.
+
+```js
+tools.select(tools.drawings()[0].id);
+```
+
+### `tools.exportJSON`
+
+```sig
+exportJSON(): string
+importJSON(json: string, mode?: 'replace' | 'append'): number
+```
+
+Versioned JSON (`{ format: 'chartist-lite-drawings', version: 1, drawings }`) and its reader, which returns how many drawings it loaded and skips unknown tools and bad entries. `drawingsToJSON(list)`, `drawingsFromJSON(json, style)`, `normalizeSpec(spec, style)`, `FORMAT` and `VERSION` are exported for your own storage.
+
+```js
+localStorage.setItem('chart-1', tools.exportJSON());
+```
+
+### `tools.on`
+
+```sig
+on(event: 'created' | 'changed' | 'removed' | 'selected', handler: (drawing: Drawing | null) => void): () => void
+```
+
+Calls `handler` with a copy of the drawing (`null` when a selection is cleared); returns a remover.
+
+```js
+tools.on('created', d => save(d));
+```
+
+### `tools.undo`
+
+```sig
+undo(): boolean
+redo(): boolean
+canUndo(): boolean
+canRedo(): boolean
+```
+
+Steps through the last 100 changes. Returns `false` when there is nothing to undo or redo.
+
+```js
+if (tools.canUndo()) tools.undo();
+```
+
+### `tools.setMagnet`
+
+```sig
+setMagnet(on: boolean): void
+setKeepDrawing(on: boolean): void
+setHidden(on: boolean): void
+magnet(), keepDrawing(), hidden(), colors(), destroy()
+```
+
+Switches the magnet, keep drawing and hiding every drawing; `colors()` gives the theme colours in use, and `destroy()` removes the tools, their toolbar and their hooks.
+
+```js
+tools.setHidden(true);
+```
+
+### `TOOLS`
+
+```sig
+const TOOLS: readonly { id: ToolId; label: string; points: number }[]
+```
+
+The fifteen tools: `trend`, `ray`, `extended`, `horizontal`, `horizontalRay`, `vertical`, `rectangle`, `channel`, `fib`, `measure`, `long`, `short`, `arrow`, `text`, `brush` (0 points: freehand). Also exported: `ICONS` (the toolbar's icons), `geometry` (pure helpers) and the types `DrawingSpec`, `DrawingToolsController`, `DrawingToolsOptions`, `DrawingEvent`, `Anchor`, `Drawing`, `DrawingStyle`, `ToolId`, `ToolInfo`.
+
+```js
+const twoPointTools = TOOLS.filter(t => t.points === 2).map(t => t.id);
 ```
 
 ## Element

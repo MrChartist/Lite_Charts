@@ -1,12 +1,21 @@
 <h1 align="center">Chartist Lite</h1>
 
-<p align="center"><strong>Financial charts that stay light.</strong> Candlesticks, indicators, stacked panes and exchange time zones on one canvas, with no runtime dependencies.</p>
+<p align="center"><strong>Financial charts that stay light.</strong> Candlesticks, indicators, drawing tools, stacked panes and exchange time zones on one canvas, with no runtime dependencies.</p>
 
-<p align="center"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-32.6%20KB%20gzip-0B0B0F" alt="Core 32.6 KB gzip"> <img src="https://img.shields.io/badge/tests-193%20passing-0B0B0F" alt="193 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
+<p align="center"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-32.6%20KB%20gzip-0B0B0F" alt="Core 32.6 KB gzip"> <img src="https://img.shields.io/badge/120%20Hz-worst%20p95%205.9%20ms-0B0B0F" alt="120 Hz frame budget: worst p95 5.9 ms of 8.33"> <img src="https://img.shields.io/badge/tests-202%20passing-0B0B0F" alt="202 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/site-readme-hero-dark.png"><img src="docs/screenshots/site-readme-hero-light.png" alt="A Chartist Lite chart drawn from demo data: daily candles with a 20-bar moving average, Bollinger bands, volume and an RSI pane, with the built-in legend and crosshair" width="1600" height="800"></picture></p>
 
-Chartist Lite is a small JavaScript library that draws price charts (candlesticks, bars, lines, areas, histograms and baselines) on a single canvas, with built-in indicators, stacked panes, exchange time zones and a legend. It comes as an ES module, a React wrapper and a `<chartist-chart>` web component.
+## What stands out
+
+- **120 Hz frame budget, measured:** in 96 scenarios up to 100000 bars, the costliest frame of our code took 5.90 ms at p95 of the 8.33 ms a 120 Hz screen allows; none went over ([how it was measured](docs/PERFORMANCE.md)).
+- **Drawing tools included:** 15 tools with a toolbar, undo and JSON export, in a 13.9 KB gzip entry.
+- **12 indicators built in,** plus Heikin-Ashi and bar aggregation, with live forms.
+- **One HTML tag to embed:** `<chartist-chart>` reads JSON or CSV and carries text for crawlers.
+- **Exchange time zones without session gaps,** daylight saving included.
+- **Keyboard and screen-reader inspect mode:** Enter steps through bars, each one announced.
+
+Chartist Lite is a small JavaScript library that draws price charts (candlesticks, bars, lines, areas, histograms and baselines) on a single canvas, with built-in indicators, drawing tools, stacked panes, exchange time zones and a legend. It comes as an ES module, a React wrapper and a `<chartist-chart>` web component. Core 32.6 KB gzip, no runtime dependencies.
 
 **Status: version 0.1.0, not yet published to npm.** Build it from source for now (see [Install](#install)). Licence: Apache-2.0.
 
@@ -14,7 +23,8 @@ Chartist Lite is a small JavaScript library that draws price charts (candlestick
 
 | | What you get | Measured or shown in |
 |---|---|---|
-| **Built for 120 Hz** | Highest p95 frame cost of any gesture: 6.50 ms of the 8.33 ms a 120 Hz frame allows, in 60 scenarios up to 100000 bars (headless Chromium, one machine) | [Performance](#performance), `docs/PERFORMANCE.md` |
+| **Built for 120 Hz** | Highest p95 frame cost of any gesture: 5.90 ms of the 8.33 ms a 120 Hz frame allows, in 96 scenarios up to 100000 bars (headless Chromium, one machine) | [Performance](#performance), [PERFORMANCE.md](docs/PERFORMANCE.md) |
+| **Drawing tools** | Trend line, ray, extended line, horizontal and vertical lines, rectangle, parallel channel, Fibonacci retracement, measure, long and short positions, arrow, text and brush, with a toolbar, keyboard editing, undo and JSON | [Drawing tools](docs/guide/drawing-tools.md) |
 | **Indicators built in** | 12 indicators, Heikin-Ashi and bar aggregation as plain functions in a 5.2 KB gzip entry, with live forms | [Indicators](docs/guide/indicators.md) |
 | **Stacked panes** | RSI or MACD under the price, sharing the time axis and crosshair, with a divider you drag or move by keyboard | [Panes and scales](docs/guide/panes-and-scales.md) |
 | **Exchange time, no gaps** | One slot per bar, so nights and weekends take no space; labels in any IANA zone, daylight saving included | [Time and time zones](docs/guide/time-and-time-zones.md) |
@@ -23,8 +33,6 @@ Chartist Lite is a small JavaScript library that draws price charts (candlestick
 | **Safe on strict pages** | Works under `style-src 'self'`; hostile page CSS and right-to-left pages do not reach it (checked in Chromium) | [Embedding the chart](docs/guide/embedding.md) |
 | **Numbers that read right** | A true minus sign (`−2.35`), no grouping commas (`12345.60`), tabular figures on the axes | [Time and time zones](docs/guide/time-and-time-zones.md) |
 | **Small, no dependencies** | Core 32.6 KB gzip with nothing else to install; React is an optional peer dependency | [Sizes](#sizes) |
-
-Drawing tools (trend line, ray, horizontal and vertical line, rectangle, Fibonacci retracement, measure, text) are being added as a separate entry; they are not part of 0.1.0 yet.
 
 ## Install
 
@@ -75,6 +83,18 @@ average.setData(sma(bars, 20));
 
 </details>
 
+<details><summary>Drawing tools</summary>
+
+```js
+import { createDrawingTools } from '@mrchartist/chartist-lite/drawings';
+
+const tools = createDrawingTools(chart, candles, { toolbar: true });
+tools.add({ tool: 'horizontal', points: [{ time: '2024-06-03', price: 104.9 }], text: 'Resistance' });
+localStorage.setItem('my-chart', tools.exportJSON());
+```
+
+</details>
+
 <details><summary>React</summary>
 
 ```jsx
@@ -109,22 +129,23 @@ Real screenshots of the library, drawn from invented demo data.
 | ![Six small charts: candlestick, OHLC bars, line, area, histogram and baseline](docs/screenshots/series-dark.png) | ![A candlestick chart with volume on an overlay scale and an RSI pane below](docs/screenshots/panes-dark.png) |
 | **Indicators** | **The chartist-chart element** |
 | ![Candlesticks with a 20-bar moving average and Bollinger bands, an RSI pane and a MACD pane](docs/screenshots/indicators-dark.png) | ![A chart drawn by the chartist-chart web component](docs/screenshots/element-dark.png) |
-
-Drawing tools will join the gallery when their entry is published.
+| **Drawing tools** | **Every tool** |
+| ![The drawing toolbar on a candlestick chart with a Fibonacci retracement, a trend line, a long position with target and stop, a labelled resistance line and a text note](docs/screenshots/drawings-dark.png) | ![All fifteen drawing tools on one chart](docs/screenshots/drawings-all-tools.png) |
 
 ## Performance
 
-From `npm run bench` (`docs/performance.json`, `docs/PERFORMANCE.md`), run on 21 November 2026 on an Intel Xeon at 2.30 GHz (4 cores), Chromium 157 headless. Each figure is the **cost of our code per frame** (input handlers, the chart's frame callbacks and the layout of the legend), 200 frames per scenario after 20 warm-up frames, over a plain chart and one with three indicators and two extra panes, at device pixel ratios 1 and 2.
+From `npm run bench` ([PERFORMANCE.md](docs/PERFORMANCE.md), raw numbers in `docs/performance.json`), run on 21 November 2026 on an Intel Xeon at 2.30 GHz (4 cores), Chromium 157 headless. Each figure is the **cost of one frame of our code**: the input handlers, the chart's frame callbacks and the layout of the legend, 200 frames per scenario after 20 warm-up frames, over a plain chart, one with three indicators and two extra panes, and one with 20 drawings of every tool, at device pixel ratios 1 and 2.
 
 | Worst p95, ms | 1000 bars | 10000 bars | 100000 bars |
 |---|---|---|---|
-| Crosshair | 2.60 | 1.50 | 1.20 |
-| Pan | 0.90 | 0.80 | 0.70 |
-| Wheel zoom | 2.00 | 3.10 | 5.60 |
-| Live tick | 0.60 | 0.70 | 0.80 |
-| Live tick, whole series in view | 1.00 | 2.80 | 6.50 |
+| Crosshair | 1.30 | 1.30 | 1.20 |
+| Pan | 0.80 | 0.70 | 0.70 |
+| Wheel zoom | 2.10 | 2.90 | 5.20 |
+| Live tick | 0.80 | 0.80 | 0.70 |
+| Live tick, whole series in view | 1.10 | 2.80 | 5.90 |
+| Drag a drawing | 0.60 | 0.60 | 0.60 |
 
-0 of 60 scenarios had a p95 over 8.33 ms (one frame at 120 Hz) or over 6.94 ms (144 Hz). What this is not: a frame rate on a real 120 Hz panel, GPU time, canvas rasterisation or input latency (headless Chromium has no GPU and runs animation frames at about 60 Hz). Measure on your own hardware; the documentation site has a frame meter that times the chart on the device that opens it.
+0 of 96 scenarios had a p95 over 8.33 ms (one frame at 120 Hz) or over 6.94 ms (144 Hz). What this is not: a frame rate on a real 120 Hz panel, GPU time, canvas rasterisation or input latency (headless Chromium has no GPU and runs animation frames at about 60 Hz). Measure on your own hardware; the documentation site has a frame meter that times the chart on the device that opens it.
 
 ## Sizes
 
@@ -137,7 +158,8 @@ Bundled and minified with esbuild, gzipped at level 9, by `npm run size` on the 
 | Indicators | 5.2 KB |
 | Element (includes the chart) | 35.1 KB |
 | React (includes the chart) | 32.1 KB |
-| Script tag files: core, indicators, element | 32.9 KB, 5.5 KB, 35.4 KB |
+| Drawings | 13.9 KB |
+| Script tag files: core, indicators, element, drawings | 32.9 KB, 5.5 KB, 35.4 KB, 14.1 KB |
 
 The core has a 45 KB budget that `npm run size` enforces. Run `npm run build && npm run size` for the current numbers.
 
@@ -151,6 +173,7 @@ The core has a 45 KB budget that `npm run size` enforces. Run `npm run build && 
 | Legend | Built in, per pane: each titled series with the values of the hovered bar, or the last bar; the change with an arrow and a sign |
 | Time zones | IANA zones for the time axis and crosshair, `'local'`, daylight saving handled; no slot for nights, weekends or holidays |
 | Themes | Light, dark and auto (follows the system setting), colour overrides, system font stack, switch at runtime |
+| Drawing tools | 15 tools, a toolbar, magnet, keyboard editing, undo and redo, events, versioned JSON, opt-in saving; pointer hooks for tools of your own |
 | Plugins | Price lines, series markers, and a primitive contract for your own overlays |
 | Accessibility | Focusable chart with a name and spoken help, keyboard pan, zoom and bar-by-bar inspection through a live region, kinetic glide off under reduced motion, minimum text size 12 px |
 | Interaction | Wheel and pinch zoom that does not trap page scrolling (`wheelZoom: 'auto'`), drag pan with kinetic glide, price axis stretch, double-click reset, crosshair modes |
@@ -169,18 +192,18 @@ Details, attributes and data formats: [Embedding the chart](docs/guide/embedding
 
 ## What it is not
 
-- **No drawing tools in 0.1.0.** No trend lines, Fibonacci tools or text notes yet. A primitive can draw your own marks.
 - **No data feed.** You give it rows. It never fetches prices by itself (the web component can load a JSON or CSV file you point it at).
 - **No order placement** and no trading features.
 - It does not detect patterns or generate signals. Markers show what you give them.
 
 ## Status and what is not verified
 
-Tested in Chromium (driven by Playwright): the example pages draw with no console errors in light and dark, including a page with a strict Content-Security-Policy (`style-src 'self'`), right-to-left text and hostile global CSS. 193 unit tests pass (`npm test`).
+Tested in Chromium (driven by Playwright): the example pages draw with no console errors in light and dark, including a page with a strict Content-Security-Policy (`style-src 'self'`), right-to-left text and hostile global CSS. 202 unit tests pass (`npm test`).
 
 Not verified yet:
 
 - Firefox, Safari and mobile browsers.
+- Drawing with touch on real phones and tablets.
 - Screen readers: no VoiceOver, NVDA or JAWS run is recorded; the roles and the live region are implemented but unverified with assistive technology.
 - The contrast ratio of every built-in colour pair.
 - Frame cost on a real 120 Hz display or with a GPU (the bench runs headless).
@@ -202,11 +225,13 @@ By default a small "Chartist" link to https://mrchartist.com sits in the empty c
 - [Indicators](docs/guide/indicators.md)
 - [Panes and scales](docs/guide/panes-and-scales.md)
 - [Time and time zones](docs/guide/time-and-time-zones.md)
+- [Drawing tools](docs/guide/drawing-tools.md)
 - [Theming](docs/guide/theming.md): themes, colours, the legend
 - [Plugins and primitives](docs/guide/plugins.md)
 - [Accessibility](docs/guide/accessibility.md)
 - [API reference](docs/guide/api-reference.md)
 - [Coming from Lightweight Charts](docs/guide/coming-from-lightweight-charts.md): same names, different behaviour
+- [Performance](docs/PERFORMANCE.md): frame cost against 120 Hz and 144 Hz
 
 A documentation site with live charts, search and a frame meter is built from these files: `npm run build && npm run site`, then open `site/dist/index.html`.
 

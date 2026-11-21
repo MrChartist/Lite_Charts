@@ -37,18 +37,25 @@ function loadScript(src) {
 }
 function chartLibs() {
   const list = [`${ASSETS}chartist-lite.iife.min.js`, `${ASSETS}chartist-lite-indicators.iife.min.js`];
+  if (root.hasAttribute('data-drawings')) list.push(`${ASSETS}chartist-lite-drawings.iife.min.js`);
   if (root.hasAttribute('data-demos')) list.push(`${ASSETS}demos.js`);
   if (root.dataset.live) list.push(`${ASSETS}${root.dataset.live}`);
   return Promise.all(list.map(loadScript));
 }
 
 // ---------- live charts ----------
-function liveApi(el, charts) {
+function liveApi(el, charts, tools) {
   const L = window.ChartistLite;
   const I = window.ChartistLiteIndicators || {};
+  const D = window.ChartistLiteDrawings || {};
   const bars = makeBars(220, 7);
+  const out = el.closest('[data-stage]') && el.closest('[data-stage]').querySelector('[data-out]');
   return {
     ...L, ...I, bars, intradayBars: makeIntraday(5, 37), benchmark: makeBenchmark(bars),
+    TOOLS: D.TOOLS, drawingsToJSON: D.drawingsToJSON,
+    createDrawingTools(...args) { const t = D.createDrawingTools(...args); tools.push(t); return t; },
+    // A helper of this site: write a line to the example's output panel.
+    output(text) { if (!out) return; if (!out.dataset.used) { out.textContent = ''; out.dataset.used = '1'; } out.textContent = `${String(text)}\n${out.textContent}`.slice(0, 4000); },
     // The example's own container is used whatever id the code names, and the site theme is applied.
     createChart(_container, options = {}) {
       const c = L.createChart(el, { ...options, theme: currentTheme(), ariaLabel: options.ariaLabel || el.dataset.label });
@@ -65,14 +72,15 @@ function create(el) {
     if (el.dataset.demo === 'live') {
       const fn = (window.__CL_LIVE || {})[el.dataset.live];
       if (!fn) return null;
-      const charts = [];
-      fn(liveApi(el, charts));
-      entry = { charts };
+      const charts = []; const tools = [];
+      fn(liveApi(el, charts, tools));
+      entry = { charts, tools };
     } else {
       const make = (window.__CL_DEMOS || {})[el.dataset.demo];
       if (!make) return null;
       entry = make(el, window.ChartistLite, currentTheme());
     }
+    if (!entry.tools) entry.tools = [];
     if (!entry.restyle) entry.restyle = (t) => entry.charts.forEach((c) => c.applyOptions({ theme: t }));
     el._demo = entry;
     el.dataset.ready = '1';
@@ -112,7 +120,7 @@ function initControls() {
   document.addEventListener('click', async (e) => {
     const t = e.target.closest('[data-set-theme]');
     if (t) { applyTheme(t.dataset.setTheme, true); return; }
-    const btn = e.target.closest('[data-zone], [data-chart-theme], [data-scale], [data-focus-chart]');
+    const btn = e.target.closest('[data-zone], [data-chart-theme], [data-scale], [data-focus-chart], [data-draw]');
     if (!btn) return;
     const stage = btn.closest('[data-stage]');
     const el = stage && stage.querySelector('[data-demo]');
@@ -124,6 +132,17 @@ function initControls() {
     else if (btn.dataset.chartTheme) { pressIn(btn, 'data-chart-theme'); for (const c of entry.charts) c.applyOptions({ theme: btn.dataset.chartTheme }); }
     else if (btn.dataset.scale) { pressIn(btn, 'data-scale'); for (const c of entry.charts) c.priceScale('right').applyOptions({ mode: btn.dataset.scale }); }
     else if ('focusChart' in btn.dataset && chart) chart.element().focus();
+    else if (btn.dataset.draw && entry.tools[0]) {
+      const t = entry.tools[0];
+      const out = stage.querySelector('[data-out]');
+      const say = (text) => { if (out) out.textContent = text; };
+      const act = btn.dataset.draw;
+      if (act === 'undo') say(t.undo() ? `Undone. ${t.drawings().length} drawings.` : 'Nothing to undo.');
+      else if (act === 'redo') say(t.redo() ? `Redone. ${t.drawings().length} drawings.` : 'Nothing to redo.');
+      else if (act === 'clear') { t.clear(); say('Cleared. Undo brings them back.'); }
+      else if (act === 'export') { stage._saved = t.exportJSON(); say(JSON.stringify(JSON.parse(stage._saved), null, 1)); }
+      else if (act === 'import') { if (!stage._saved) say('Export first, then import that text back.'); else say(`Imported ${t.importJSON(stage._saved)} drawings from the exported text, replacing what was there.`); }
+    }
   });
 }
 
@@ -385,7 +404,7 @@ function initGallery() {
     } else {
       const el = document.createElement('div');
       el.className = 'chart';
-      el.dataset.demo = b.dataset.open;
+      el.dataset.demo = card.dataset.big || b.dataset.open;
       el.dataset.label = $('[data-demo]', card).dataset.label;
       const bar = $('.demo-bar', card);
       if (bar) stage.appendChild(bar.cloneNode(true));

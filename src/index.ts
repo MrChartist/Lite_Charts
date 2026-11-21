@@ -49,7 +49,7 @@ export type { ColumnAccess, Columns } from './render/decimate';
 
 export type {
   ChartApi, SeriesApi, TimeScaleApi, PriceScaleApi, MouseEventParams, MouseEventHandler, TimeRange, Point,
-  AnySeriesDefinition, LogicalRangeChangeHandler, PaneApi,
+  AnySeriesDefinition, LogicalRangeChangeHandler, PaneApi, ChartPointerEvent, ChartPointerHandler,
 } from './api';
 export type {
   ChartOptions, DeepPartial, LocalizationOptions, CrosshairOptions, InteractionOptions, ChartTimeScaleOptions,

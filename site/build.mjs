@@ -79,19 +79,22 @@ function readPerf() {
   } catch (e) { warnings.push(`docs/performance.json could not be read (${e.message}); the speed figures are hidden`); return null; }
 }
 const PERF = readPerf();
-// Drawing tools: a separate entry being added. Its chapter, guide and examples appear when it exists.
-const DRAWINGS = null;
+const PERF_PAGE = existsSync(path.join(pkg, 'docs', 'PERFORMANCE.md')) ? 'performance.html' : 'readme.html';
+// Drawing tools: the `drawings` entry. Its home chapter, examples card and script load appear when it is built.
+const DRAWINGS = existsSync(path.join(pkg, 'src', 'drawings', 'index.ts')) && existsSync(path.join(pkg, 'dist', 'chartist-lite-drawings.iife.min.js'));
+const DRAWING_TOOLS = DRAWINGS ? Array.from(read('src/drawings/tools.ts').matchAll(/^\s*\{ id: '(\w+)', label: '([^']+)', points: \d+ \}/gm)).map((m) => ({ id: m[1], label: m[2] })) : [];
 
 function benchHtml() {
   if (!PERF) return `<h3 id="bench-h">Measured, not claimed</h3><p>The package has a frame benchmark (<code>npm run bench</code>). Its recorded figures appear here when they are published with the package; until then, the meter beside this card is the honest number, on your device.</p>`;
   return `<h3 id="bench-h">Recorded frame cost</h3><p>The highest p95 frame cost of any gesture in ${PERF.scenarios} scenarios, against the ${PERF.budget.toFixed(2)} ms of a 120 Hz frame:</p><span class="big">${PERF.worst.toFixed(2)}<small>ms p95</small></span>
 <div class="table-wrap" role="region" tabindex="0" aria-label="Table: worst p95 frame cost by gesture"><table><thead><tr><th scope="col">Worst p95, ms</th>${PERF.barsList.map((b) => `<th scope="col" class="num">${b / 1000}k bars</th>`).join('')}</tr></thead><tbody>${PERF.grid.map((g) => `<tr><td>${esc(g.label)}</td>${g.cells.map((c) => `<td class="num">${c === null ? 'n/a' : c.toFixed(2)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-<p class="note">Cost of our code per frame (input handlers, the chart's frame callbacks, layout of the legend), ${PERF.over} of ${PERF.scenarios} over budget. ${esc(PERF.machine)}${PERF.date ? `, ${esc(PERF.date)}` : ''}. Not a frame rate: headless Chromium has no 120 Hz panel and no GPU. Details: <code>docs/PERFORMANCE.md</code>.</p>`;
+<p class="note">Cost of our code per frame (input handlers, the chart's frame callbacks, layout of the legend), ${PERF.over} of ${PERF.scenarios} over budget. ${esc(PERF.machine)}${PERF.date ? `, ${esc(PERF.date)}` : ''}. Not a frame rate on a real 120 Hz panel: headless Chromium has no GPU, and canvas rasterisation and compositing are not included. <a href="PERF_HREF">Every scenario and the machine</a>.</p>`;
 }
 
 // Glyphs: one soft line family on a 24 grid, drawn in the ink of their host.
 const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const GLYPH = {
+  pen: svg('<path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m14 7 3 3"/>'),
   candles: svg('<path d="M7 4v3M7 17v3M17 3v4M17 15v5"/><rect x="5" y="7" width="4" height="10" rx="1"/><rect x="15" y="7" width="4" height="8" rx="1"/>'),
   wave: svg('<path d="M3 15c3 0 3-7 6-7s3 9 6 9 3-6 6-6"/>'),
   panes: svg('<rect x="3.5" y="4" width="17" height="16" rx="3"/><path d="M3.5 14h17M7 11l3-3 3 2 4-4"/>'),
@@ -120,6 +123,7 @@ async function measureSizes() {
     ['Indicators entry', 'src/indicators/index.ts'],
     ['Element entry (includes the chart)', 'src/element/index.ts'],
     ['React entry (includes the chart)', 'src/react/index.ts'],
+    ...(existsSync(path.join(pkg, 'src', 'drawings', 'index.ts')) ? [['Drawings entry', 'src/drawings/index.ts']] : []),
   ];
   for (const [label, entry] of ENTRIES) {
     const res = await build({ absWorkingDir: pkg, entryPoints: [entry], bundle: true, format: 'esm', minify: true, target: 'es2020', write: false, legalComments: 'none', logLevel: 'silent' });
@@ -158,7 +162,7 @@ const guides = readdirSync(guideDir).filter((f) => f.endsWith('.md')).map((f) =>
 }).sort((a, b) => a.order - b.order);
 const guideBySlug = (s) => guides.find((g) => g.slug === s);
 
-const mdMap = new Map([['README.md', 'readme.html'], ...guides.map((g) => [g.src, g.out])]);
+const mdMap = new Map([['README.md', 'readme.html'], ['docs/PERFORMANCE.md', 'performance.html'], ...guides.map((g) => [g.src, g.out])]);
 const assets = new Map(); // dist path -> source file
 
 function renderOptions(page, srcFile, extra = {}) {
@@ -193,7 +197,7 @@ function renderOptions(page, srcFile, extra = {}) {
 const LIVE_NAMES = ['createChart', 'CandlestickSeries', 'BarSeries', 'LineSeries', 'AreaSeries', 'HistogramSeries', 'BaselineSeries',
   'createPriceLine', 'createSeriesMarkers', 'lightTheme', 'darkTheme', 'formatPrice', 'formatPercent', 'MINUS_SIGN',
   'sma', 'ema', 'wma', 'rsi', 'atr', 'obv', 'vwap', 'bollinger', 'donchian', 'macd', 'stochastic', 'supertrend', 'heikinAshi',
-  'aggregate', 'createIndicator', 'bars', 'intradayBars', 'benchmark'];
+  'aggregate', 'createIndicator', 'bars', 'intradayBars', 'benchmark', 'createDrawingTools', 'TOOLS', 'drawingsToJSON', 'output'];
 const HEIGHTS = new Set(['220', '260', '280', '320', '360', '420', '480', '560']);
 const ZONES = [['Asia/Kolkata', 'Kolkata'], ['America/New_York', 'New York'], ['UTC', 'UTC']];
 
@@ -201,6 +205,7 @@ const ZONES = [['Asia/Kolkata', 'Kolkata'], ['America/New_York', 'New York'], ['
 function controlsHtml(kind) {
   if (kind === 'zone') return `<div class="seg" role="group" aria-label="Axis time zone">${ZONES.map(([z, l], i) => `<button type="button" data-zone="${z}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>`;
   if (kind === 'theme') return `<div class="seg" role="group" aria-label="Chart theme"><button type="button" data-chart-theme="light" aria-pressed="false">Light</button><button type="button" data-chart-theme="dark" aria-pressed="false">Dark</button></div>`;
+  if (kind === 'draw') return `<span class="draw-actions"><button class="btn btn--sm" type="button" data-draw="undo">Undo</button><button class="btn btn--sm" type="button" data-draw="redo">Redo</button><button class="btn btn--sm" type="button" data-draw="clear">Clear</button><button class="btn btn--sm" type="button" data-draw="export">Export JSON</button><button class="btn btn--sm" type="button" data-draw="import">Import it back</button></span>`;
   if (kind === 'scale') return `<div class="seg" role="group" aria-label="Price scale mode"><button type="button" data-scale="linear" aria-pressed="true">Linear</button><button type="button" data-scale="log" aria-pressed="false">Log</button><button type="button" data-scale="percent" aria-pressed="false">Percent</button></div>`;
   return '';
 }
@@ -222,8 +227,9 @@ function makeLive(slug, fns) {
       const runnable = code.replace(/^\s*import\s[\s\S]*?from\s+['"][^'"]+['"];?[ \t]*$/gm, '').trim();
       fns.push(`${JSON.stringify(id)}: function (api) { const { ${LIVE_NAMES.join(', ')} } = api; {\n${runnable}\n} }`);
       stage = `<div class="chart h-${h}" data-demo="live" data-live="${id}" data-label="${esc(label)}"><p class="chart-fallback">The live chart appears here when JavaScript runs. The code below draws it.</p></div>`;
+      if (attrs.output || attrs.controls === 'draw') stage += `<pre class="out js-only" data-out tabindex="0" aria-live="polite" aria-label="Output of this example">Output appears here.</pre>`;
     }
-    const note = lang === 'html'
+    const note = attrs.output ? 'This code runs on this page as written, with <code>bars</code> set to invented demo data; <code>output(text)</code> is a helper of this site that writes to the panel above.' : lang === 'html'
       ? 'This markup runs on this page as written, with the element script already loaded.'
       : 'This code runs on this page as written, with <code>bars</code> set to invented demo data. The import lines are left to your bundler.';
     return `<figure class="live window" data-stage>${controls}${stage}${codeBlock(code, lang, 'code--live')}<figcaption class="live-note">${note}</figcaption></figure>`;
@@ -275,7 +281,7 @@ function layout(page) {
   const img = baseUrl + ogImage.path;
   const root = rootOf(p);
   const g = (s) => rel(p, guideBySlug(s).out);
-  const dataAttrs = [`data-assets="${root}assets/"`, `data-root="${root}"`, page.live ? `data-live="${page.live}"` : '', page.demos ? 'data-demos' : ''].filter(Boolean).join(' ');
+  const dataAttrs = [`data-assets="${root}assets/"`, `data-root="${root}"`, page.live ? `data-live="${page.live}"` : '', page.demos ? 'data-demos' : '', page.drawings ? 'data-drawings' : ''].filter(Boolean).join(' ');
   return `<!doctype html>
 <html lang="${config.locale}" ${dataAttrs}>
 <head>
@@ -372,6 +378,7 @@ function docPage({ path: p, src, title, description, body, group, prevNext, rela
   const fns = [];
   const md = renderMarkdown(body, renderOptions(p, src, { live: live ? makeLive(live, fns) : null, entries, html: !!allowHtml }));
   if (fns.length) liveBundles.set(p, fns);
+  const usesDrawings = fns.some((f) => f.includes('createDrawingTools'));
   const h1Match = /<h1 id="[^"]*">([\s\S]*?)<\/h1>/.exec(md.html);
   let html = md.html.replace(/<h1 id="[^"]*">[\s\S]*?<\/h1>\n?/, '');
   let lead = '';
@@ -396,7 +403,7 @@ ${pager}
 ${onward}
 </article>`;
   pages.push({
-    path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
+    path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', drawings: usesDrawings, live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
     bodyClass: 'docs-page', ld: ldExtra,
     body: `<div class="docs"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}</div>`,
   });
@@ -425,6 +432,18 @@ docPage({
 });
 { const r = pages.find((x) => x.path === 'readme.html'); r.title = `README: ${NAME} overview, install and features`; }
 
+// The frame budget report written by `npm run bench`, as a page.
+if (existsSync(path.join(pkg, 'docs', 'PERFORMANCE.md'))) {
+  docPage({
+    path: 'performance.html', src: 'docs/PERFORMANCE.md', title: 'Performance',
+    description: `${NAME} frame cost against the 8.33 ms of a 120 Hz frame and the 6.94 ms of 144 Hz: every measured scenario, the machine, and what was not measured.`,
+    body: read('docs/PERFORMANCE.md'), group: 'Project',
+    crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Performance', path: 'performance.html' }],
+    ld: [{ '@context': 'https://schema.org', '@type': 'TechArticle', headline: `${NAME} performance`, inLanguage: config.locale, url: baseUrl + 'performance.html', author: author(), isPartOf: { '@type': 'WebSite', name: NAME, url: baseUrl } }],
+  });
+  pages.find((x) => x.path === 'performance.html').title = `Performance: frame cost against 120 Hz | ${NAME}`;
+}
+
 // Guide index: cards by task.
 const TASK_ICONS = {
   'getting-started': 'play', embedding: 'code', 'series-types': 'candles', indicators: 'wave', 'panes-and-scales': 'panes',
@@ -435,7 +454,7 @@ const TASK_ICONS = {
   const p = 'guide/index.html';
   let k = 0;
   const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Guide</span></nav>
-<h1 id="top">Learn it one task <span class="serif-frame">at a time.</span></h1><p class="lead">Eleven short pages, each about one job. Start with Getting started; every page after it has live charts you can touch and code you can copy.</p></div></section>
+<h1 id="top">Learn it one task <span class="serif-frame">at a time.</span></h1><p class="lead">${['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen'][guides.length] || guides.length} short pages, each about one job. Start with Getting started; every page after it has live charts you can touch and code you can copy.</p></div></section>
 <div class="wrap">
 ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"><div class="task-group-head"><h2 id="g-${grp.id}">${esc(grp.title)}</h2><p>${esc(grp.blurb)}</p></div><ul class="task-grid">${guides.filter((x) => x.group === grp.id).map((x) => { k++; return `<li><a class="card task-card" href="${rel(p, x.out)}"><span class="tile tile--${((k - 1) % 5) + 1}">${GLYPH[TASK_ICONS[x.slug]] || GLYPH.book}</span><p class="task">${esc(x.task)}</p><h3>${esc(x.title)}</h3><p>${esc(x.summary)}</p><span class="go">Read the guide ${ICON.arrow}</span></a></li>`; }).join('')}</ul></section>`).join('\n')}
 </div>`;
@@ -451,7 +470,7 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
 {
   const p = 'examples.html';
   const g = (s) => rel(p, guideBySlug(s).out);
-  const KINDS = [['all', 'All'], ['series', 'Series'], ['indicators', 'Indicators'], ['panes', 'Panes and scales'], ['time', 'Time'], ['element', 'Element']];
+  const KINDS = [['all', 'All'], ['series', 'Series'], ['indicators', 'Indicators'], ['panes', 'Panes and scales'], ['time', 'Time'], ...(DRAWINGS ? [['drawings', 'Drawings']] : []), ['element', 'Element']];
   const demo = makeBars(60, 19, 120);
   const hi = Math.max(...demo.map((b) => b.high));
   const lo = Math.min(...demo.map((b) => b.low));
@@ -463,11 +482,11 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
     'element-candles': `<chartist-chart type="candlestick" volume height="240" aria-label="Demo candlestick chart with volume, from the custom element"><script type="application/json">${ohlc}</script>${fb('Demo bars for the candlestick element')}</chartist-chart>`,
     'element-area': `<chartist-chart type="area" height="240" aria-label="Demo area chart, from the custom element"><script type="application/json">${vals}</script>${fb('Demo closing values for the area element')}</chartist-chart>`,
   };
-  const cards = EXAMPLES.map((ex) => {
+  const cards = EXAMPLES.filter((ex) => DRAWINGS || ex.kind !== 'drawings').map((ex) => {
     const stage = ex.element ? ELEMENTS[ex.id] : `<div class="chart h-240" data-demo="${ex.id}" data-label="${esc(ex.label)}"><p class="chart-fallback">${esc(ex.label)}. The chart appears when JavaScript runs.</p></div>`;
     const controls = ex.controls ? `<div class="demo-bar js-only">${controlsHtml(ex.controls)}</div>` : '';
     const tpl = ex.element ? `<template data-large>${ELEMENTS[ex.id].replace('height="240"', 'height="540"')}</template>` : '';
-    return `<article class="card ex-card" id="${ex.id}" data-kind="${ex.kind}" aria-labelledby="${ex.id}-h">
+    return `<article class="card ex-card" id="${ex.id}" data-kind="${ex.kind}"${ex.big ? ` data-big="${ex.big}"` : ''} aria-labelledby="${ex.id}-h">
 <div data-stage>${stage}${controls}</div>
 <div class="ex-body"><h2 id="${ex.id}-h">${esc(ex.title)}</h2><p>${ex.text}</p><div class="ex-tags">${ex.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div></div>
 <div class="ex-actions"><button class="btn btn--sm js-only" type="button" data-open="${ex.id}" aria-haspopup="dialog">Open with code</button><a href="${g(ex.guide[0])}">${esc(ex.guide[1])}</a></div>
@@ -487,7 +506,7 @@ ${cards}
   <div class="ex-dialog-body"><div class="ex-dialog-stage" data-stage id="ex-dialog-stage"></div><div class="ex-dialog-side"><p id="ex-dialog-text"></p><div id="ex-dialog-code"></div></div></div>
 </dialog>`;
   pages.push({
-    path: p, title: `Examples: candlestick, line, area, indicators and panes | ${NAME}`, demos: true,
+    path: p, title: `Examples: candlestick, line, area, indicators and panes | ${NAME}`, demos: true, drawings: DRAWINGS,
     description: `Live ${NAME} charts you can touch: every series type, indicators, MACD and RSI panes, scale modes, a time zone switch and the chartist-chart web component.`,
     crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Examples', path: p }],
     body,
@@ -534,8 +553,16 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
     return `<section class="chapter" aria-labelledby="ch-${key}">${chapterLabel(i, CH.length, CH[i][1])}<div class="chapter-head"><h2 id="ch-${key}">${h2}</h2>${lead ? `<p>${lead}</p>` : ''}</div>${content}</section>`;
   };
   const win = (title, inner, extra = '') => `<div class="window" data-stage><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">${title}</span>${extra}</div>${inner}</div>`;
+  const STANDOUT = [
+    ...(PERF ? [[1, 'gauge', `<b>120 Hz frame budget, measured:</b> worst p95 ${PERF.worst.toFixed(1)} ms of ${PERF.budget.toFixed(2)}`, rel(p, PERF_PAGE)]] : []),
+    ...(DRAWINGS ? [[2, 'pen', `<b>Drawing tools included:</b> ${DRAWING_TOOLS.length} tools, undo and JSON export`, '#ch-drawings']] : []),
+    [3, 'wave', `<b>${INDICATOR_NAMES.length} indicators built in,</b> plus Heikin-Ashi and aggregation`, g('indicators')],
+    [4, 'code', '<b>One HTML tag to embed:</b> <code>&lt;chartist-chart&gt;</code>', g('embedding')],
+    [5, 'clock', '<b>Exchange time zones</b> without session gaps', g('time-and-time-zones')],
+    [1, 'keys', '<b>Keyboard and screen reader</b> inspect mode', g('accessibility')],
+  ].slice(0, 6);
   const apart = [
-    [1, 'gauge', 'Built for 120 Hz', PERF && PERF.pan !== null ? `A pan frame over ${PERF.panBars} bars costs ${PERF.pan.toFixed(2)} ms (median) of the ${PERF.budget.toFixed(2)} ms a 120 Hz frame allows, in headless Chromium. Measure your own device.` : 'Each frame paints only what changed, and dense history folds into one column per pixel. Measure your own device.', '#ch-speed', 'See the meter'],
+    [1, 'gauge', 'Built for 120 Hz', PERF ? `The costliest frame (p95) of ${PERF.scenarios} measured gestures takes ${PERF.worst.toFixed(2)} ms of the ${PERF.budget.toFixed(2)} ms a 120 Hz screen allows, in headless Chromium. Measure your own device.` : 'Each frame paints only what changed, and dense history folds into one column per pixel. Measure your own device.', '#ch-speed', 'See the meter'],
     [2, 'wave', 'Indicators built in', `${INDICATOR_NAMES.length} indicators as plain functions in a ${indGzip} KB entry, with live forms that cost the same per tick.`, g('indicators'), 'Indicators guide'],
     [3, 'panes', 'Stacked panes', 'RSI or MACD in its own pane, sharing the time axis and the crosshair, with a divider you can drag or move by keyboard.', g('panes-and-scales'), 'Panes guide'],
     [4, 'clock', 'Exchange time, no gaps', 'One slot per bar, so nights and weekends take no space; labels in any IANA zone, daylight saving included.', g('time-and-time-zones'), 'Time guide'],
@@ -548,15 +575,17 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
 <div class="hero-text">
 <p class="pill"><span class="tile tile--5">${GLYPH.candles}</span>Open source charting, version ${esc(VERSION)}</p>
 <h1 id="hero-h">Financial charts <span class="serif-frame">that stay light.</span></h1>
-<p class="lead">Candlesticks, indicators, stacked panes and exchange time zones on one canvas. ${coreGzip} KB gzip, no runtime dependencies, and every chart works from the keyboard.</p>
+<p class="lead">Candlesticks, indicators, ${DRAWINGS ? 'drawing tools, ' : ''}stacked panes and exchange time zones on one canvas. ${coreGzip} KB gzip, no runtime dependencies, and every chart works from the keyboard.</p>
 <div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Get started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'examples.html')}">Browse examples</a></div>
 </div>
 <div class="hero-visual">
 ${win('', `<div class="chart" data-demo="home" data-label="Demo daily candlestick chart with a 20-bar moving average"><noscript><img src="${rel(p, 'assets/img/basic-light.png')}" width="${ogImage.size.width}" height="${ogImage.size.height}" alt="${esc(OG_ALT)}"></noscript></div>
 <div class="demo-bar js-only"><div class="seg" role="group" aria-label="Series type"><button type="button" data-hero-type="candles" aria-pressed="true">Candles</button><button type="button" data-hero-type="bars" aria-pressed="false">Bars</button><button type="button" data-hero-type="line" aria-pressed="false">Line</button><button type="button" data-hero-type="area" aria-pressed="false">Area</button></div><div class="hero-controls" role="group" aria-label="Indicators"><button class="chip" type="button" data-hero-ind="sma" aria-pressed="true"><span class="dot" aria-hidden="true"></span>SMA 20</button><button class="chip" type="button" data-hero-ind="bb" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Bollinger</button><button class="chip" type="button" data-hero-ind="volume" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Volume</button><button class="chip" type="button" data-hero-ind="rsi" aria-pressed="false"><span class="dot" aria-hidden="true"></span>RSI pane</button></div></div>`, `<span class="js-only"><span class="seg" role="group" aria-label="Theme"><button type="button" data-set-theme="dark" aria-pressed="true">Dark</button><button type="button" data-set-theme="light" aria-pressed="false">Light</button></span></span>`)}
-<div class="hero-chips"><span class="fact-chip fc-1"><span class="k">Size</span><span class="v">${coreGzip} KB gzip</span></span><span class="fact-chip fc-2"><span class="k">${PERF && PERF.over === 0 ? '120 Hz frame' : 'Series'}</span><span class="v">${PERF && PERF.over === 0 ? `p95 under ${PERF.budget.toFixed(2)} ms` : `${SERIES_COUNT} types`}</span></span><span class="fact-chip fc-3"><span class="k">Dependencies</span><span class="v">${RUNTIME_DEPS === 0 ? 'None' : RUNTIME_DEPS}</span></span></div>
+<div class="hero-chips"><span class="fact-chip fc-1"><span class="k">Size</span><span class="v">${coreGzip} KB gzip</span></span><a class="fact-chip fc-2" href="${rel(p, PERF_PAGE)}"><span class="k">${PERF && PERF.over === 0 ? '120 Hz ready' : 'Series'}</span><span class="v">${PERF && PERF.over === 0 ? `worst p95 ${PERF.worst.toFixed(1)} ms of ${PERF.budget.toFixed(2)}` : `${SERIES_COUNT} types`}</span></a><span class="fact-chip fc-3"><span class="k">Dependencies</span><span class="v">${RUNTIME_DEPS === 0 ? 'None' : RUNTIME_DEPS}</span></span></div>
 </div>
 </div></section>
+
+<section class="wrap standout" aria-labelledby="standout-h"><h2 id="standout-h" class="eyebrow">What stands out</h2><ul class="standout-list">${STANDOUT.map(([c, icon, text, href]) => `<li><a class="standout-item" href="${href}"><span class="tile tile--${c}">${GLYPH[icon]}</span><span>${text}</span></a></li>`).join('')}</ul></section>
 
 <div class="wrap home-chapters">
 ${chaptersNav(CH.map(([k, t]) => ({ id: `ch-${k}`, text: t })), 'Chapters')}
@@ -584,7 +613,10 @@ ${chapter('panes', 'Indicators and <span class="serif-frame">panes.</span>', `Ov
 <div>${win('Volume overlay and an RSI pane', `<div class="chart h-360" data-demo="panes" data-label="Demo candlestick chart with volume and an RSI pane below"></div><div class="demo-bar js-only"><span class="group-label">Price scale</span>${controlsHtml('scale')}</div>`)}<div class="duo-text"><h3 id="panes-panes">A pane is one argument</h3><p>Pass a pane index to <code>addSeries</code>. Drag the divider, or focus it and press the arrow keys.</p><a href="${g('panes-and-scales')}">Panes and scales</a></div></div>
 </div>`)}
 
-${DRAWINGS ? chapter('drawings', 'Drawing <span class="serif-frame">tools.</span>', DRAWINGS.lead, DRAWINGS.html) : ''}
+${DRAWINGS ? chapter('drawings', 'Drawing <span class="serif-frame">tools.</span>', `${DRAWING_TOOLS.length} tools in a separate entry of ${sizes.find((r) => /Drawings/.test(r[0]))?.[2] ?? ''} KB gzip, on the chart's own pointer and keyboard hooks. Pick a tool on the rail and draw on this chart.`, `<div class="playground">
+${win('Playground: the real toolbar on a real chart', `<div class="chart h-480" data-demo="draw" data-label="Demo chart with drawing tools: pick a tool on the left rail and draw"></div><div class="demo-bar js-only">${controlsHtml('draw')}</div><pre class="out js-only" data-out tabindex="0" aria-live="polite" aria-label="Exported drawings">Export JSON shows the drawings here, as the text you would save.</pre>`)}
+<div class="playground-side"><div class="duo-text"><h3 id="draw-tools">Every tool</h3><p>${DRAWING_TOOLS.map((t) => esc(t.label)).join(', ')}.</p><h3 id="draw-keys">Keys, with the chart focused</h3><ul class="key-list"><li><kbd>Delete</kbd> removes the selected drawing</li><li><kbd>Esc</kbd> drops the tool or the selection</li><li><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> nudge it (<kbd>Shift</kbd> for 10)</li><li><kbd>Ctrl</kbd> <kbd>Z</kbd> undo, <kbd>Ctrl</kbd> <kbd>Y</kbd> redo</li><li><kbd>Shift</kbd> <kbd>H</kbd> adds a horizontal line</li></ul><a href="${g('drawing-tools')}">Drawing tools guide</a></div></div>
+</div>`) : ''}
 
 ${chapter('embed', 'Embed it <span class="serif-frame">anywhere.</span>', 'From a CMS block that takes one script tag to a React app: the same chart and the same options.', `<div class="install">
 <div>${win('&lt;chartist-chart&gt;, no code', `<chartist-chart type="candlestick" volume height="300" aria-label="Demo candlestick chart from the chartist-chart element"><script type="application/json">${ohlc}</script><table><caption>Demo bars for the element</caption><tr><th>First bar</th><td>${homeBars[0].time}</td></tr><tr><th>Last close</th><td>${homeBars[homeBars.length - 1].close.toFixed(2)}</td></tr></table></chartist-chart>`)}</div>
@@ -597,9 +629,9 @@ ${tabs}
 <div class="card embed-card"><span class="tile tile--5">${GLYPH.frame}</span><h3>An iframe</h3><p>For hosts that forbid scripts: a small page you host, framed by theirs.</p><code class="snippet">&lt;iframe src="frame.html?src=..."&gt;</code><a href="${g('embedding')}#4-an-iframe-for-sites-that-forbid-scripts">Iframe guide</a></div>
 </div>`)}
 
-${chapter('speed', 'Built for <span class="serif-frame">120 Hz.</span>', 'A 120 Hz display gives each frame 8.33 ms. The meter times this chart on your own device while it pans and zooms through 5000 bars.', `<div class="speed">
+${chapter('speed', 'Built for <span class="serif-frame">120 Hz.</span>', PERF ? `A 120 Hz screen gives each frame ${PERF.budget.toFixed(2)} ms. In ${PERF.scenarios} measured gestures, up to ${PERF.panBars} bars, the costliest frame of our code took ${PERF.worst.toFixed(2)} ms at p95, and ${PERF.over === 0 ? 'none' : PERF.over} went over. The meter times this chart on your own device.` : 'A 120 Hz screen gives each frame 8.33 ms. The meter times this chart on your own device while it pans and zooms through 5000 bars.', `<div class="speed">
 ${win('Frame meter, on your device', `<div class="chart h-280" data-demo="meter" data-label="Demo chart of 5000 bars used to time pan and zoom frames on this device"></div><div class="meter js-only" id="meter"><canvas id="meter-canvas" width="600" height="96" aria-hidden="true"></canvas><div class="meter-read" role="status" id="meter-read">The meter runs when the chart is on screen.</div><div class="meter-legend"><span>Each bar is one frame: the time to move the view and paint it.</span><span>The line is the 8.33 ms budget of a 120 Hz frame.</span></div></div>`, `<span class="js-only"><button class="btn btn--sm" type="button" id="meter-run">Run again</button></span>`)}
-<div class="card bench">${benchHtml()}</div>
+<div class="card bench">${benchHtml().replace("PERF_HREF", rel(p, PERF_PAGE))}</div>
 </div>`)}
 
 ${chapter('start', 'Start in a <span class="serif-frame">minute.</span>', `Version ${esc(VERSION)} is not on npm yet, so build it once and host the file yourself.`, `<div class="install">
@@ -610,7 +642,7 @@ ${chapter('start', 'Start in a <span class="serif-frame">minute.</span>', `Versi
 </div>`)}
 </div>`;
   pages.unshift({
-    path: p, title: `${NAME}: a lightweight financial chart library, no dependencies`, demos: true, bodyClass: 'home',
+    path: p, title: `${NAME}: a lightweight financial chart library, no dependencies`, demos: true, drawings: DRAWINGS, bodyClass: 'home',
     description: 'A lightweight financial chart library: candlestick and other series, indicators, panes, time zones and a chartist-chart web component. No dependencies.',
     body,
     ld: [{ '@context': 'https://schema.org', '@type': 'SoftwareSourceCode', name: NAME, description: config.tagline, programmingLanguage: 'TypeScript', license: config.license.url, version: VERSION, url: baseUrl, author: author(), ...(config.repoUrl ? { codeRepository: config.repoUrl } : {}) }],
@@ -641,7 +673,7 @@ writeFileSync(path.join(out, 'assets', 'search-index.js'), `window.__CL_SEARCH=$
 copyFileSync(path.join(here, 'assets', 'site.css'), path.join(out, 'assets', 'site.css'));
 copyFileSync(path.join(here, 'assets', 'fonts.css'), path.join(out, 'assets', 'fonts.css'));
 cpSync(path.join(here, 'assets', 'fonts'), path.join(out, 'assets', 'fonts'), { recursive: true });
-for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js', 'chartist-lite.element.iife.min.js']) {
+for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js', 'chartist-lite.element.iife.min.js', ...(DRAWINGS ? ['chartist-lite-drawings.iife.min.js'] : [])]) {
   const src = path.join(pkg, 'dist', f);
   if (!existsSync(src)) throw new Error(`dist/${f} is missing: run "npm run build" in packages/chartist-lite first`);
   copyFileSync(src, path.join(out, 'assets', f));

@@ -10,7 +10,7 @@ summary: Price lines, markers and the primitive contract for your own overlays.
 
 # Plugins: price lines, markers and custom primitives
 
-Chartist Lite has no drawing tools. What it has are three small building blocks for putting your own marks on a chart: price lines, series markers, and the primitive contract that both are built from.
+This page covers three small building blocks for putting your own marks on a chart: price lines, series markers, and the primitive contract that both are built from. For interactive drawing (trend lines, Fibonacci retracements, text notes and more, with a toolbar), see [Drawing tools](drawing-tools.md).
 
 ## Price lines
 
@@ -131,4 +131,4 @@ Price lines and markers are made from exactly this contract, so reading `src/plu
 
 ## Things this library does not do
 
-No trend lines, Fibonacci tools, text notes or other interactive drawing tools, no saved drawings, and no order placement. A primitive can draw anything you compute, but there is no built-in editing UI. The hover callbacks (`subscribeCrosshairMove`, `subscribeClick`) give you the time, the point and the rows under the pointer if you want to build one.
+No order placement, no pattern detection and no signals: markers and price lines draw what you give them. Interactive drawing is a separate entry, described in [Drawing tools](drawing-tools.md), and the pointer hooks it uses (`chart.addPointerHandler`, `chart.setCursor`) are open to your own tools too. The hover callbacks (`subscribeCrosshairMove`, `subscribeClick`) give you the time, the point and the rows under the pointer.

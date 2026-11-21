@@ -94,6 +94,16 @@ chart.addSeries(CandlestickSeries, { title: 'DEMO-C' }).setData(intradayBars);
 chart.applyOptions({ timeScale: { timeZone: 'America/New_York' } });`,
   },
   {
+    id: 'drawings', kind: 'drawings', big: 'draw', title: 'Drawing tools and their toolbar', tags: ['createDrawingTools', 'toolbar'], label: 'Demo chart with drawing tools and the built-in toolbar', guide: ['drawing-tools', 'Drawing tools guide'],
+    text: 'The built-in toolbar on a candlestick chart, with a Fibonacci retracement, a long position and a labelled level to start from. Open it to draw on a large chart.',
+    code: `import { createDrawingTools } from '@mrchartist/chartist-lite/drawings';
+
+const tools = createDrawingTools(chart, candles, { toolbar: true });
+tools.add({ tool: 'fib', points: [{ time: '2024-06-03', price: 96.2 }, { time: '2024-07-29', price: 108.4 }] });
+tools.add({ tool: 'horizontal', points: [{ time: '2024-10-01', price: 104.9 }], text: 'Resistance' });
+tools.setTool('trend');   // the next press on the chart starts a trend line`,
+  },
+  {
     id: 'element-candles', kind: 'element', element: true, title: 'The element: candles and volume', tags: ['<chartist-chart>'], guide: ['embedding', 'Embedding guide'], lang: 'html',
     text: 'A custom element reading its rows from an inline JSON script. The table inside it is what crawlers and visitors without JavaScript see.',
     code: `<script src="chartist-lite.element.iife.min.js"></script>

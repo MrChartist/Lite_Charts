@@ -183,6 +183,22 @@ function keys(el, L, theme) {
   return one(chart);
 }
 
+/** The drawing tools playground: the built-in toolbar and a few drawings to start from. */
+function draw(el, L, theme, toolbar = true) {
+  const D = window.ChartistLiteDrawings;
+  const bars = makeBars(260, 11);
+  const chart = make(el, L, theme);
+  const candles = chart.addSeries(L.CandlestickSeries, { title: 'DEMO' });
+  candles.setData(bars);
+  chart.timeScale().setVisibleLogicalRange({ from: bars.length - 110, to: bars.length + 6 });
+  const tools = D.createDrawingTools(chart, candles, { toolbar });
+  const b = (i) => bars[bars.length - 1 - i];
+  tools.add({ tool: 'fib', points: [{ time: b(95).time, price: b(95).low }, { time: b(55).time, price: b(55).high }] });
+  tools.add({ tool: 'long', points: [{ time: b(18).time, price: b(18).close }, { time: b(4).time, price: b(18).close * 1.05 }] });
+  tools.add({ tool: 'horizontal', points: [{ time: b(0).time, price: b(40).high }], text: 'Resistance' });
+  return { charts: [chart], tools: [tools] };
+}
+
 /** 5000 bars for the frame meter (site.js times pan and zoom frames on it). */
 function meter(el, L, theme) {
   const chart = make(el, L, theme, { interaction: { kinetic: false } });
@@ -191,7 +207,7 @@ function meter(el, L, theme) {
 }
 
 export const DEMOS = {
-  home, candles, indicators, panes, zone, keys, meter, scale, heikin, macd: macdDemo,
+  home, draw, drawings: (el, L, theme) => draw(el, L, theme, false), candles, indicators, panes, zone, keys, meter, scale, heikin, macd: macdDemo,
   line: simple('line'), area: simple('area'), bar: simple('bar'), histogram: simple('histogram'), baseline: simple('baseline'),
   's-candles': simple('candles'), 's-bar': simple('bar'), 's-line': simple('line'), 's-area': simple('area'),
   's-histogram': simple('histogram'), 's-baseline': simple('baseline'),
