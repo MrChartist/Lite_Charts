@@ -25,7 +25,7 @@ candles.setData(bars);
 const tools = createDrawingTools(chart, candles, { toolbar: true });
 ```
 
-Pick a tool on the rail, then press on the chart. Tools with two points take a press and a release (or two clicks); a horizontal line takes one; the brush draws while you hold. After a drawing is finished the rail goes back to the cursor, unless keep drawing is on. Importing the entry touches no DOM; the toolbar is built only when `toolbar` is set.
+Pick a tool on the rail, or focus the chart and press its key (T for a trend line), then press on the chart. Tools with two points take a press and a release (or two clicks); a horizontal line takes one; the brush draws while you hold. After a drawing is finished the rail goes back to the cursor, unless keep drawing is on. Importing the entry touches no DOM; the toolbar is built only when `toolbar` is set.
 
 With a script tag, load `chartist-lite-drawings.iife.min.js` after the core file and use the global `ChartistLiteDrawings`.
 
@@ -39,27 +39,27 @@ With a script tag, load `chartist-lite-drawings.iife.min.js` after the core file
 | `defaultStyle` | `{ color, width: 1 \| 2 \| 3, dash: 'solid' \| 'dashed' }` for new drawings | the theme's line colour, width 2, solid |
 | `persist` | `{ key, storage? }`: save after every change and load at start (`localStorage` unless you pass a storage) | off |
 
-The rail also holds keep drawing, magnet, hide all, delete all, undo and redo. Selecting a drawing shows a small style bar for its colour, width and dash. The toolbar lives in a shadow root and writes its styles through the CSSOM, so page CSS cannot reach it and a strict `style-src 'self'` policy does not block it.
+The rail is one column of grouped buttons: the cursor, then Lines, Shapes, Fibonacci, Measure, Positions and Annotate. A group with more than one tool opens a flyout menu that lists each tool with its key; the menu works with the arrow keys, Home, End, Enter and Escape. Below the groups sit keep drawing, magnet and hide all, then undo, redo and delete all. Selecting a drawing shows a small style bar for its colour, width and dash. The toolbar lives in a shadow root and writes its styles through the CSSOM, so page CSS cannot reach it and a strict `style-src 'self'` policy does not block it.
 
 ## The tools
 
-| Id | Tool | Points |
-|---|---|---|
-| `trend` | Trend line | 2 |
-| `ray` | Ray | 2 |
-| `extended` | Extended line | 2 |
-| `horizontal` | Horizontal line | 1 |
-| `horizontalRay` | Horizontal ray | 1 |
-| `vertical` | Vertical line | 1 |
-| `rectangle` | Rectangle | 2 |
-| `channel` | Parallel channel | 3 |
-| `fib` | Fibonacci retracement | 2 |
-| `measure` | Measure | 2 |
-| `long` | Long position | 2 |
-| `short` | Short position | 2 |
-| `arrow` | Arrow | 2 |
-| `text` | Text note | 1 |
-| `brush` | Brush | freehand |
+| Id | Tool | Rail group | Key | Points |
+|---|---|---|---|---|
+| `trend` | Trend line | Lines | T | 2 |
+| `ray` | Ray | Lines | | 2 |
+| `extended` | Extended line | Lines | | 2 |
+| `horizontal` | Horizontal line | Lines | H | 1 |
+| `horizontalRay` | Horizontal ray | Lines | | 1 |
+| `vertical` | Vertical line | Lines | V | 1 |
+| `rectangle` | Rectangle | Shapes | R | 2 |
+| `channel` | Parallel channel | Shapes | | 3 |
+| `fib` | Fibonacci retracement | Fibonacci | F | 2 |
+| `measure` | Measure | Measure | M | 2 |
+| `long` | Long position | Positions | L | 2 |
+| `short` | Short position | Positions | S | 2 |
+| `arrow` | Arrow | Annotate | A | 2 |
+| `text` | Text note | Annotate | N | 1 |
+| `brush` | Brush | Annotate | B | freehand |
 
 The list is exported as `TOOLS` (`{ id, label, points }`, with 0 points for the brush). The Fibonacci tool draws the levels 0, 0.236, 0.382, 0.5, 0.618, 0.786 and 1. A long or short position given two points (entry and target) gets a stop at half that distance on the other side, a reward to risk of 2.00; drag it to change it. Holding Shift while placing a point keeps the line horizontal, vertical or at 45 degrees from the previous point.
 
@@ -69,6 +69,7 @@ With the chart focused:
 
 | Key | Action |
 |---|---|
+| T, H, V, R, F, M, L, S, A, N, B | Pick that tool (see the table above); the same key again drops it. Only without Shift, Alt, Ctrl or Cmd |
 | Delete, Backspace | Remove the selected drawing |
 | Escape | Cancel the drawing in progress, then drop the tool, then the selection |
 | Left, Right | Move the selected drawing by one bar (Shift: 10) |

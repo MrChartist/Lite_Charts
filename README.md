@@ -2,14 +2,14 @@
 
 <p align="center"><strong>Financial charts that stay light.</strong> Candlesticks, indicators, drawing tools, stacked panes and exchange time zones on one canvas, with no runtime dependencies.</p>
 
-<p align="center"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-32.6%20KB%20gzip-0B0B0F" alt="Core 32.6 KB gzip"> <img src="https://img.shields.io/badge/120%20Hz-worst%20p95%205.9%20ms-0B0B0F" alt="120 Hz frame budget: worst p95 5.9 ms of 8.33"> <img src="https://img.shields.io/badge/tests-202%20passing-0B0B0F" alt="202 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
+<p align="center"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-32.6%20KB%20gzip-0B0B0F" alt="Core 32.6 KB gzip"> <img src="https://img.shields.io/badge/120%20Hz-worst%20p95%205.9%20ms-0B0B0F" alt="120 Hz frame budget: worst p95 5.9 ms of 8.33"> <img src="https://img.shields.io/badge/tests-205%20passing-0B0B0F" alt="205 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/site-readme-hero-dark.png"><img src="docs/screenshots/site-readme-hero-light.png" alt="A Chartist Lite chart drawn from demo data: daily candles with a 20-bar moving average, Bollinger bands, volume and an RSI pane, with the built-in legend and crosshair" width="1600" height="800"></picture></p>
 
 ## What stands out
 
 - **120 Hz frame budget, measured:** in 96 scenarios up to 100000 bars, the costliest frame of our code took 5.90 ms at p95 of the 8.33 ms a 120 Hz screen allows; none went over ([how it was measured](docs/PERFORMANCE.md)).
-- **Drawing tools included:** 15 tools with a toolbar, undo and JSON export, in a 13.9 KB gzip entry.
+- **Drawing tools included:** 15 tools with a toolbar, undo and JSON export, in a 15.9 KB gzip entry.
 - **12 indicators built in,** plus Heikin-Ashi and bar aggregation, with live forms.
 - **One HTML tag to embed:** `<chartist-chart>` reads JSON or CSV and carries text for crawlers.
 - **Exchange time zones without session gaps,** daylight saving included.
@@ -129,8 +129,8 @@ Real screenshots of the library, drawn from invented demo data.
 | ![Six small charts: candlestick, OHLC bars, line, area, histogram and baseline](docs/screenshots/series-dark.png) | ![A candlestick chart with volume on an overlay scale and an RSI pane below](docs/screenshots/panes-dark.png) |
 | **Indicators** | **The chartist-chart element** |
 | ![Candlesticks with a 20-bar moving average and Bollinger bands, an RSI pane and a MACD pane](docs/screenshots/indicators-dark.png) | ![A chart drawn by the chartist-chart web component](docs/screenshots/element-dark.png) |
-| **Drawing tools** | **Every tool** |
-| ![The drawing toolbar on a candlestick chart with a Fibonacci retracement, a trend line, a long position with target and stop, a labelled resistance line and a text note](docs/screenshots/drawings-dark.png) | ![All fifteen drawing tools on one chart](docs/screenshots/drawings-all-tools.png) |
+| **Drawing tools** | **Grouped rail with flyout menus** |
+| ![The drawing rail on a candlestick chart with a Fibonacci retracement, a trend line, a long position with target and stop, a labelled resistance line and a text note](docs/screenshots/drawings-dark.png) | ![The Shapes flyout open on the drawing rail, listing Rectangle with its key R and Parallel channel](docs/screenshots/drawings-flyout.png) |
 
 ## Performance
 
@@ -158,8 +158,8 @@ Bundled and minified with esbuild, gzipped at level 9, by `npm run size` on the 
 | Indicators | 5.2 KB |
 | Element (includes the chart) | 35.1 KB |
 | React (includes the chart) | 32.1 KB |
-| Drawings | 13.9 KB |
-| Script tag files: core, indicators, element, drawings | 32.9 KB, 5.5 KB, 35.4 KB, 14.1 KB |
+| Drawings | 15.9 KB |
+| Script tag files: core, indicators, element, drawings | 32.9 KB, 5.5 KB, 35.4 KB, 16.1 KB |
 
 The core has a 45 KB budget that `npm run size` enforces. Run `npm run build && npm run size` for the current numbers.
 
@@ -173,7 +173,7 @@ The core has a 45 KB budget that `npm run size` enforces. Run `npm run build && 
 | Legend | Built in, per pane: each titled series with the values of the hovered bar, or the last bar; the change with an arrow and a sign |
 | Time zones | IANA zones for the time axis and crosshair, `'local'`, daylight saving handled; no slot for nights, weekends or holidays |
 | Themes | Light, dark and auto (follows the system setting), colour overrides, system font stack, switch at runtime |
-| Drawing tools | 15 tools, a toolbar, magnet, keyboard editing, undo and redo, events, versioned JSON, opt-in saving; pointer hooks for tools of your own |
+| Drawing tools | 15 tools on a grouped rail with flyout menus and single-key shortcuts, magnet, keyboard editing, undo and redo, events, versioned JSON, opt-in saving; pointer hooks for tools of your own |
 | Plugins | Price lines, series markers, and a primitive contract for your own overlays |
 | Accessibility | Focusable chart with a name and spoken help, keyboard pan, zoom and bar-by-bar inspection through a live region, kinetic glide off under reduced motion, minimum text size 12 px |
 | Interaction | Wheel and pinch zoom that does not trap page scrolling (`wheelZoom: 'auto'`), drag pan with kinetic glide, price axis stretch, double-click reset, crosshair modes |
@@ -198,7 +198,7 @@ Details, attributes and data formats: [Embedding the chart](docs/guide/embedding
 
 ## Status and what is not verified
 
-Tested in Chromium (driven by Playwright): the example pages draw with no console errors in light and dark, including a page with a strict Content-Security-Policy (`style-src 'self'`), right-to-left text and hostile global CSS. 202 unit tests pass (`npm test`).
+Tested in Chromium (driven by Playwright): the example pages draw with no console errors in light and dark, including a page with a strict Content-Security-Policy (`style-src 'self'`), right-to-left text and hostile global CSS. 205 unit tests pass (`npm test`).
 
 Not verified yet:
 

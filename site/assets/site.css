@@ -637,7 +637,7 @@ pre.out { margin: 0; padding: 12px 16px; max-height: 180px; overflow: auto; bord
 /* The guide navigation: a framed panel of inset icon rows (the mrchartist.com menu panel), its own scroll with
    faded edges, "n of N" and previous / next at the foot. The same panel sits in the drawer on narrow screens. */
 .nav-panel { display: flex; flex-direction: column; border: 1px solid var(--hair-2); border-radius: var(--r-lg); background: var(--panel-glass); box-shadow: var(--shadow-card); overflow: hidden; }
-.nav-panel--side { max-height: calc(100vh - var(--bar-top) - var(--bar-h) - 40px); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); }
+.nav-panel--side { max-height: var(--nav-max, calc(100vh - var(--bar-top) - var(--bar-h) - 40px)); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); }
 .nav-panel--drawer { margin: 0 4px; box-shadow: none; }
 .nav-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px; }
 .nav-title { font: var(--t-eyebrow); letter-spacing: var(--tk-eyebrow); text-transform: uppercase; color: var(--muted); text-decoration: none; display: inline-flex; align-items: center; min-height: 28px; }

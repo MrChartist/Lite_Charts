@@ -275,7 +275,10 @@ async function interactive(browser, origin) {
     await page.waitForFunction(() => { const el = document.querySelector('[data-demo="draw"]'); return el && el.dataset.ready === '1' && el._demo && el._demo.tools.length; }, null, { timeout: 8000 }).catch(() => {});
     const count = () => page.evaluate(() => document.querySelector('[data-demo="draw"]')._demo.tools[0].drawings().length);
     const before = await count();
-    await page.locator('[data-demo="draw"] [aria-label="Trend line"]').click();
+    // Arm the trend tool the way a reader would: focus the chart, press T (the Lines group's key).
+    await page.evaluate(() => document.querySelector('[data-demo="draw"]')._demo.charts[0].element().focus());
+    await page.keyboard.press('t');
+    ok(await page.evaluate(() => document.querySelector('[data-demo="draw"]')._demo.tools[0].tool()) === 'trend', 'playground: T arms the trend tool');
     const box = await page.locator('[data-demo="draw"]').boundingBox();
     const x1 = box.x + box.width * 0.35; const y1 = box.y + box.height * 0.7;
     const x2 = box.x + box.width * 0.7; const y2 = box.y + box.height * 0.35;
@@ -322,7 +325,8 @@ async function interactive(browser, origin) {
     await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); } catch (e) { /* none */ } }, theme);
     const page = await ctx.newPage();
     await page.goto(`${origin}/guide/coming-from-lightweight-charts.html`, { waitUntil: 'load' });
-    await page.waitForTimeout(200);
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForTimeout(300);
     const gaps = [];
     for (const f of [0, 0.1, 0.35, 0.6, 0.9, 1]) {
       await page.evaluate((x) => window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * x), f);

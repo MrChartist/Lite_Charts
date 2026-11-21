@@ -503,16 +503,43 @@ function initGuideNav() {
       let saved = 0;
       try { saved = Number(sessionStorage.getItem('cl-nav-scroll')) || 0; } catch (e) { saved = 0; }
       if (saved) sc.scrollTop = saved;
-      const cur = $('[aria-current="page"]', sc);
-      if (cur) {
+      sc._showCurrent = () => {
+        const cur = $('[aria-current="page"]', sc);
+        if (!cur) return;
         const top = cur.offsetTop - sc.offsetTop; const bottom = top + cur.offsetHeight;
         if (top < sc.scrollTop + 8 || bottom > sc.scrollTop + sc.clientHeight - 8) sc.scrollTop = Math.max(0, top - sc.clientHeight / 2 + cur.offsetHeight / 2);
-      }
+      };
+      sc._showCurrent();
       window.addEventListener('pagehide', () => { try { sessionStorage.setItem('cl-nav-scroll', String(sc.scrollTop)); } catch (e) { /* storage blocked */ } });
     }
     sc.addEventListener('scroll', fades, { passive: true });
     window.addEventListener('resize', fades);
     fades();
+  }
+  // Near the end of a page the sticky panel would be carried up under the top bar by the end of its column; it
+  // shrinks instead (its own scroll keeps working), so it never slides under the bar.
+  const side = $('.docs-nav .nav-panel');
+  const docs = side && side.closest('.docs');
+  if (side && docs) {
+    let queued = false;
+    const fit = () => {
+      queued = false;
+      const top = parseFloat(getComputedStyle(side.parentElement).top) || 0;
+      const room = Math.min(window.innerHeight - top - 20, docs.getBoundingClientRect().bottom - top - 20);
+      side.style.setProperty('--nav-max', `${Math.max(160, Math.floor(room))}px`);
+      const sc = $('[data-nav-scroll]', side);
+      if (sc) sc.dispatchEvent(new Event('scroll'));
+    };
+    const ask = () => { if (!queued) { queued = true; requestAnimationFrame(fit); } };
+    window.addEventListener('scroll', ask, { passive: true });
+    window.addEventListener('resize', ask);
+    fit();
+    const sc0 = $('[data-nav-scroll]', side);
+    if (sc0 && sc0._showCurrent) {
+      sc0._showCurrent();
+      // Rows change height when the web fonts arrive: check once more then.
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { fit(); sc0._showCurrent(); });
+    }
   }
   const drawer = $('#drawer');
   for (const b of $$('[data-open-drawer]')) {
