@@ -1,7 +1,7 @@
 ---
 title: Time and time zones
-description: How Chartist Lite reads times, why the time axis has no gaps for nights and weekends, and how to show exchange-local time with an IANA time zone, including daylight saving.
-order: 5
+description: How Chartist Lite reads times, why its time axis has no gaps for nights and weekends, and how to show exchange time with an IANA time zone.
+order: 6
 related: indicators, theming, getting-started
 ---
 

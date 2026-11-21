@@ -1,7 +1,7 @@
 ---
 title: Accessibility
 description: Keyboard control, screen reader support, reduced motion and fallback content for crawlers in Chartist Lite, and what has and has not been tested.
-order: 8
+order: 9
 related: theming, getting-started, api-reference
 ---
 

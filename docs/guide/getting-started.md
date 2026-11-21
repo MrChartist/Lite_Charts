@@ -1,6 +1,6 @@
 ---
 title: Getting started
-description: Put a candlestick chart on a page with Chartist Lite in three ways: a script tag and the chartist-chart element, an ES module with createChart, or React.
+description: Put a candlestick chart on a page with Chartist Lite three ways: a script tag with the chartist-chart element, an ES module with createChart, or React.
 order: 1
 related: series-types, theming, api-reference
 ---

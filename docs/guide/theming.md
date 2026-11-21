@@ -1,7 +1,7 @@
 ---
 title: Theming
-description: Light, dark and automatic themes in Chartist Lite, how to override colours and fonts, switch themes at runtime, and what the attribution link is.
-order: 6
+description: Light, dark and automatic themes in Chartist Lite: override colours and fonts, switch themes at runtime, and what the attribution link is.
+order: 7
 related: accessibility, plugins, api-reference
 ---
 

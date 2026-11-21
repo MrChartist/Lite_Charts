@@ -1,0 +1,12 @@
+{
+  "name": "Chartist Lite",
+  "baseUrl": "https://example.invalid/chartist-lite/",
+  "baseUrlNote": "PLACEHOLDER. The owner sets the real public address here (with a trailing slash). Canonical links, Open Graph URLs, JSON-LD and sitemap.xml are built from it. Every other link on the site is relative, so the pages work from file:// and under any sub-path.",
+  "repoUrl": "",
+  "repoUrlNote": "Optional. The address of the source repository folder for this package (no trailing slash). When empty, links in the README to files that are not site pages (LICENSE, PROVENANCE.md and so on) are shown as plain text.",
+  "author": { "type": "Person", "name": "Mr. Chartist", "url": "https://mrchartist.com" },
+  "license": { "name": "Apache-2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0" },
+  "locale": "en",
+  "ogImageSource": "docs/screenshots/basic-light.png",
+  "tagline": "A small canvas chart for financial data, with no runtime dependencies."
+}

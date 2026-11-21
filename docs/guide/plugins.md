@@ -1,7 +1,7 @@
 ---
 title: Plugins and primitives
-description: Price lines, series markers and custom primitives in Chartist Lite: how to draw your own horizontal levels, signals and overlays on the chart canvas.
-order: 7
+description: Price lines, series markers and custom primitives in Chartist Lite: draw your own levels, signals and overlays on the chart canvas.
+order: 8
 related: series-types, panes-and-scales, api-reference
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Series types
-description: The six series types in Chartist Lite (candlestick, line, area, bar, histogram, baseline), their data rows and options, with a short example for each.
-order: 2
+description: The six Chartist Lite series types (candlestick, line, area, bar, histogram, baseline): data rows, options and a short example for each.
+order: 3
 related: indicators, panes-and-scales, plugins
 ---
 

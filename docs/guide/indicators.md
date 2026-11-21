@@ -1,7 +1,7 @@
 ---
 title: Indicators
-description: Built-in technical indicators for Chartist Lite as plain functions from rows to series data: moving averages, Bollinger bands, RSI, MACD, ATR, VWAP, Supertrend and more, with incremental forms for live data.
-order: 3
+description: Built-in indicators for Chartist Lite as plain functions: moving averages, Bollinger bands, RSI, MACD, ATR, VWAP, Supertrend, with incremental forms for live data.
+order: 4
 related: series-types, panes-and-scales, time-and-time-zones
 ---
 
