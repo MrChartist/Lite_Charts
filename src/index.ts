@@ -44,10 +44,12 @@ export type { SeriesMarker, SeriesMarkersHandle, MarkerPosition, MarkerShape } f
 export { lightTheme, darkTheme } from './core/theme';
 export { formatPrice, formatPercent, MINUS_SIGN } from './core/format';
 export { crispCoord, deviceWidth, hairline } from './render/pixel';
+export { decimateColumns, createColumns } from './render/decimate';
+export type { ColumnAccess, Columns } from './render/decimate';
 
 export type {
   ChartApi, SeriesApi, TimeScaleApi, PriceScaleApi, MouseEventParams, MouseEventHandler, TimeRange, Point,
-  AnySeriesDefinition, LogicalRangeChangeHandler,
+  AnySeriesDefinition, LogicalRangeChangeHandler, PaneApi,
 } from './api';
 export type {
   ChartOptions, DeepPartial, LocalizationOptions, CrosshairOptions, InteractionOptions, ChartTimeScaleOptions,
