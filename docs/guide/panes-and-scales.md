@@ -3,6 +3,9 @@ title: Panes and scales
 description: Stack panes under the price chart for RSI or MACD, put volume on an overlay scale, add a left axis, and pick linear, log or percent scales in Chartist Lite.
 order: 5
 related: indicators, series-types, plugins
+group: build
+task: Stack RSI under the price
+summary: Panes, overlay scales for volume, a left axis, and log or percent modes.
 ---
 
 # Panes and scales
@@ -13,11 +16,15 @@ A chart has one or more **panes** stacked vertically above one shared time axis,
 
 The third argument of `addSeries` is the pane index. The default, 0, is the top pane. An index past the last pane adds a new pane:
 
-```js
+```js live height=420
+const chart = createChart('chart');
 const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });                 // pane 0
+candles.setData(bars);
 const rsiLine = chart.addSeries(LineSeries, { title: 'RSI 14' }, 1);                   // pane 1, created now
 rsiLine.setData(rsi(bars, 14));
 ```
+
+Drag the line between the two panes, or tab to it and press Up or Down.
 
 What panes share, and what they do not:
 
@@ -76,6 +83,16 @@ An axis side takes width only while some pane shows that side. The widest label 
 - **`scaleMargins`:** `{ top, bottom }`, the share of the pane height left empty above the highest and below the lowest visible value. Defaults 0.1 and 0.1.
 - **`autoScale`:** fit the visible data on every repaint (the default). Dragging the price axis stretches the scale and turns autoscale off; double-clicking the chart resets the view and turns it back on.
 - **`visible`:** draw this scale's axis. Overlay scales are never drawn.
+
+Two lines on one scale, switchable between the three modes. In percent mode both start from the first visible bar, so they compare directly:
+
+```js live height=320 controls=scale
+const chart = createChart('chart');
+chart.addSeries(LineSeries, { title: 'DEMO', lineWidth: 2 })
+  .setData(bars.map(b => ({ time: b.time, value: b.close })));
+chart.addSeries(LineSeries, { title: 'Benchmark', lineWidth: 2, color: '#FF9F0A' })
+  .setData(benchmark);   // a second instrument, as { time, value } rows
+```
 
 ### Volume on an overlay scale
 

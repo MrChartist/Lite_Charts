@@ -7,10 +7,35 @@
 //   ```js live height=360 controls=zone      a live example: `options.live({ lang, code, attrs })` returns its HTML
 //   > [!NOTE] / [!TIP] / [!WARNING] / [!VERIFY]   a callout (VERIFY reads "Needs verification")
 //   options.entries = true                     each h3 and what follows it is wrapped in <section class="entry">
+//   options.html = true                        (the README only) the small HTML set GitHub renders: <p align>, <div align>,
+//                                              <picture>/<source>/<img>, <details>/<summary>, <h1 align>. Image paths go
+//                                              through resolveAsset; remote images (badges) become text chips, so the site
+//                                              loads nothing from other hosts.
 // Code is highlighted at build time (highlight.mjs) and framed with a language label and a copy button.
 import { highlight, LANG_LABELS } from './highlight.mjs';
 
 const CALLOUTS = { NOTE: 'Note', TIP: 'Tip', WARNING: 'Warning', VERIFY: 'Needs verification' };
+
+/** One line of the README's GitHub HTML, made safe for the site: known tags only, images resolved, badges as text. */
+function rawHtml(line, options) {
+  let s = line.replace(/<img\b([^>]*)>/gi, (_m, attrs) => {
+    const get = (k) => { const m = new RegExp(`\\b${k}="([^"]*)"`, 'i').exec(attrs); return m ? m[1] : ''; };
+    const src = get('src'); const alt = get('alt');
+    if (/^https?:/i.test(src)) return `<span class="tag">${esc(alt)}</span>`;
+    const size = options.imageSize ? options.imageSize(src) : null;
+    const url = options.resolveAsset ? options.resolveAsset(src) : src;
+    return `<img src="${esc(url)}" alt="${esc(alt)}"${size ? ` width="${size.width}" height="${size.height}"` : ''} loading="lazy" decoding="async">`;
+  });
+  s = s.replace(/<source\b([^>]*)>/gi, (_m, attrs) => {
+    const media = /media="([^"]*)"/i.exec(attrs); const set = /srcset="([^"]*)"/i.exec(attrs);
+    if (!set) return '';
+    const url = options.resolveAsset ? options.resolveAsset(set[1]) : set[1];
+    return `<source${media ? ` media="${esc(media[1])}"` : ''} srcset="${esc(url)}">`;
+  });
+  s = s.replace(/<a href="([^"]*)">/gi, (_m, href) => { const r = options.resolveLink ? options.resolveLink(href) : { href }; return r && r.href ? `<a href="${esc(r.href)}">` : '<a>'; });
+  // Keep only these tags; anything else is shown as text.
+  return s.replace(/<(?!\/?(p|div|picture|source|img|details|summary|br|a|span)\b)/gi, '&lt;');
+}
 
 /** A framed, highlighted code block. */
 export function codeBlock(code, lang, extraClass = '') {
@@ -144,6 +169,14 @@ export function renderMarkdown(src, options = {}) {
     const line = lines[i];
     if (line.trim() === '') { i++; continue; }
 
+    if (options.html && /^\s*<\/?(p|div|picture|source|img|details|summary|h1|br|a)\b/i.test(line)) {
+      const h1 = /^\s*<h1[^>]*>(.*?)<\/h1>\s*$/i.exec(line);
+      if (h1) { lines[i] = `# ${h1[1]}`; continue; }
+      out.push(rawHtml(line, options));
+      i++;
+      continue;
+    }
+
     const fence = /^(\s*)(```+|~~~+)\s*([\w+-]*)((?:\s+[\w-]+(?:=\S+)?)*)\s*$/.exec(line);
     if (fence) {
       const close = fence[2];
@@ -155,6 +188,7 @@ export function renderMarkdown(src, options = {}) {
       for (const m of (fence[4] || '').trim().split(/\s+/).filter(Boolean)) { const [k, v] = m.split('='); attrs[k] = v === undefined ? true : v; }
       const code = body.join('\n');
       if (attrs.live && options.live) out.push(options.live({ lang: fence[3], code, attrs, heading: lastHeading }));
+      else if (fence[3] === 'sig') out.push(`<pre class="sig" tabindex="0" aria-label="Signature"><code class="language-ts">${highlight(code, 'ts')}</code></pre>`);
       else out.push(codeBlock(code, fence[3]));
       continue;
     }

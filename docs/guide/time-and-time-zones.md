@@ -3,6 +3,9 @@ title: Time and time zones
 description: How Chartist Lite reads times, why its time axis has no gaps for nights and weekends, and how to show exchange time with an IANA time zone.
 order: 6
 related: indicators, theming, getting-started
+group: build
+task: Show exchange time
+summary: Times, the gap-free axis, IANA zones and the number rules on the axis.
 ---
 
 # Time and time zones
@@ -29,29 +32,36 @@ Axis ticks sit on real calendar boundaries read from your bars. For each calenda
 
 ## Showing exchange time
 
-```js
+```js live height=360 controls=zone
 const chart = createChart('chart', {
   timeScale: { timeZone: 'Asia/Kolkata' },
 });
-candles.setData(fiveMinuteBarsInUnixSeconds);
+const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO-C' });
+candles.setData(intradayBars);   // five sessions of five-minute bars, in UNIX seconds
 ```
+
+Switch the zone above: the same bars are labelled in another city. The buttons call `chart.applyOptions({ timeScale: { timeZone } })`.
 
 `timeScale.timeZone` is an IANA zone such as `'America/New_York'` or `'Asia/Kolkata'`, or `'local'` for the viewer's own zone. The default is `'UTC'`. The axis labels and the crosshair stamp read each instant in that zone. The same instants read as 09:15 for a bar at the Mumbai open and as the previous evening if you choose a Los Angeles zone; the data does not change.
 
 Daylight saving is handled: the zone's UTC offset for each instant comes from a change table built once per zone from `Intl.DateTimeFormat`, so panning over years of bars makes no `Intl` call per bar. The element form is `time-zone="America/New_York"`.
 
-Date-only data ignore `timeZone`.
+> [!NOTE]
+> Date-only data ignore `timeZone`: a business day is a calendar date, not an instant.
 
 ## Clock and date spelling
 
-```js
-createChart('chart', { localization: { hours12: true, dateOrder: 'month-day' } });
+```js live height=280
+const chart = createChart('chart', { localization: { hours12: true, dateOrder: 'month-day' } });
+chart.addSeries(LineSeries, { title: 'Close' })
+  .setData(intradayBars.map(b => ({ time: b.time, value: b.close })));
 ```
 
 - `hours12`: 12-hour clock on the axis and crosshair. Default false (24-hour).
 - `dateOrder`: `'day-month'` (default, "29 Sep") or `'month-day'` ("Sep 29").
 - `timeFormatter(time)`: replaces the crosshair's time stamp; it receives the bar's time as given in the data.
-- `priceFormatter(price)`: replaces the price text everywhere (axis, last value, crosshair).
+- `priceFormatter(price)`: replaces the price text everywhere (axis, last value, crosshair, legend).
+- `noDataText`: the text shown in the centre of a chart with no data yet. Default "No data"; an empty string shows nothing.
 
 Month and weekday names on the axis are English abbreviations (`Jan` to `Dec`, `Sun` to `Sat`). The axis tick text is always English and has no formatter option; `timeFormatter` replaces the crosshair stamp only.
 

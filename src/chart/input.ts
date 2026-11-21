@@ -2,6 +2,7 @@
 // chart state except the gesture in progress.
 
 import type { InteractionOptions } from '../core/options';
+import type { ChartPointerEvent, ChartPointerHandler } from '../api';
 
 export type HitArea = 'pane' | 'price' | 'time' | 'none';
 
@@ -33,6 +34,12 @@ export interface InputTarget {
   paneWidth(): number;
   reducedMotion(): boolean;
   focusChanged(): void;
+  /** Plugin pointer handlers (drawing tools), asked first. */
+  pointerHandlers(): readonly ChartPointerHandler[];
+  /** A pointer position as a plugin event. */
+  pluginEvent(p: { x: number; y: number }, e: { pointerType?: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }, pane?: number): ChartPointerEvent;
+  /** The chart's own cursor for an area ('' for the default); a plugin's forced cursor wins. */
+  setRootCursor(cursor: string): void;
   /** The attribution link (or its host): pointer input on it is left to the browser so it can be clicked. */
   isLink(target: EventTarget | null): boolean;
   /** The chart or one of its parts has keyboard / click focus. */
@@ -75,6 +82,8 @@ export class InputController {
   private pinchMid: Pt = { x: 0, y: 0 };
   private samples: { x: number; t: number }[] = [];
   private kineticRaf = 0;
+  private owner: ChartPointerHandler | null = null;
+  private ownerPane = -1;
   private off: (() => void)[] = [];
 
   constructor(target: InputTarget) {
@@ -84,11 +93,15 @@ export class InputController {
       el.addEventListener(type, fn as EventListener, opts);
       this.off.push(() => el.removeEventListener(type, fn as EventListener, opts));
     };
-    on('pointerdown', e => this.down(e));
-    on('pointermove', e => this.move(e));
-    on('pointerup', e => this.up(e));
-    on('pointercancel', e => this.up(e, true));
-    on('pointerleave', e => { if (e.pointerType === 'mouse' && this.mode === 'none') target.setCrosshair(null); });
+    // Passive wherever the handler never calls preventDefault (touch-action decides scrolling); only wheel, dblclick
+    // and keydown can cancel. No timers anywhere: every gesture step is applied at once and painted by the next
+    // requestAnimationFrame, so a 120 Hz or 144 Hz display gets a frame on every refresh.
+    const passive = { passive: true };
+    on('pointerdown', e => this.down(e), passive);
+    on('pointermove', e => this.move(e), passive);
+    on('pointerup', e => this.up(e), passive);
+    on('pointercancel', e => this.up(e, true), passive);
+    on('pointerleave', e => { if (e.pointerType === 'mouse' && this.mode === 'none') target.setCrosshair(null); }, passive);
     on('wheel', e => this.wheel(e), { passive: false });
     on('dblclick', e => { if (target.interaction().doubleClickReset) { e.preventDefault(); target.resetView(); } });
     on('keydown', e => this.key(e));
@@ -117,6 +130,20 @@ export class InputController {
     if (this.t.isLink(e.target)) return;
     this.stopKinetic();
     const p = this.local(e);
+    if (this.pointers.size === 0) {
+      // Plugins first: a drawing tool takes the gesture before any pan.
+      const ev = this.t.pluginEvent(p, e);
+      for (const h of this.t.pointerHandlers()) {
+        if (h.pointerDown?.(ev)) {
+          this.owner = h;
+          this.ownerPane = ev.paneIndex;
+          this.pointers.set(e.pointerId, p);
+          this.mode = 'none';
+          this.capture(e.pointerId);
+          return;
+        }
+      }
+    } else if (this.owner) return;
     this.pointers.set(e.pointerId, p);
     const opts = this.t.interaction();
     if (this.pointers.size === 2 && opts.pinchZoom) {
@@ -136,11 +163,16 @@ export class InputController {
     const area = this.t.hit(p.x, p.y);
     this.t.gestureStart(p);
     this.mode = !opts.dragPan ? 'none' : area === 'price' ? 'price' : area === 'pane' || area === 'time' ? 'pan' : 'none';
-    if (e.pointerType === 'mouse') this.t.root.style.cursor = this.mode === 'pan' ? 'grabbing' : this.mode === 'price' ? 'ns-resize' : '';
+    if (e.pointerType === 'mouse') this.t.setRootCursor(this.mode === 'pan' ? 'grabbing' : this.mode === 'price' ? 'ns-resize' : '');
   }
 
   private move(e: PointerEvent): void {
     const p = this.local(e);
+    if (this.owner) {
+      if (this.pointers.has(e.pointerId)) this.owner.pointerMove?.(this.t.pluginEvent(p, e, this.ownerPane));
+      if (e.pointerType === 'mouse') this.t.setCrosshair(p);
+      return;
+    }
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, p);
     if (this.mode === 'pinch') {
       const pts = [...this.pointers.values()];
@@ -171,8 +203,10 @@ export class InputController {
     }
     if (e.pointerType === 'mouse') {
       const area = this.t.hit(p.x, p.y);
-      this.t.root.style.cursor = area === 'price' ? 'ns-resize' : area === 'pane' ? 'crosshair' : '';
+      this.t.setRootCursor(area === 'price' ? 'ns-resize' : area === 'pane' ? 'crosshair' : '');
       this.t.setCrosshair(area === 'pane' ? p : null);
+      const hs = this.t.pointerHandlers();
+      if (hs.length) { const ev = this.t.pluginEvent(p, e); for (const h of hs) h.hover?.(ev); }
     }
   }
 
@@ -180,6 +214,12 @@ export class InputController {
     if (!this.pointers.has(e.pointerId)) return;
     this.pointers.delete(e.pointerId);
     try { this.t.root.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+    if (this.owner) {
+      const h = this.owner;
+      this.owner = null;
+      h.pointerUp?.(this.t.pluginEvent(this.local(e), e, this.ownerPane), cancelled);
+      return;
+    }
     if (this.mode === 'pinch') {
       if (this.pointers.size < 2) this.mode = 'none';
       return;
@@ -194,7 +234,7 @@ export class InputController {
       }
     }
     this.mode = 'none';
-    if (e.pointerType === 'mouse') this.t.root.style.cursor = this.t.hit(p.x, p.y) === 'pane' ? 'crosshair' : '';
+    if (e.pointerType === 'mouse') this.t.setRootCursor(this.t.hit(p.x, p.y) === 'pane' ? 'crosshair' : '');
     if (wasPan && !cancelled) this.maybeKinetic(e.timeStamp);
   }
 
@@ -248,6 +288,9 @@ export class InputController {
   }
 
   private key(e: KeyboardEvent): void {
+    for (const h of this.t.pointerHandlers()) {
+      if (h.keyDown?.(e)) { e.preventDefault(); this.t.focusChanged(); return; }
+    }
     if (!this.t.interaction().keyboard || e.altKey || e.metaKey || e.ctrlKey) return;
     this.stopKinetic();
     let handled = true;

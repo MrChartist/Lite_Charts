@@ -61,3 +61,10 @@ export function simpleAverage(bars, n) {
   }
   return out;
 }
+
+/** A second, calmer walk on the same days as makeBars (a stand-in benchmark), as { time, value }. */
+export function makeBenchmark(bars, seed = 23, start = 250) {
+  const rand = rng(seed);
+  let v = start;
+  return bars.map((b) => { v = Math.max(1, v * (1 + (rand() - 0.485) * 0.018)); return { time: b.time, value: r2(v) }; });
+}

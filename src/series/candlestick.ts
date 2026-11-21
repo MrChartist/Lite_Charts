@@ -5,7 +5,7 @@
 import type { Time } from '../core/time';
 import { copyTime } from '../core/time';
 import { candleLayout } from '../render/pixel';
-import { decimateColumns } from '../render/decimate';
+import { createColumns, decimateColumns, type Columns } from '../render/decimate';
 import type { RowBase, SeriesDefinition, SeriesDrawScope } from './definition';
 
 export interface CandlestickData extends RowBase {
@@ -32,6 +32,47 @@ const ACCESS = {
   last: (r: CandlestickData) => r.close,
 };
 
+const folded = createColumns();
+
+/** The fold over the chart's typed arrays: no closures or object reads per row except one `open` per column. */
+function foldTyped(
+  s: SeriesDrawScope<CandlestickData, CandlestickOptions>, lows: Float64Array, highs: Float64Array, closes: Float64Array,
+  slots: Int32Array, x0: number, xs: number,
+): Columns {
+  const out = folded;
+  const span = s.to - s.from + 1;
+  if (out.x.length < span) {
+    const cap = span * 2;
+    out.x = new Float64Array(cap); out.high = new Float64Array(cap); out.low = new Float64Array(cap);
+    out.first = new Float64Array(cap); out.last = new Float64Array(cap); out.rows = new Int32Array(cap);
+  }
+  let n = 0;
+  let edge = -Infinity;
+  for (let i = s.from; i <= s.to; i++) {
+    const h = highs[i];
+    if (h !== h) continue;
+    const sl = slots[i];
+    if (sl < edge) {
+      const k = n - 1;
+      if (h > out.high[k]) out.high[k] = h;
+      const l = lows[i];
+      if (l < out.low[k]) out.low[k] = l;
+      out.last[k] = closes[i];
+      continue;
+    }
+    const col = Math.floor(x0 + xs * sl);
+    edge = (col + 1 - x0) / xs;
+    out.x[n] = col;
+    out.high[n] = h;
+    out.low[n] = lows[i];
+    out.first[n] = (s.rows[i] as CandlestickData).open;
+    out.last[n] = closes[i];
+    n++;
+  }
+  out.count = n;
+  return out;
+}
+
 function num(row: Record<string, unknown>, key: string): number {
   const v = row[key];
   if (typeof v !== 'number' || !Number.isFinite(v)) {
@@ -48,7 +89,9 @@ function drawCandles(s: SeriesDrawScope<CandlestickData, CandlestickOptions>): v
 
   if (layout.mode === 'columns') {
     // Compressed form: one column per device pixel, lowest low to highest high, coloured by first open vs last close.
-    const cols = s.decimate ? s.decimate(ACCESS) : decimateColumns(rows, from, to, x, ACCESS);
+    const cols = s.lows && s.highs && s.values && s.slots && s.xStep !== undefined && s.xOrigin !== undefined
+      ? foldTyped(s, s.lows, s.highs, s.values, s.slots, s.xOrigin, s.xStep)
+      : s.decimate ? s.decimate(ACCESS) : decimateColumns(rows, from, to, x, ACCESS);
     for (let pass = 0; pass < 2; pass++) {
       ctx.beginPath();
       for (let k = 0; k < cols.count; k++) {

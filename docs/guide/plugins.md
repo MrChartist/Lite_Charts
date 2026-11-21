@@ -3,6 +3,9 @@ title: Plugins and primitives
 description: Price lines, series markers and custom primitives in Chartist Lite: draw your own levels, signals and overlays on the chart canvas.
 order: 8
 related: series-types, panes-and-scales, api-reference
+group: customise
+task: Draw your own marks
+summary: Price lines, markers and the primitive contract for your own overlays.
 ---
 
 # Plugins: price lines, markers and custom primitives
@@ -36,6 +39,23 @@ resistance.remove();
 
 A bad value throws a `TypeError` that names the field.
 
+Here are two lines from the last 30 bars, and markers, on a live chart:
+
+```js live height=360
+const chart = createChart('chart');
+const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });
+candles.setData(bars);
+
+const recent = bars.slice(-30);
+createPriceLine(candles, { price: Math.max(...recent.map(b => b.high)), title: 'Resistance', color: '#0A84FF' });
+createPriceLine(candles, { price: Math.min(...recent.map(b => b.low)), title: 'Support', lineStyle: 'dotted', color: '#FF9F0A' });
+createSeriesMarkers(candles, [
+  { time: bars[150].time, position: 'belowBar', shape: 'arrowUp', text: 'Buy' },
+  { time: bars[180].time, position: 'aboveBar', shape: 'arrowDown', text: 'Sell' },
+  { time: bars[200].time, position: 'aboveBar', shape: 'circle', text: 'Note' },
+]);
+```
+
 ## Series markers
 
 Small shapes with optional short text, placed above, below or inside a bar.
@@ -68,7 +88,11 @@ Markers on one bar stack outward and never overlap the bar or each other. Only m
 
 A primitive is a plain object that draws on a pane. Attach it to a series (`series.attachPrimitive(p)`, prices then map through that series' scale) or to a pane (`chart.attachPrimitive(p)` for the top pane, or `chart.panes()[i].attachPrimitive(p)`; the scale is `p.priceScaleId ?? 'right'`).
 
-```js
+```js live height=320
+const chart = createChart('chart');
+const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });
+candles.setData(bars);
+
 const band = {
   zOrder: 'bottom',
   attached(host) { this.host = host; },
@@ -77,7 +101,7 @@ const band = {
   draw(s) {
     const top = s.priceToY(105), bottom = s.priceToY(95);
     if (top === null || bottom === null) return;
-    s.ctx.fillStyle = 'rgba(0, 102, 204, 0.08)';
+    s.ctx.fillStyle = 'rgba(10, 132, 255, 0.16)';
     s.ctx.fillRect(s.pane.x, top, s.pane.width, bottom - top);
   },
 };
@@ -101,6 +125,9 @@ All hooks are optional:
 The draw scope gives `ctx`, `pixelRatio`, `pane` (a CSS rectangle), `colors`, `fontFamily`, `fontSize`, `visibleLogicalRange`, `timeToX(time)`, `logicalToX(logical)`, `priceToY(price)`, `text(...)`, `measureText(...)` and `formatPrice(price)`. `text` draws with tabular figures. Prefer `s.colors` over hard-coded colours so a theme switch recolours your drawing.
 
 Price lines and markers are made from exactly this contract, so reading `src/plugins/price-line.ts` and `src/plugins/markers.ts` is the best worked example.
+
+> [!TIP]
+> Prefer `s.colors` over hard-coded colours, as the price line and marker plugins do, so a theme switch recolours your drawing.
 
 ## Things this library does not do
 

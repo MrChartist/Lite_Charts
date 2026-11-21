@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chartist Lite frame bench</title>
+<script>
+  // Frame-cost harness: requestAnimationFrame callbacks are queued and run by the bench itself, timed, so a frame's
+  // COST is measured without waiting for vsync (headless Chromium runs rAF at about 60 Hz whatever the display).
+  window.__raf = [];
+  let rafId = 1;
+  window.requestAnimationFrame = cb => { window.__raf.push([rafId, cb]); return rafId++; };
+  window.cancelAnimationFrame = id => { window.__raf = window.__raf.filter(e => e[0] !== id); };
+  window.__flush = () => { const q = window.__raf; window.__raf = []; const ts = performance.now(); for (const [, cb] of q) cb(ts); };
+</script>
+<style>html, body { margin: 0; background: #fff; } #c { width: 1200px; height: 600px; }</style>
+</head>
+<body>
+<div id="c"></div>
+<script src="../dist/chartist-lite.iife.min.js"></script>
+<script src="../dist/chartist-lite-indicators.iife.min.js"></script>
+<script src="../dist/chartist-lite-drawings.iife.min.js" onerror="window.__noDrawings = true"></script>
+<script src="bench-page.js"></script>
+</body>
+</html>

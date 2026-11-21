@@ -12,6 +12,7 @@ export const ENTRIES = {
   indicators: 'src/indicators/index.ts',
   element: 'src/element/index.ts',
   react: 'src/react/index.ts',
+  drawings: 'src/drawings/index.ts',
 };
 
 rmSync(join(root, 'dist'), { recursive: true, force: true });
@@ -49,6 +50,7 @@ await build({
 for (const [entry, outfile, globalName] of [
   ['src/indicators/index.ts', 'dist/chartist-lite-indicators.iife.min.js', 'ChartistLiteIndicators'],
   ['src/element/auto.ts', 'dist/chartist-lite.element.iife.min.js', 'ChartistLiteElement'],
+  ['src/drawings/index.ts', 'dist/chartist-lite-drawings.iife.min.js', 'ChartistLiteDrawings'],
 ]) {
   await build({
     absWorkingDir: root, entryPoints: [entry], outfile, bundle: true, format: 'iife', globalName, minify: true,

@@ -3,6 +3,9 @@ title: Series types
 description: The six Chartist Lite series types (candlestick, line, area, bar, histogram, baseline): data rows, options and a short example for each.
 order: 3
 related: indicators, panes-and-scales, plugins
+group: build
+task: Choose how prices look
+summary: Candlestick, bars, line, area, histogram and baseline, with their rows and options.
 ---
 
 # Series types
@@ -31,13 +34,14 @@ These are the common options, available on every type:
 | `lastValueVisible` | Tag with the last value on the price axis |
 | `priceLineVisible` | Dotted horizontal line at the last value |
 | `priceFormat` | `{ precision, minMove }`: decimals shown (default 2) and the smallest price step (default 10 to the power of minus precision) |
-| `title` | Short name, used by legends and the accessible description |
+| `title` | Short name, shown in the built-in legend and read in the accessible description. A series without a title stays out of the legend |
 
 ## Candlestick
 
-```js
-const candles = chart.addSeries(CandlestickSeries, { upColor: '#248A3D', downColor: '#D70015' });
-candles.setData([{ time: '2024-01-02', open: 100, high: 104, low: 99, close: 103 }]);
+```js live height=280
+const chart = createChart('chart');
+const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });
+candles.setData(bars);   // [{ time: '2024-01-02', open: 100, high: 104, low: 99, close: 103 }, ...]
 ```
 
 Options: `upColor`, `downColor` (default to the theme's up and down colours, so a theme switch recolours the series), `wickVisible` (default true), `wickUpColor`, `wickDownColor`.
@@ -50,12 +54,18 @@ When bars are closer than 3 device pixels they fold into one-pixel columns, so a
 
 OHLC bars: a vertical stem from low to high, an open tick on the left and a close tick on the right.
 
+```js live height=280
+const chart = createChart('chart');
+chart.addSeries(BarSeries, { title: 'DEMO' }).setData(bars);
+```
+
 Options: `upColor`, `downColor`, `openVisible` (default true) and `thinBars` (default true: a one-device-pixel stem when bars are narrow, under 8 CSS px apart).
 
 ## Line
 
-```js
-const line = chart.addSeries(LineSeries, { color: '#0066CC', lineWidth: 2, lineStyle: 'dashed' });
+```js live height=280
+const chart = createChart('chart');
+const line = chart.addSeries(LineSeries, { title: 'Close', lineWidth: 2, lineType: 'step' });
 line.setData(bars.map(b => ({ time: b.time, value: b.close })));
 ```
 
@@ -63,13 +73,21 @@ Options: `color` (defaults to the theme's line colour), `lineWidth` (CSS px, def
 
 ## Area
 
-A line with a fill under it. Options: `lineColor`, `lineWidth`, `topColor` (fill colour at the top; defaults to the line colour at 28% opacity), `bottomColor` (fill colour at the pane bottom; defaults to the line colour fully transparent), `crosshairMarkerVisible`.
+A line with a fill under it. Options: `lineColor`, `lineWidth`, `topColor` (fill colour at the top; defaults to the line colour at 24% opacity), `bottomColor` (fill colour at the pane bottom; defaults to the line colour fully transparent), `crosshairMarkerVisible`. When you set neither fill colour, the default fill also passes through 8% opacity just over halfway down, so it fades sooner.
+
+```js live height=280
+const chart = createChart('chart');
+chart.addSeries(AreaSeries, { title: 'Close' })
+  .setData(bars.map(b => ({ time: b.time, value: b.close })));
+```
 
 ## Histogram
 
-Columns that grow from a base value. Options: `color` (defaults to the theme's line colour at 50% opacity) and `base` (default 0). A row may carry its own `color`, which is how you colour volume by direction:
+Columns that grow from a base value. Options: `color` (defaults to the theme's quiet `volume` colour, so volume sits behind the price) and `base` (default 0). A row may carry its own `color`, which is how you colour volume by direction:
 
-```js
+```js live height=360
+const chart = createChart('chart');
+chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
 const volume = chart.addSeries(HistogramSeries, { priceScaleId: 'volume', title: 'Volume' });
 chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 volume.setData(bars.map(b => ({ time: b.time, value: b.volume, color: b.close >= b.open ? '#248A3D' : '#D70015' })));
@@ -81,10 +99,19 @@ Putting the histogram on an overlay scale (any `priceScaleId` other than `'right
 
 A line split around `baseValue`: one colour above, another below, with a translucent fill between the line and the base. Options: `baseValue` (default 0), `upColor`, `downColor` (default to the theme), `lineWidth`, `fillOpacity` (0 to 1, default 0.18), `crosshairMarkerVisible`.
 
+```js live height=280
+const chart = createChart('chart');
+chart.addSeries(BaselineSeries, { baseValue: 100, title: 'Close' })
+  .setData(bars.map(b => ({ time: b.time, value: b.close })));
+```
+
 ## Direction and colour
 
-Up and down colours come from the theme (green and red in both themes; the built-in palette uses higher-contrast variants where text sits on a fill). A candle is drawn in the up colour when its close is at or above its open. Candles and bars carry direction in colour only, so if that matters for your readers, add text elsewhere on the page (a table, a legend, a data summary; see [Accessibility](accessibility.md)). Override colours per series with the options above or for the whole chart with the `colors` option; see [Theming](theming.md).
+Up and down colours come from the theme (green and red in both themes). Marks use `up` and `down`; text, such as the change in the legend, uses the darker `upText` and `downText`, chosen for at least 4.5:1 on the background. A candle is drawn in the up colour when its close is at or above its open. Candles and bars carry direction in colour only, so if that matters for your readers, add text elsewhere on the page (a table, a legend, a data summary; see [Accessibility](accessibility.md)). Override colours per series with the options above or for the whole chart with the `colors` option; see [Theming](theming.md).
 
 ## Writing your own series type
 
-A series type is one object implementing `SeriesDefinition`: `type`, `defaults`, `normalize`, `value`, `low`, `high`, `lastValueColor`, `draw`, and optionally `crosshairMarker`. `draw` receives device-pixel coordinates and only the visible rows. The contract is in `src/series/definition.ts`; the exported types are `SeriesDefinition`, `SeriesDrawScope`, `SeriesCommonOptions`, `RowBase`, `WhitespaceData`, `DeviceRect`, `PriceFormat`, `RowOf`, `OptionsOf` and `InputOf`. See the [API reference](api-reference.md). Writing a custom series is an advanced use that is described in the contributor notes (`ARCHITECTURE.md`) rather than here; treat its stability as Needs verification until the package is released.
+A series type is one object implementing `SeriesDefinition`: `type`, `defaults`, `normalize`, `value`, `low`, `high`, `lastValueColor`, `draw`, and optionally `crosshairMarker`. `draw` receives device-pixel coordinates and only the visible rows. The contract is in `src/series/definition.ts`; the exported types are `SeriesDefinition`, `SeriesDrawScope`, `SeriesCommonOptions`, `RowBase`, `WhitespaceData`, `DeviceRect`, `PriceFormat`, `RowOf`, `OptionsOf` and `InputOf`. See the [API reference](api-reference.md). Writing a custom series is an advanced use that is described in the contributor notes (`ARCHITECTURE.md`) rather than here.
+
+> [!VERIFY]
+> Whether the custom series contract is a stable public API in 0.1.0 is not settled. Treat it as subject to change until the package is released.

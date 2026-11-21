@@ -3,6 +3,9 @@ title: Embedding the chart
 description: Four ways to embed Chartist Lite: the chartist-chart web component, an ES module, React or an iframe, with attributes, data formats, events and lifecycle.
 order: 2
 related: getting-started, accessibility, api-reference
+group: start
+task: Put it on any page
+summary: The element, an ES module, React or an iframe: attributes, data formats and events.
 ---
 
 # Embedding the chart
@@ -16,7 +19,8 @@ Four ways to put the chart on a page, from least to most code.
 | A React app | 3. React |
 | A site that does not allow scripts in its pages | 4. An iframe to a page you host |
 
-The package is not yet published, so there is no CDN address: copy the `dist/` file you need next to your page, or serve it from your own site (see [Getting started](getting-started.md)).
+> [!NOTE]
+> The package is not yet published, so there is no CDN address: copy the `dist/` file you need next to your page, or serve it from your own site (see [Getting started](getting-started.md)).
 
 ## 1. Script tag and the web component
 
@@ -37,13 +41,29 @@ The first of these that exists is used:
 2. the `src` attribute: a URL returning JSON or CSV, fetched with `fetch` (another site needs CORS headers; a page opened from `file://` may be blocked from fetching local files, so use inline data there)
 3. a child script holding the data:
 
-```html
-<chartist-chart type="line" height="320">
+```html live
+<chartist-chart type="area" height="300" aria-label="Weekly values, sample data">
   <script type="application/json">
-    [{"time":"2024-01-01","value":100},{"time":"2024-01-08","value":103.5}]
+    [{"time":"2024-01-01","value":100},
+    {"time":"2024-01-08","value":103.5},
+    {"time":"2024-01-15","value":102.1},
+    {"time":"2024-01-22","value":105.8},
+    {"time":"2024-01-29","value":104.2},
+    {"time":"2024-02-05","value":108.9},
+    {"time":"2024-02-12","value":107.4},
+    {"time":"2024-02-19","value":111.2},
+    {"time":"2024-02-26","value":109.6},
+    {"time":"2024-03-04","value":113.4},
+    {"time":"2024-03-11","value":116.0},
+    {"time":"2024-03-18","value":114.1},
+    {"time":"2024-03-25","value":118.7},
+    {"time":"2024-04-01","value":117.2},
+    {"time":"2024-04-08","value":120.7}]
   </script>
 </chartist-chart>
 ```
+
+The block above is not a picture: it is the markup itself, running on this page.
 
 (`<script type="text/csv">` works the same way.)
 

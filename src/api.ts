@@ -30,6 +30,38 @@ export type LogicalRangeChangeHandler = (range: LogicalRange | null) => void;
 
 export interface TimeRange { from: Time; to: Time }
 
+/** A pointer event as a plugin sees it, in the API's pane-relative coordinates. */
+export interface ChartPointerEvent {
+  /** x from the plot's left edge, y from the top of the pane under the pointer (the pane where the gesture began). */
+  point: Point;
+  /** Pane under the pointer, or -1 off the panes (axes). */
+  paneIndex: number;
+  /** Fractional logical index under the pointer. */
+  logical: number;
+  /** 'pane', 'price', 'time' or 'none'. */
+  area: 'pane' | 'price' | 'time' | 'none';
+  pointerType: string;
+  shiftKey: boolean;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}
+
+/** Hooks a plugin registers with `chart.addPointerHandler`. Handlers are asked in the order they were added. */
+export interface ChartPointerHandler {
+  /** A press. Return true to own this gesture: its moves and release then go to `pointerMove` / `pointerUp`, and the chart neither pans nor zooms. */
+  pointerDown?(e: ChartPointerEvent): boolean;
+  pointerMove?(e: ChartPointerEvent): void;
+  /** The owned gesture ended (`cancelled` when the browser took the pointer). */
+  pointerUp?(e: ChartPointerEvent, cancelled: boolean): void;
+  /** A mouse move with no gesture in progress. */
+  hover?(e: ChartPointerEvent): void;
+  /** A key while the chart has focus; return true when handled (the chart then ignores it). */
+  keyDown?(e: KeyboardEvent): boolean;
+  /** While true the chart turns native touch gestures off (`touch-action: none`), e.g. while a drawing tool is armed. */
+  blocksTouch?(): boolean;
+}
+
 export interface TimeScaleApi {
   /** Show every bar. */
   fitContent(): void;
@@ -47,6 +79,13 @@ export interface TimeScaleApi {
   coordinateToTime(x: number): Time | null;
   logicalToCoordinate(logical: number): number | null;
   coordinateToLogical(x: number): number | null;
+  /**
+   * Logical index of a time (seconds or a Time): exact for a bar's time, interpolated between bars, extrapolated past
+   * either end at the median bar interval. Null before any data. Drawings anchor to times through this.
+   */
+  timeToLogical(time: Time | number): number | null;
+  /** The time (UNIX seconds) at a logical index, interpolated / extrapolated the same way. Null before any data. */
+  logicalToTime(logical: number): number | null;
   /** CSS px of the plot area. */
   width(): number;
   applyOptions(options: DeepPartial<ChartTimeScaleOptions>): void;
@@ -121,6 +160,13 @@ export interface ChartApi {
   unsubscribeClick(handler: MouseEventHandler): void;
   /** A canvas holding the chart as drawn now (crosshair included). */
   takeScreenshot(): HTMLCanvasElement;
+  /**
+   * Let a plugin (drawing tools) take pointer gestures and keys before the chart does. Returns a function that removes
+   * the handler. See `ChartPointerHandler`.
+   */
+  addPointerHandler(handler: ChartPointerHandler): () => void;
+  /** Force the pointer cursor over the chart (a plugin's tool), or null to give it back to the chart. */
+  setCursor(cursor: string | null): void;
   /** Primitive drawn on the top pane (not tied to a series); `panes()[i].attachPrimitive` for another pane. */
   attachPrimitive(primitive: ChartPrimitive): void;
   detachPrimitive(primitive: ChartPrimitive): void;

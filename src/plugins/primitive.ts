@@ -53,6 +53,8 @@ export interface PriceAxisLabel {
 /** What a primitive gets on attach. Keep it; call `requestUpdate` when its own state changes. */
 export interface PrimitiveHost {
   requestUpdate(): void;
+  /** Repaint only the overlay layer (`drawOverlay`): for hover, selection and drag feedback. */
+  requestOverlay?(): void;
   /** The series it is attached to, or null for a pane primitive. Typed loosely to keep this file dependency-free. */
   series: unknown;
 }

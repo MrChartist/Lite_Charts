@@ -29,12 +29,89 @@ export function histogramColumn(spacingDev: number, ratio: number): { width: num
   return { width: l.body, columns: l.mode === 'columns' };
 }
 
+// Scratch for the folded form: per device-pixel column its extreme value and that row's colour (reused, no per-frame
+// allocation once grown).
+let foldX = new Float64Array(256);
+let foldV = new Float64Array(256);
+let foldC: (string | undefined)[] = [];
+
+/**
+ * Bars closer than one device pixel: one column per pixel, from the base to the value farthest from it, in that row's
+ * colour. Keeps a 100k-row histogram to one rectangle per pixel column (was one per row).
+ */
+function drawFolded(s: SeriesDrawScope<HistogramData, HistogramOptions>, baseY: number, fallback: string): void {
+  const { ctx, rows, from, to, x, y, options: o } = s;
+  if (foldX.length < to - from + 2) {
+    foldX = new Float64Array((to - from + 2) * 2);
+    foldV = new Float64Array(foldX.length);
+  }
+  let n = 0;
+  const vals = s.values;
+  const slots = s.slots;
+  if (vals && slots && s.xStep !== undefined && s.xOrigin !== undefined) {
+    // Typed path: the row object is read only for a column's first row and a new extreme (its colour).
+    const x0 = s.xOrigin;
+    const xs = s.xStep;
+    const base = o.base;
+    let edge = -Infinity;
+    for (let i = from; i <= to; i++) {
+      const v = vals[i];
+      if (v !== v) continue;
+      const sl = slots[i];
+      if (sl < edge) {
+        if (Math.abs(v - base) > Math.abs(foldV[n - 1] - base)) { foldV[n - 1] = v; foldC[n - 1] = (rows[i] as HistogramData).color; }
+        continue;
+      }
+      const col = Math.floor(x0 + xs * sl);
+      edge = (col + 1 - x0) / xs;
+      foldX[n] = col; foldV[n] = v; foldC[n] = (rows[i] as HistogramData).color;
+      n++;
+    }
+  } else {
+    let cur = Number.NaN;
+    for (let i = from; i <= to; i++) {
+      const r = rows[i];
+      if (!r) continue;
+      const col = Math.floor(x(i));
+      if (col !== cur) {
+        cur = col;
+        foldX[n] = col; foldV[n] = r.value; foldC[n] = r.color;
+        n++;
+      } else if (Math.abs(r.value - o.base) > Math.abs(foldV[n - 1] - o.base)) {
+        foldV[n - 1] = r.value; foldC[n - 1] = r.color;
+      }
+    }
+  }
+  // One path per colour: the series colour first, then each row colour in turn.
+  let done = 0;
+  let pass = 0;
+  const seen = distinct;
+  seen.length = 0;
+  while (done < n && pass < 64) {
+    const want = pass === 0 ? fallback : seen[pass - 1];
+    if (pass > 0 && want === undefined) break;
+    ctx.beginPath();
+    for (let k = 0; k < n; k++) {
+      const c = foldC[k] ?? fallback;
+      if (c !== want) { if (pass === 0 && seen.indexOf(c) < 0) seen.push(c); continue; }
+      const yv = Math.round(y(foldV[k]));
+      if (!Number.isFinite(yv)) continue;
+      ctx.rect(foldX[k], Math.min(yv, baseY), 1, Math.max(1, Math.abs(yv - baseY)));
+      done++;
+    }
+    ctx.fillStyle = want;
+    ctx.fill();
+    pass++;
+  }
+}
+
 function drawHistogram(s: SeriesDrawScope<HistogramData, HistogramOptions>): void {
   const { ctx, rows, from, to, x, y, options: o, colors } = s;
   const baseY = Math.round(y(o.base));
   if (!Number.isFinite(baseY)) return;
   const fallback = o.color ?? colors.volume;
   const { width, columns } = histogramColumn(s.barSpacing, s.pixelRatio);
+  if (s.barSpacing < 1) { drawFolded(s, baseY, fallback); return; }
 
   // Distinct override colours (small, reused array; no per-bar allocation).
   distinct.length = 0;

@@ -3,6 +3,9 @@ title: Accessibility
 description: Keyboard control, screen reader support, reduced motion and fallback content for crawlers in Chartist Lite, and what has and has not been tested.
 order: 9
 related: theming, getting-started, api-reference
+group: customise
+task: Reach every reader
+summary: Keyboard control, spoken bars, fallback text and what has been tested.
 ---
 
 # Accessibility
@@ -17,6 +20,13 @@ A chart drawn on a canvas has no text of its own. Chartist Lite adds what a canv
 - **Visible focus.** A focus ring in the theme's `focusRing` colour appears when focus comes from the keyboard.
 
 ## Keyboard
+
+Try it here: tab into the chart below (or click it), press Enter, then the arrow keys. The legend follows the bar you inspect.
+
+```js live height=320
+const chart = createChart('chart', { ariaLabel: 'DEMO daily price' });
+chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
+```
 
 With the chart focused (and `interaction.keyboard` on, the default):
 
@@ -56,10 +66,16 @@ This stays in the page source and shows normally for visitors without JavaScript
 
 ## Colour and contrast
 
-Candles, bars and the baseline series show direction in colour. The built-in palettes use Apple's system colours with higher-contrast variants where text sits on a fill. The contrast ratio of every colour pair was not measured as part of this package (Needs verification). If you override colours, check contrast yourself, and add text such as a legend or table so colour is not the only way to learn direction.
+Candles, bars and the baseline series show direction in colour. The built-in palettes use Apple's system colours with higher-contrast variants where text sits on a fill. The legend's change text uses `upText` and `downText`, which the theme defines for at least 4.5:1 on the chart background, and it carries an arrow and a sign, so direction is not told by colour alone there. If you override colours, check contrast yourself, and add text such as a table so colour is not the only way to learn direction.
+
+> [!VERIFY]
+> The contrast ratio of every built-in colour pair has not been measured as part of this package.
 
 The smallest text the chart draws is 12 CSS px: `fontSize` is raised to 12 if you set less. Negative numbers use the true minus sign U+2212, which screen readers read as "minus".
 
 ## What has been tested
 
-Tested in Chromium only (Playwright scripts in `scripts/`): the example pages draw, and the element, React and iframe embeds behave as [Embedding](embedding.md) lists. In Chromium, `scripts/screenshots.cjs` drives inspect mode (Enter, arrows, Home) and reads the live region's text, and `scripts/screenshots-review.cjs` checks the focus ring inside `<chartist-chart>`. Not tested: screen readers (no VoiceOver, NVDA or JAWS run is recorded), other browsers, forced-colours mode. Treat the roles and the live region as implemented but unverified with assistive technology (Needs verification).
+Tested in Chromium only (Playwright scripts in `scripts/`): the example pages draw, and the element, React and iframe embeds behave as [Embedding](embedding.md) lists. In Chromium, `scripts/screenshots.cjs` drives inspect mode (Enter, arrows, Home) and reads the live region's text, and `scripts/screenshots-review.cjs` checks the focus ring inside `<chartist-chart>`. Not tested: screen readers (no VoiceOver, NVDA or JAWS run is recorded), other browsers, forced-colours mode.
+
+> [!VERIFY]
+> The roles and the live region are implemented but unverified with assistive technology.

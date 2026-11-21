@@ -3,6 +3,9 @@ title: Indicators
 description: Built-in indicators for Chartist Lite as plain functions: moving averages, Bollinger bands, RSI, MACD, ATR, VWAP, Supertrend, with incremental forms for live data.
 order: 4
 related: series-types, panes-and-scales, time-and-time-zones
+group: build
+task: Add moving averages and oscillators
+summary: Twelve indicators as plain functions, with live forms for streaming data.
 ---
 
 # Indicators
@@ -50,18 +53,34 @@ Arrays are aligned one to one with the input, so `series.setData(sma(rows, 20))`
 
 Overlays such as a moving average go on the price pane as line series. Oscillators such as RSI go in a lower pane so they get their own scale (see [Panes and scales](panes-and-scales.md)):
 
-```js
+```js live height=480
 import { createChart, CandlestickSeries, LineSeries, createPriceLine } from '@mrchartist/chartist-lite';
 import { sma, rsi } from '@mrchartist/chartist-lite/indicators';
 
 const chart = createChart('chart');
-chart.addSeries(CandlestickSeries).setData(bars);
-chart.addSeries(LineSeries, { title: 'SMA 20' }).setData(sma(bars, 20));
+chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
+chart.addSeries(LineSeries, { title: 'SMA 20', color: '#FF9F0A' }).setData(sma(bars, 20));
 
 const rsiLine = chart.addSeries(LineSeries, { title: 'RSI 14' }, 1);   // pane 1: a new pane below
 rsiLine.setData(rsi(bars, 14));
 createPriceLine(rsiLine, { price: 70, lineStyle: 'dotted' });
 createPriceLine(rsiLine, { price: 30, lineStyle: 'dotted' });
+```
+
+Multi-output functions return an object of arrays, one per line. MACD in its own pane, with the histogram coloured by sign:
+
+```js live height=420
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from '@mrchartist/chartist-lite';
+import { macd } from '@mrchartist/chartist-lite/indicators';
+
+const chart = createChart('chart');
+chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
+
+const m = macd(bars, { fast: 12, slow: 26, signal: 9 });
+chart.addSeries(HistogramSeries, { title: 'Histogram' }, 1).setData(
+  m.histogram.map(p => (p.value === undefined ? p : { ...p, color: p.value >= 0 ? '#248A3D' : '#D70015' })));
+chart.addSeries(LineSeries, { title: 'MACD', lineWidth: 2 }, 1).setData(m.macd);
+chart.addSeries(LineSeries, { title: 'Signal', lineWidth: 1, color: '#FF9F0A' }, 1).setData(m.signal);
 ```
 
 ## Higher timeframes
@@ -86,6 +105,9 @@ rsiSeries.update(rsi14.next(liveRow));                  // O(1) per tick
 ```
 
 `next(row)`: a row with the same time as the last bar replaces it (the forming bar ticking); a newer time appends. An older time, or a time that cannot be read, is ignored and returns `{ time }`. The numbers equal the batch functions' because they share code and operation order. One difference: a leading run of bars with no value is skipped (the batch form back-fills it from the first finite value, which needs the future). `macd` returns `{ macd, signal, histogram }` points. `reset()` forgets all state. The other indicators have no incremental form; recompute them (`atr`, `bollinger` and the rest run in linear time).
+
+> [!NOTE]
+> Only `sma`, `ema`, `rsi` and `macd` have incremental forms.
 
 ## Bad input
 

@@ -3,17 +3,21 @@ title: Theming
 description: Light, dark and automatic themes in Chartist Lite: override colours and fonts, switch themes at runtime, and what the attribution link is.
 order: 7
 related: accessibility, plugins, api-reference
+group: customise
+task: Match your brand
+summary: Dark and light, colour overrides, fonts, the legend and the attribution link.
 ---
 
 # Theming
 
 ## Light, dark and auto
 
-```js
+```js live height=320 controls=theme
 const chart = createChart('chart', { theme: 'auto' });
+chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
 ```
 
-`theme` is `'light'` (the default), `'dark'` or `'auto'`. `'auto'` follows the visitor's `prefers-color-scheme` setting and repaints when it changes. Switch at any time:
+`theme` is `'light'` (the default), `'dark'` or `'auto'`. `'auto'` follows the visitor's `prefers-color-scheme` setting and repaints when it changes. On this site the live examples follow the site's own theme toggle instead; the buttons above switch this one chart. Switch at any time:
 
 ```js
 chart.applyOptions({ theme: 'dark' });
@@ -35,17 +39,20 @@ Series colours that you did not set explicitly follow the theme, so a switch rec
 | `crosshair` | Crosshair lines |
 | `tagBackground`, `tagText` | Crosshair axis tags |
 | `up`, `down` | Rising and falling candles, bars and tags |
+| `upText`, `downText` | Text and arrows of a rise or fall, such as the change in the legend; at least 4.5:1 on the background |
+| `volume` | Default colour of a histogram: a quiet ink that sits behind the price |
 | `line` | Default colour of a line series |
 | `focusRing` | Keyboard focus ring |
 
-The palette follows Apple's system colours: green and red for up and down (the higher-contrast variants where text sits on them), blue for lines, and no purple.
+The palette follows Apple's system colours: green and red for up and down (darker variants for text), blue for lines, and no purple. The light background is white and the dark one `#141414`.
 
 ## Overriding colours
 
-```js
-createChart('chart', {
-  colors: { up: '#1A7F37', down: '#CF222E', background: '#FAFAFA' },
+```js live height=280
+const chart = createChart('chart', {
+  colors: { up: '#0A84FF', down: '#FF9F0A' },
 });
+chart.addSeries(CandlestickSeries, { title: 'Blue and orange' }).setData(bars);
 ```
 
 `colors` is a partial `ThemeColors` applied over the built-in theme, light and dark alike. If you need different overrides per theme, call `applyOptions({ colors })` together with the theme switch. Check contrast yourself when you override: the library does not validate it. Inside the library, text on a coloured tag is picked as black or white for contrast with that fill; that helper is not exported.
@@ -62,7 +69,8 @@ The default `fontFamily` is the system stack (`-apple-system, BlinkMacSystemFont
 
 | Option | Values |
 |---|---|
-| `grid` | `{ vertLines: boolean, horzLines: boolean }` |
+| `grid` | `{ vertLines: boolean, horzLines: boolean }`; by default only the horizontal lines are drawn (`vertLines: false`) |
+| `legend` | `{ visible: boolean }`; the built-in legend, on by default (see below) |
 | `crosshair.mode` | `'normal'` follows the pointer, `'magnet'` snaps the horizontal line to the first series' value, `'hidden'` |
 | `crosshair.labels` | Axis tags under the crosshair lines |
 | `rightPriceScale`, `leftPriceScale` | `{ mode: 'linear' \| 'log' \| 'percent', autoScale, scaleMargins: { top, bottom }, visible }` |
@@ -70,6 +78,16 @@ The default `fontFamily` is the system stack (`-apple-system, BlinkMacSystemFont
 | `interaction` | `wheelZoom` (`'auto'` default, `true`, `'modifier'`, `false`), `dragPan`, `pinchZoom`, `kinetic`, `keyboard`, `doubleClickReset` (default true) |
 
 A fast drag keeps gliding after release; that is turned off under `prefers-reduced-motion`.
+
+## The legend
+
+Each pane has a small legend at its top left. It lists every visible series in that pane that has a `title`: a candlestick or bar shows `O H L C` and the change from the previous close, with an arrow and a sign (`▲ +1.20 (+1.10%)`); a single-value series shows a colour dot and its value. It reads the bar under the pointer, and the last bar when nothing is hovered. A pane with no titled series shows no legend.
+
+```js
+createChart('chart', { legend: { visible: false } });   // hide it
+```
+
+The legend is ordinary text (it can be selected and copied), drawn in the chart's font, size and theme colours, in its own shadow root so page CSS does not reach it. Price text in it follows `localization.priceFormatter` and each series' `priceFormat`.
 
 ## Size
 

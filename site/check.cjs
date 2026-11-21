@@ -1,8 +1,11 @@
 // Verifies the built site in real Chromium (Playwright must be importable; it is not a dependency of this package).
 //   node site/check.cjs
-// Builds the site, serves site/dist, visits every page at 1280 and 390 wide in light and dark and asserts the list in
-// the CHECKS table below. Also loads the home page from file:// and under a sub-path. Writes the home screenshots to
-// docs/screenshots/site-*.png. Exit code 1 when anything fails.
+// Builds the site, serves site/dist, visits every page at 1280 and 390 wide in dark (the default) and light and asserts
+// SEO tags, one h1, contrast, text size, touch targets, overflow, links and that every chart draws. Then checks the
+// interactive parts by keyboard: search, the drawer's focus trap, copy buttons, ARIA tabs, the chapter scroll-spy, the
+// API filter, the examples gallery and its dialog, the frame meter; fonts and layout shift; strict-CSP markup; and the
+// pages from file:// and under a sub-path. Exit code 1 when anything fails. Screenshots: SITE_SHOTS=1 writes the
+// final ones to docs/screenshots/site-*.png.
 const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
 const http = require('node:http');
@@ -18,7 +21,7 @@ const failures = [];
 let assertions = 0;
 function ok(cond, msg) { assertions++; if (!cond) { failures.push(msg); console.error('  FAIL ' + msg); } }
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.xml': 'application/xml', '.txt': 'text/plain' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.xml': 'application/xml', '.txt': 'text/plain', '.woff2': 'font/woff2' };
 function serve(prefix) {
   const server = http.createServer((req, res) => {
     let p = decodeURIComponent(req.url.split('?')[0]);
@@ -140,6 +143,185 @@ async function waitCharts(page, label) {
   await page.waitForTimeout(250);
 }
 
+
+// ---- interactive parts, by keyboard where a person would use one ----
+async function interactive(browser, origin) {
+  const watch = (page) => { const errs = []; page.on('pageerror', (e) => errs.push(e.message)); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); }); return errs; };
+
+  // Search: "/" opens it, typing finds headings, arrows move, Enter opens the heading.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/guide/getting-started.html`, { waitUntil: 'load' });
+    await page.keyboard.press('/');
+    await page.waitForFunction(() => document.getElementById('search').open && document.activeElement.id === 'search-input', null, { timeout: 3000 }).catch(() => {});
+    ok(await page.evaluate(() => document.getElementById('search').open && document.activeElement.id === 'search-input'), 'search: "/" opens the search and focuses the field');
+    await page.keyboard.type('legend');
+    await page.waitForFunction(() => document.querySelectorAll('#search-results li').length > 0, null, { timeout: 3000 }).catch(() => {});
+    const n = await page.evaluate(() => document.querySelectorAll('#search-results li').length);
+    ok(n > 0, `search: "legend" finds results (${n})`);
+    ok(await page.evaluate(() => document.getElementById('search-input').getAttribute('aria-activedescendant') === 'sr-0'), 'search: the first result is the active option');
+    await page.keyboard.press('ArrowDown');
+    ok(await page.evaluate(() => document.querySelector('#search-results li[aria-selected="true"]').id === 'sr-1' || document.querySelectorAll('#search-results li').length === 1), 'search: ArrowDown moves the selection');
+    const target = await page.evaluate(() => document.querySelector('#search-results li[aria-selected="true"] a').href);
+    await Promise.all([page.waitForNavigation({ timeout: 5000 }).catch(() => {}), page.keyboard.press('Enter')]);
+    ok(page.url() === target && /#/.test(target), `search: Enter opens the result, a heading link (${target.replace(origin, '')})`);
+    const frag = new URL(page.url()).hash.slice(1);
+    ok(await page.evaluate((f) => !!document.getElementById(f), frag), 'search: the result heading exists on the page');
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    await page.keyboard.press('Control+k');
+    await page.waitForTimeout(200);
+    await page.keyboard.type('zzzqqq');
+    await page.waitForTimeout(200);
+    ok(await page.evaluate(() => /Nothing matches/.test(document.getElementById('search-status').textContent)), 'search: Ctrl+K opens it, and no match says so');
+    await page.keyboard.press('Escape');
+    ok(await page.evaluate(() => !document.getElementById('search').open), 'search: Escape closes it');
+    ok(errs.length === 0, 'search: no console errors ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  // Drawer: opens from the menu button, traps focus, Escape closes and focus returns.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/guide/theming.html`, { waitUntil: 'load' });
+    await page.click('#menu-open');
+    await page.waitForTimeout(300);
+    ok(await page.evaluate(() => document.getElementById('drawer').open), 'drawer: the menu button opens it');
+    let inside = true;
+    for (let i = 0; i < 40; i++) { await page.keyboard.press(i % 7 === 6 ? 'Shift+Tab' : 'Tab'); if (!(await page.evaluate(() => document.getElementById('drawer').contains(document.activeElement)))) { inside = false; break; } }
+    ok(inside, 'drawer: Tab and Shift+Tab keep focus inside (40 presses)');
+    ok(await page.evaluate(() => !!document.querySelector('#drawer a[aria-current="page"]')), 'drawer: the current guide is marked');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    ok(await page.evaluate(() => !document.getElementById('drawer').open && document.activeElement.id === 'menu-open'), 'drawer: Escape closes it and focus returns to the menu button');
+    ok(errs.length === 0, 'drawer: no console errors ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  // Copy buttons, tabs, the chapter scroll-spy, the meter.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    const tabs = await page.evaluate(() => { const l = document.querySelector('[role="tablist"]'); const t = Array.from(l.querySelectorAll('[role="tab"]')); return { n: t.length, wired: t.every((x) => { const p = document.getElementById(x.getAttribute('aria-controls')); return p && p.getAttribute('role') === 'tabpanel' && p.getAttribute('aria-labelledby') === x.id; }) }; });
+    ok(tabs.n === 3 && tabs.wired, 'tabs: three tabs, each controls a tabpanel labelled by it');
+    await page.focus('#tab-script');
+    await page.keyboard.press('ArrowRight');
+    ok(await page.evaluate(() => document.activeElement.id === 'tab-module' && document.getElementById('tab-module').getAttribute('aria-selected') === 'true' && !document.getElementById('panel-module').hidden && document.getElementById('panel-script').hidden), 'tabs: ArrowRight selects and shows the next tab');
+    await page.keyboard.press('End');
+    ok(await page.evaluate(() => document.activeElement.id === 'tab-react' && document.getElementById('tab-script').tabIndex === -1), 'tabs: End selects the last; only the selected tab is in the Tab order');
+    await page.click('#panel-react .copy');
+    await page.waitForTimeout(200);
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    const pre = await page.evaluate(() => document.querySelector('#panel-react pre').textContent);
+    ok(clip === pre && clip.includes('createChartistReact'), 'copy: the button copies the block text exactly');
+    ok(await page.evaluate(() => document.querySelector('#panel-react .copy').textContent === 'Copied'), 'copy: the button says Copied');
+    // Scroll-spy on the home chapters.
+    await page.evaluate(() => document.getElementById('ch-panes').scrollIntoView());
+    await page.waitForTimeout(400);
+    ok(await page.evaluate(() => document.querySelector('nav.chapters a[aria-current="true"]').getAttribute('href') === '#ch-panes'), 'scroll-spy: the home capsule marks the chapter in view');
+    // Frame meter.
+    await page.evaluate(() => document.getElementById('meter').scrollIntoView({ block: 'center' }));
+    await page.waitForFunction(() => /Median/.test(document.getElementById('meter-read').textContent), null, { timeout: 15000 }).catch(() => {});
+    const meter = await page.evaluate(() => document.getElementById('meter-read').textContent);
+    ok(/Median [\d.]+ ms/.test(meter), `meter: it measures frames on this device ("${meter.slice(0, 80)}")`);
+    ok(errs.length === 0, 'home interactions: no console errors ' + errs.join(' | '));
+    // Scroll-spy on a guide page.
+    await page.goto(`${origin}/guide/panes-and-scales.html`, { waitUntil: 'load' });
+    const id = await page.evaluate(() => document.querySelectorAll('.prose > h2')[1].id);
+    await page.evaluate((x) => document.getElementById(x).scrollIntoView(), id);
+    await page.waitForTimeout(400);
+    ok(await page.evaluate(() => document.querySelector('nav.chapters a[aria-current="true"]').getAttribute('href')) === `#${id}`, `scroll-spy: a guide capsule marks the second chapter (#${id})`);
+    await ctx.close();
+  }
+
+  // API filter and the examples gallery.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/guide/api-reference.html`, { waitUntil: 'load' });
+    const total = await page.evaluate(() => document.querySelectorAll('.entry').length);
+    await page.fill('#api-filter', 'setdata');
+    const vis = await page.evaluate(() => Array.from(document.querySelectorAll('.entry')).filter((e) => !e.hidden).map((e) => e.dataset.entry));
+    ok(total > 60 && vis.length > 0 && vis.length < 8 && vis.includes('series.setdata'), `api filter: "setdata" narrows ${total} entries to ${vis.length}`);
+    ok(await page.evaluate(() => /match/.test(document.getElementById('api-count').textContent)), 'api filter: the count is announced');
+    await page.fill('#api-filter', '');
+    ok(await page.evaluate(() => Array.from(document.querySelectorAll('.entry')).every((e) => !e.hidden)), 'api filter: clearing shows every entry');
+
+    await page.goto(`${origin}/examples.html`, { waitUntil: 'load' });
+    await page.click('[data-filter="indicators"]');
+    const shown = await page.evaluate(() => Array.from(document.querySelectorAll('.ex-card')).filter((c) => !c.hidden).map((c) => c.dataset.kind));
+    ok(shown.length > 0 && shown.every((k) => k === 'indicators'), `gallery: the Indicators chip shows only indicator cards (${shown.length})`);
+    await page.click('[data-filter="all"]');
+    const opener = page.locator('[data-open="panes"]');
+    await opener.scrollIntoViewIfNeeded();
+    await opener.click();
+    await page.waitForFunction(() => { const el = document.querySelector('#ex-dialog-stage [data-demo]'); return document.getElementById('ex-dialog').open && el && el.dataset.ready === '1' && el.querySelector('canvas'); }, null, { timeout: 8000 }).catch(() => {});
+    ok(await page.evaluate(() => !!document.querySelector('#ex-dialog-stage [data-demo][data-ready="1"] canvas') && /Panes/.test(document.getElementById('ex-dialog-guide').textContent) && !!document.querySelector('#ex-dialog-code pre')), 'gallery: Open shows a large live chart, its code and the guide link');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    ok(await page.evaluate(() => !document.getElementById('ex-dialog').open && !document.querySelector('#ex-dialog-stage canvas') && document.activeElement.dataset.open === 'panes'), 'gallery: Escape closes the view, releases its chart and returns focus');
+    ok(errs.length === 0, 'api filter and gallery: no console errors ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  // Fonts: the brand faces load over http, and their arrival barely moves the layout.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage();
+    await page.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); });
+    await page.goto(`${origin}/guide/series-types.html`, { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForTimeout(600);
+    const fonts = await page.evaluate(() => Array.from(document.fonts).filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, '')));
+    ok(fonts.includes('Chartist Sans') && fonts.includes('Chartist Sans Flex'), `fonts: Chartist Sans and Chartist Sans Flex load (${[...new Set(fonts)].join(', ')})`);
+    const cls = await page.evaluate(() => window.__cls);
+    ok(cls < 0.05, `fonts: layout shift while fonts and charts arrive is ${cls.toFixed(4)} (under 0.05)`);
+    await ctx.close();
+  }
+
+  // Strict CSP: no inline script code and no style attributes in the output.
+  {
+    const files = listPages(dist);
+    let inline = 0; let styles = 0;
+    for (const f of files) {
+      const html = fs.readFileSync(path.join(dist, f), 'utf8');
+      inline += (html.match(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/(ld\+)?json")[^>]*>/g) || []).length;
+      styles += (html.match(/\sstyle="/g) || []).length;
+    }
+    ok(inline === 0, `csp: no inline executable scripts in ${files.length} pages (${inline})`);
+    ok(styles === 0, `csp: no style attributes in the markup (${styles})`);
+  }
+}
+
+// ---- final screenshots (SITE_SHOTS=1) ----
+async function screenshots(browser, origin) {
+  const shot = async (name, url, { width = 1440, height = 900, theme = 'dark', mobile = false, prep } = {}) => {
+    const ctx = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
+    await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); } catch (e) { /* none */ } }, theme);
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/${url}`, { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    await settle(page);
+    if (prep) await prep(page);
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: path.join(shots, `${name}.png`) });
+    await ctx.close();
+  };
+  await shot('site-home-dark', 'index.html');
+  await shot('site-home-light', 'index.html', { theme: 'light' });
+  await shot('site-home-phone', 'index.html', { width: 390, height: 844, mobile: true });
+  const guidePrep = async (page) => { await page.evaluate(() => { const h = document.querySelectorAll('.prose > .chapter-label')[1]; window.scrollTo(0, h.getBoundingClientRect().top + scrollY - 150); }); };
+  await shot('site-guide-dark', 'guide/series-types.html', { prep: guidePrep });
+  await shot('site-guide-light', 'guide/series-types.html', { theme: 'light', prep: guidePrep });
+  await shot('site-guide-phone', 'guide/indicators.html', { width: 390, height: 844, mobile: true, prep: guidePrep });
+  await shot('site-examples-light', 'examples.html', { theme: 'light', prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.getElementById('ex-gallery').getBoundingClientRect().top + scrollY - 150)); } });
+  await shot('site-api-light', 'guide/api-reference.html', { theme: 'light', prep: async (page) => { await page.fill('#api-filter', 'scale'); await page.evaluate(() => window.scrollTo(0, document.getElementById('api-filter').getBoundingClientRect().top + scrollY - 120)); } });
+  await shot('site-search-light', 'guide/getting-started.html', { theme: 'light', prep: async (page) => { await page.keyboard.press('/'); await page.keyboard.type('price scale'); await page.waitForTimeout(300); await page.keyboard.press('ArrowDown'); } });
+  console.log('screenshots written to docs/screenshots/site-*.png');
+}
+
 (async () => {
   console.log('building the site');
   execFileSync(process.execPath, [path.join(here, 'build.mjs')], { stdio: 'inherit' });
@@ -172,6 +354,7 @@ async function waitCharts(page, label) {
   ];
   for (const prof of profiles) for (const scheme of ['light', 'dark']) {
     const ctx = await browser.newContext({ viewport: { width: prof.width, height: prof.height }, colorScheme: scheme, isMobile: !!prof.mobile, hasTouch: !!prof.mobile, deviceScaleFactor: prof.mobile ? 2 : 1 });
+    await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); } catch (e) { /* none */ } }, scheme);
     for (const pg of pages) {
       const label = `${pg} @${prof.name} ${scheme}`;
       const page = await ctx.newPage();
@@ -230,7 +413,7 @@ async function waitCharts(page, label) {
         const small = await page.evaluate(() => {
           const out = [];
           if (!matchMedia('(pointer: coarse)').matches) return ['pointer is not coarse in this context'];
-          for (const el of document.querySelectorAll('.btn, .main-nav a, .footer-nav a, .toc a, .pager a, .side-nav a, .crumbs a, details.mobile-nav summary, .skip')) {
+          for (const el of document.querySelectorAll('.btn, .chip, .seg button, .copy, .icon-btn, .search-btn, .main-nav a, .footer-nav a, .nav-list a, .chapters a, .pager a, .crumb a, .related a, .skip')) {
             const r = el.getBoundingClientRect();
             if (r.width === 0 || r.height === 0) continue;
             if (r.height < 43.5 || r.width < 43.5) out.push(`${el.tagName}.${el.className} ${Math.round(r.width)}x${Math.round(r.height)} "${el.textContent.trim().slice(0, 20)}"`);
@@ -240,14 +423,6 @@ async function waitCharts(page, label) {
         ok(small.length === 0, `${label}: touch targets are at least 44px ${small.slice(0, 3).join(' | ')}`);
       }
 
-      if (pg === 'index.html') {
-        const name = `site-home-${prof.mobile ? 'phone' : scheme}`;
-        if (!prof.mobile || scheme === 'light') {
-          await page.evaluate(() => window.scrollTo(0, 0));
-          await page.screenshot({ path: path.join(shots, `${name}.png`) });
-          if (scratch) await page.screenshot({ path: path.join(scratch, `${name}-full.png`), fullPage: true });
-        }
-      }
       await page.close();
     }
     await ctx.close();
@@ -263,15 +438,15 @@ async function waitCharts(page, label) {
     await page.goto(`${origin}/examples.html`, { waitUntil: 'load' });
     await settle(page); await waitCharts(page, 'examples toggle');
     const before = await page.evaluate(inPageCharts);
-    ok(before.every((c) => c.bright > 200), 'toggle: every chart starts light');
+    ok(before.every((c) => c.bright >= 0 && c.bright < 80), 'toggle: dark is the default and every chart starts dark');
     await page.click('#theme-toggle');
     await page.waitForTimeout(500);
     const after = await page.evaluate(inPageCharts);
-    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'dark', 'toggle: page switches to dark');
-    ok(after.every((c) => c.bright >= 0 && c.bright < 80 && c.diff > 300), 'toggle: every chart repaints dark and stays non-empty ' + JSON.stringify(after.map((c) => c.bright)));
-    ok(await page.evaluate(() => document.getElementById('theme-toggle').getAttribute('aria-pressed')) === 'true', 'toggle: aria-pressed follows');
+    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'light', 'toggle: page switches to light');
+    ok(after.every((c) => c.bright > 200 && c.diff > 300), 'toggle: every chart repaints light and stays non-empty ' + JSON.stringify(after.map((c) => c.bright)));
+    ok(await page.evaluate(() => document.getElementById('theme-toggle').getAttribute('aria-pressed')) === 'false', 'toggle: aria-pressed follows (pressed means dark)');
     await page.reload({ waitUntil: 'load' });
-    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'dark', 'toggle: the choice is remembered after a reload');
+    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'light', 'toggle: the choice is remembered after a reload, before first paint');
     // Zone switch changes the axis labels without errors.
     await page.locator('button[data-zone="America/New_York"]').scrollIntoViewIfNeeded();
     await page.click('button[data-zone="America/New_York"]');
@@ -285,7 +460,7 @@ async function waitCharts(page, label) {
   {
     const sub = await serve('/some/sub/path/');
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    for (const [label, url] of [['sub-path', `http://127.0.0.1:${sub.port}/some/sub/path/index.html`], ['file://', 'file://' + path.join(dist, 'examples.html')]]) {
+    for (const [label, url] of [['sub-path', `http://127.0.0.1:${sub.port}/some/sub/path/index.html`], ['sub-path guide', `http://127.0.0.1:${sub.port}/some/sub/path/guide/indicators.html`], ['file://', 'file://' + path.join(dist, 'examples.html')], ['file:// guide', 'file://' + path.join(dist, 'guide', 'series-types.html')]]) {
       const page = await ctx.newPage();
       const problems = [];
       page.on('console', (m) => { if (m.type() === 'error') problems.push(m.text()); });
@@ -300,6 +475,9 @@ async function waitCharts(page, label) {
     }
     await ctx.close(); sub.server.close();
   }
+
+  await interactive(browser, origin);
+  if (process.env.SITE_SHOTS) await screenshots(browser, origin);
 
   await browser.close(); server.close();
   console.log(`\n${assertions} assertions, ${failures.length} failed`);

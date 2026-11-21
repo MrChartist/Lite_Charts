@@ -28,6 +28,10 @@
       "types": "./dist/types/react/index.d.ts",
       "import": "./dist/react.js"
     },
+    "./drawings": {
+      "types": "./dist/types/drawings/index.d.ts",
+      "import": "./dist/drawings.js"
+    },
     "./iife": "./dist/chartist-lite.iife.min.js",
     "./package.json": "./package.json"
   },
@@ -49,7 +53,8 @@
     "size": "node scripts/size.mjs",
     "site": "node site/build.mjs",
     "check": "npm run typecheck && npm test && npm run build && npm run size",
-    "screenshots": "npm run build && node scripts/screenshots-all.mjs"
+    "screenshots": "npm run build && node scripts/screenshots-all.mjs",
+    "bench": "npm run build && node scripts/bench.cjs"
   },
   "peerDependencies": {
     "react": ">=18"

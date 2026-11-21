@@ -69,6 +69,19 @@ export interface SeriesDrawScope<R extends RowBase, O> {
   decimate?: (access: ColumnAccess<R>) => Columns;
   /** Index of the pane being drawn (0 = top). Always set by the chart. */
   paneIndex?: number;
+  /**
+   * Typed fast path for dense drawing (always set by the chart): `values[i]` is `value(rows[i])` (NaN for whitespace),
+   * and the bar-centre x of row i is `xOrigin + xStep * slots[i]` in device px (the same number `x(i)` returns).
+   */
+  values?: Float64Array;
+  slots?: Int32Array;
+  xOrigin?: number;
+  xStep?: number;
+  /** `low(row)` / `high(row)` of each row (NaN for whitespace), the typed companions of `values`. */
+  lows?: Float64Array;
+  highs?: Float64Array;
+  /** Min / max of `values` per block of `size` rows (NaN for a block with a gap), to fold dense rows faster. */
+  valueBlocks?: { size: number; min: Float64Array; max: Float64Array };
 }
 
 export interface SeriesDefinition<R extends RowBase = RowBase, O extends object = object> {

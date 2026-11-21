@@ -3,15 +3,19 @@ title: Getting started
 description: Put a candlestick chart on a page with Chartist Lite three ways: a script tag with the chartist-chart element, an ES module with createChart, or React.
 order: 1
 related: series-types, theming, api-reference
+group: start
+task: Draw your first chart
+summary: Put a candlestick chart on a page three ways: a tag, a module or React.
 ---
 
 # Getting started
 
 Chartist Lite draws a financial chart on one canvas. This page gets a chart on screen in three ways: a script tag with a custom element (no build step), an ES module, and React.
 
-## Status and install
+## Install
 
-Version 0.1.0. The package is **not yet published to npm**, so `npm install @mrchartist/chartist-lite` does not work today. Until it is published, build it from source and host the files yourself:
+> [!WARNING]
+> Version 0.1.0 is **not yet published to npm**, so `npm install @mrchartist/chartist-lite` does not work today. Build it from source and host the files yourself.
 
 ```bash
 cd packages/chartist-lite
@@ -19,11 +23,18 @@ npm install
 npm run build
 ```
 
-`dist/` then holds everything you ship: `chartist-lite.iife.min.js` (global `ChartistLite`), `chartist-lite.element.iife.min.js` (registers `<chartist-chart>`), `chartist-lite-indicators.iife.min.js` (global `ChartistLiteIndicators`) and ES modules for each entry. Copy the file you need next to your page or serve it from your own site. Once the package is published, the same entries are available as `@mrchartist/chartist-lite`, `@mrchartist/chartist-lite/indicators`, `@mrchartist/chartist-lite/element` and `@mrchartist/chartist-lite/react`.
+`dist/` then holds everything you ship:
 
-The package has no runtime dependencies. React is an optional peer dependency, used only by the `react` entry.
+| File | What it gives you |
+|---|---|
+| `chartist-lite.iife.min.js` | The global `ChartistLite` |
+| `chartist-lite.element.iife.min.js` | Registers `<chartist-chart>` (includes the chart) |
+| `chartist-lite-indicators.iife.min.js` | The global `ChartistLiteIndicators` |
+| `index.js`, `indicators.js`, `element.js`, `react.js` | ES modules for each entry |
 
-## 1. Script tag and the chartist-chart element
+Copy the file you need next to your page or serve it from your own site. Once the package is published, the same entries are `@mrchartist/chartist-lite`, `@mrchartist/chartist-lite/indicators`, `@mrchartist/chartist-lite/element` and `@mrchartist/chartist-lite/react`. The package has no runtime dependencies; React is an optional peer dependency, used only by the `react` entry.
+
+## A script tag and one element
 
 The shortest path. Load one script, then use the tag anywhere in the page:
 
@@ -34,13 +45,13 @@ The shortest path. Load one script, then use the tag anywhere in the page:
   time-zone="Asia/Kolkata" aria-label="Daily price"></chartist-chart>
 ```
 
-Loading the script registers the tag `chartist-chart`. The data comes from a `src` URL (JSON or CSV), a `.data` property, or a child `<script type="application/json">`. The chart is created when the element nears the viewport, so a page with many charts stays light. The full list of attributes, events and the data formats is in [Embedding the chart](embedding.md) and summarised in [Accessibility](accessibility.md) (fallback content) and the [API reference](api-reference.md).
+Loading the script registers the tag `chartist-chart`. The data comes from a `src` URL (JSON or CSV), a `.data` property, or a child `<script type="application/json">`. The chart is created when the element nears the viewport, so a page with many charts stays light. Every attribute, event and data format is in [Embedding the chart](embedding.md).
 
-## 2. ES module and createChart
+## An ES module and createChart
 
-If you use a bundler or `<script type="module">`, import what you need and create the chart yourself:
+With a bundler or `<script type="module">`, import what you need and create the chart yourself. This example runs on this page:
 
-```js
+```js live height=420
 import { createChart, CandlestickSeries, LineSeries } from '@mrchartist/chartist-lite';
 import { sma } from '@mrchartist/chartist-lite/indicators';
 
@@ -54,19 +65,27 @@ average.setData(sma(bars, 20));
 
 `createChart(container, options)` takes an element or an element id. The chart fills the container and follows its size, so give the container a height in CSS. Importing the module touches no DOM; everything starts at `createChart`.
 
+The legend at the top left of the chart is built in: it names each series that has a `title` and shows the values of the bar under the pointer, or of the last bar when nothing is hovered. `legend: { visible: false }` hides it.
+
 With a plain script tag instead of a bundler, the core is the global `ChartistLite`:
 
 ```html
-<div id="chart" style="height: 420px"></div>
+<div id="chart" class="price-chart"></div>
 <script src="chartist-lite.iife.min.js"></script>
-<script>
-  const { createChart, CandlestickSeries } = ChartistLite;
-  const chart = createChart('chart', { theme: 'light' });
-  chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
-</script>
+<script src="my-chart.js"></script>
 ```
 
-## 3. React
+```js
+// my-chart.js
+const { createChart, CandlestickSeries } = ChartistLite;
+const chart = createChart('chart', { theme: 'light' });
+chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
+```
+
+> [!TIP]
+> Keeping your own code in a file, as above, means a page with a strict `script-src 'self'` policy works unchanged. Give `.price-chart` a height in your stylesheet.
+
+## React
 
 React is an optional peer dependency (18 or later). The wrapper does not import React; you pass your React to a factory once, at module level:
 
@@ -96,7 +115,7 @@ The chart is created once per mount. When only the last bar of an array changes,
 
 ## Your first data
 
-A row is a time plus the fields of its series type. A candlestick needs `open`, `high`, `low` and `close`; a line, area, histogram or baseline needs `value`. A time is UNIX seconds (an instant), a `'YYYY-MM-DD'` string or a `{ year, month, day }` object (a date). Rows must be in ascending time order. See [Series types](series-types.md) and [Time and time zones](time-and-time-zones.md).
+A row is a time plus the fields of its series type. A candlestick needs `open`, `high`, `low` and `close`; a line, area, histogram or baseline needs `value`. A time is UNIX seconds (an instant), a `'YYYY-MM-DD'` string or a `{ year, month, day }` object (a date). Rows must be in ascending time order. Until data arrives, the chart shows "No data" in its centre (`localization.noDataText`; an empty string shows nothing). See [Series types](series-types.md) and [Time and time zones](time-and-time-zones.md).
 
 ## Updating live
 

@@ -1,17 +1,22 @@
 #!/usr/bin/env node
-// Builds the documentation site into site/dist/: static HTML (real text in the source), one small stylesheet, one page
-// script, the package's own built scripts for the live charts, sitemap.xml and robots.txt. No framework, no web fonts.
+// Builds the documentation site into site/dist/: static HTML (real text in the source), one stylesheet, a small
+// deferred page script, lazily loaded chart scripts (the package's own built files), a search index, sitemap.xml and
+// robots.txt. No framework and no runtime dependency.
 //
 //   npm run build && npm run site          (the site needs dist/ of the package: it serves the real library)
 //
 // Needs `esbuild`, a development tool of this package. Settings (base URL and so on) are in site.config.json.
-import { build } from 'esbuild';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+// Live examples in the guides are fences marked `live` (see markdown.mjs): their code is compiled here, without its
+// import lines, into one small script per page, and runs as shown with `bars` set to demo data. No eval, no inline
+// script, so the pages work under `script-src 'self'`.
+import { build, transform } from 'esbuild';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { esc, parseFrontMatter, renderMarkdown } from './markdown.mjs';
+import { codeBlock, esc, parseFrontMatter, renderMarkdown } from './markdown.mjs';
 import { makeBars } from './src/demo-data.js';
+import { EXAMPLES } from './src/examples.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.join(here, '..');
@@ -20,6 +25,7 @@ const config = JSON.parse(readFileSync(path.join(here, 'site.config.json'), 'utf
 const pkgJson = JSON.parse(readFileSync(path.join(pkg, 'package.json'), 'utf8'));
 const baseUrl = config.baseUrl.endsWith('/') ? config.baseUrl : `${config.baseUrl}/`;
 const NAME = config.name;
+const VERSION = pkgJson.version;
 const warnings = [];
 
 const posix = (p) => p.split(path.sep).join('/');
@@ -30,6 +36,7 @@ function rel(from, to) {
   const r = path.posix.relative(path.posix.dirname(from), to);
   return r === '' ? path.posix.basename(to) : r;
 }
+const rootOf = (p) => { const d = path.posix.dirname(p); return d === '.' ? '' : d.split('/').map(() => '..').join('/') + '/'; };
 
 function pngSize(file) {
   const b = readFileSync(file);
@@ -37,21 +44,127 @@ function pngSize(file) {
   return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
 }
 
-// ---------- sources ----------
+// ---------- facts read from the package now ----------
+const indexSrc = read('src/index.ts');
+const SERIES_COUNT = (indexSrc.match(/^export \{ \w+Series \} from/gm) || []).length;
+const indicatorSrc = read('src/indicators/index.ts');
+const INDICATOR_NAMES = Array.from(indicatorSrc.matchAll(/^export \{ (\w+) \} from/gm)).map((m) => m[1])
+  .filter((n) => !['heikinAshi', 'aggregate', 'createIndicator'].includes(n));
+const RUNTIME_DEPS = Object.keys(pkgJson.dependencies || {}).length;
+
+// Performance figures from `npm run bench` (docs/performance.json, written by scripts/bench.cjs). When the file is
+// missing or its shape is not understood, the site hides the figures rather than guess.
+const SCENARIO_LABELS = { crosshair: 'Crosshair', pan: 'Pan', zoom: 'Wheel zoom', tick: 'Live tick', fit: 'Live tick, whole series in view', drag: 'Drag a drawing' };
+function readPerf() {
+  const f = path.join(pkg, 'docs', 'performance.json');
+  if (!existsSync(f)) return null;
+  try {
+    const j = JSON.parse(readFileSync(f, 'utf8'));
+    const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const rows = (Array.isArray(j.results) ? j.results : []).filter((r) => r.scenario && num(r.median) !== null && num(r.p95) !== null)
+      .map((r) => ({ chart: String(r.chart || ''), scenario: String(r.scenario), bars: num(r.bars), dpr: num(r.dpr) ?? 1, median: r.median, p95: r.p95 }));
+    if (!rows.length) { warnings.push('docs/performance.json has no rows the site understands; the speed figures are hidden'); return null; }
+    const m = j.machine || {};
+    const machine = typeof m === 'string' ? m : [m.cpu, m.cores ? `${m.cores} cores` : '', m.chromium ? `Chromium ${m.chromium}${m.headless ? ', headless' : ''}` : ''].filter(Boolean).join(', ');
+    const budget = num(j.budgets && j.budgets.hz120) ?? 8.33;
+    const worst = Math.max(...rows.map((r) => r.p95));
+    const over = rows.filter((r) => r.p95 > budget).length;
+    const barsList = [...new Set(rows.map((r) => r.bars))].filter((x) => x !== null).sort((x, y) => x - y);
+    const scenarios = [...new Set(rows.map((r) => r.scenario))];
+    const grid = scenarios.map((sc) => ({ label: SCENARIO_LABELS[sc] || sc, cells: barsList.map((bn) => { const c = rows.filter((r) => r.scenario === sc && r.bars === bn); return c.length ? Math.max(...c.map((r) => r.p95)) : null; }) }));
+    const panRows = rows.filter((r) => r.scenario === 'pan' && r.bars === Math.max(...barsList));
+    const pan = panRows.length ? Math.max(...panRows.map((r) => r.median)) : null;
+    const date = typeof m === 'object' && m.date ? String(m.date).slice(0, 10) : '';
+    return { rows, machine, budget, worst, over, scenarios: rows.length, barsList, grid, pan, panBars: Math.max(...barsList), date, what: String(j.what || '') };
+  } catch (e) { warnings.push(`docs/performance.json could not be read (${e.message}); the speed figures are hidden`); return null; }
+}
+const PERF = readPerf();
+// Drawing tools: a separate entry being added. Its chapter, guide and examples appear when it exists.
+const DRAWINGS = null;
+
+function benchHtml() {
+  if (!PERF) return `<h3 id="bench-h">Measured, not claimed</h3><p>The package has a frame benchmark (<code>npm run bench</code>). Its recorded figures appear here when they are published with the package; until then, the meter beside this card is the honest number, on your device.</p>`;
+  return `<h3 id="bench-h">Recorded frame cost</h3><p>The highest p95 frame cost of any gesture in ${PERF.scenarios} scenarios, against the ${PERF.budget.toFixed(2)} ms of a 120 Hz frame:</p><span class="big">${PERF.worst.toFixed(2)}<small>ms p95</small></span>
+<div class="table-wrap" role="region" tabindex="0" aria-label="Table: worst p95 frame cost by gesture"><table><thead><tr><th scope="col">Worst p95, ms</th>${PERF.barsList.map((b) => `<th scope="col" class="num">${b / 1000}k bars</th>`).join('')}</tr></thead><tbody>${PERF.grid.map((g) => `<tr><td>${esc(g.label)}</td>${g.cells.map((c) => `<td class="num">${c === null ? 'n/a' : c.toFixed(2)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+<p class="note">Cost of our code per frame (input handlers, the chart's frame callbacks, layout of the legend), ${PERF.over} of ${PERF.scenarios} over budget. ${esc(PERF.machine)}${PERF.date ? `, ${esc(PERF.date)}` : ''}. Not a frame rate: headless Chromium has no 120 Hz panel and no GPU. Details: <code>docs/PERFORMANCE.md</code>.</p>`;
+}
+
+// Glyphs: one soft line family on a 24 grid, drawn in the ink of their host.
+const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const GLYPH = {
+  candles: svg('<path d="M7 4v3M7 17v3M17 3v4M17 15v5"/><rect x="5" y="7" width="4" height="10" rx="1"/><rect x="15" y="7" width="4" height="8" rx="1"/>'),
+  wave: svg('<path d="M3 15c3 0 3-7 6-7s3 9 6 9 3-6 6-6"/>'),
+  panes: svg('<rect x="3.5" y="4" width="17" height="16" rx="3"/><path d="M3.5 14h17M7 11l3-3 3 2 4-4"/>'),
+  clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+  code: svg('<path d="m8.5 8-4 4 4 4M15.5 8l4 4-4 4M13.5 5.5l-3 13"/>'),
+  keys: svg('<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/>'),
+  shield: svg('<path d="M12 3.5 5 6v5.5c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9V6l-7-2.5Z"/><path d="m9 12 2 2 4-4"/>'),
+  minus: svg('<path d="M5 12h14"/><circle cx="12" cy="12" r="8.5"/>'),
+  gauge: svg('<path d="M4.5 17a8.5 8.5 0 1 1 15 0"/><path d="m12 13 4-5"/>'),
+  book: svg('<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5v-15Z"/><path d="M5 20.5A2.5 2.5 0 0 1 7.5 18H19v3H7.5"/>'),
+  play: svg('<circle cx="12" cy="12" r="8.5"/><path d="m10 8.5 5 3.5-5 3.5v-7Z"/>'),
+  sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>'),
+  pin: svg('<path d="M4 12h16"/><path d="M8 8h.01M12 16l3-3 3 3"/>'),
+  swap: svg('<path d="M7 7h12l-3-3M17 17H5l3 3"/>'),
+  box: svg('<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>'),
+  atom: svg('<circle cx="12" cy="12" r="1.5"/><ellipse cx="12" cy="12" rx="9" ry="3.6"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-60 12 12)"/>'),
+  frame: svg('<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M3 8.5h18"/>'),
+};
+
+async function measureSizes() {
+  const gz = (buf) => gzipSync(buf, { level: 9 }).length;
+  const kb = (n) => (n / 1024).toFixed(1);
+  const rows = [];
+  const ENTRIES = [
+    ['Core (ES module, createChart and the six series)', 'src/index.ts'],
+    ['Indicators entry', 'src/indicators/index.ts'],
+    ['Element entry (includes the chart)', 'src/element/index.ts'],
+    ['React entry (includes the chart)', 'src/react/index.ts'],
+  ];
+  for (const [label, entry] of ENTRIES) {
+    const res = await build({ absWorkingDir: pkg, entryPoints: [entry], bundle: true, format: 'esm', minify: true, target: 'es2020', write: false, legalComments: 'none', logLevel: 'silent' });
+    const code = res.outputFiles[0].contents;
+    rows.push([label, kb(code.length), kb(gz(code))]);
+  }
+  for (const [label, file] of [
+    ['Script tag: chartist-lite.iife.min.js', 'dist/chartist-lite.iife.min.js'],
+    ['Script tag: chartist-lite-indicators.iife.min.js', 'dist/chartist-lite-indicators.iife.min.js'],
+    ['Script tag: chartist-lite.element.iife.min.js', 'dist/chartist-lite.element.iife.min.js'],
+  ]) {
+    const buf = readFileSync(path.join(pkg, file));
+    rows.push([label, kb(buf.length), kb(gz(buf))]);
+  }
+  return rows;
+}
+
+// ---------- guides ----------
+const GROUPS = [
+  { id: 'start', title: 'Start here', blurb: 'Get a chart on the page, then choose how it gets there.' },
+  { id: 'build', title: 'Build the chart', blurb: 'Series, indicators, panes and the time axis.' },
+  { id: 'customise', title: 'Make it yours', blurb: 'Colours, your own marks, and readers who use a keyboard.' },
+  { id: 'reference', title: 'Reference', blurb: 'Every export, and what changes if you know another library.' },
+];
 const guideDir = path.join(pkg, 'docs', 'guide');
 const guides = readdirSync(guideDir).filter((f) => f.endsWith('.md')).map((f) => {
   const slug = f.replace(/\.md$/, '');
   const { meta, body } = parseFrontMatter(readFileSync(path.join(guideDir, f), 'utf8'));
   if (!meta.title || !meta.description) throw new Error(`docs/guide/${f} needs a title and a description in its front matter`);
-  return { slug, src: `docs/guide/${f}`, out: `guide/${slug}.html`, title: meta.title, description: meta.description, order: Number(meta.order || 99), related: (meta.related || '').split(',').map((s) => s.trim()).filter(Boolean), body };
+  if (!GROUPS.some((g) => g.id === meta.group)) throw new Error(`docs/guide/${f} needs a group: one of ${GROUPS.map((g) => g.id).join(', ')}`);
+  return {
+    slug, src: `docs/guide/${f}`, out: `guide/${slug}.html`, title: meta.title, description: meta.description,
+    order: Number(meta.order || 99), group: meta.group, task: meta.task || '', summary: meta.summary || meta.description,
+    layout: meta.layout || 'guide', related: (meta.related || '').split(',').map((s) => s.trim()).filter(Boolean), body,
+  };
 }).sort((a, b) => a.order - b.order);
+const guideBySlug = (s) => guides.find((g) => g.slug === s);
 
 const mdMap = new Map([['README.md', 'readme.html'], ...guides.map((g) => [g.src, g.out])]);
 const assets = new Map(); // dist path -> source file
 
-function renderOptions(page, srcFile) {
+function renderOptions(page, srcFile, extra = {}) {
   const srcDir = path.posix.dirname(srcFile);
   return {
+    ...extra,
     resolveLink(href) {
       if (href.startsWith('#') || /^(https?:|mailto:)/i.test(href)) return { href };
       const [file, hash] = href.split('#');
@@ -70,90 +183,109 @@ function renderOptions(page, srcFile) {
       return rel(page, dest);
     },
     imageSize(src) {
-      const target = path.posix.normalize(path.posix.join(srcDir, src));
-      const f = path.join(pkg, target);
+      const f = path.join(pkg, path.posix.normalize(path.posix.join(srcDir, src)));
       return existsSync(f) ? pngSize(f) : null;
     },
   };
 }
 
-// ---------- sizes, measured now ----------
-async function measureSizes() {
-  const gz = (buf) => gzipSync(buf, { level: 9 }).length;
-  const kb = (n) => (n / 1024).toFixed(1);
-  const rows = [];
-  const ENTRIES = [
-    ['Core (ES module, createChart and the six series)', 'src/index.ts'],
-    ['Indicators entry', 'src/indicators/index.ts'],
-    ['Element entry (includes the chart)', 'src/element/index.ts'],
-    ['React entry (includes the chart)', 'src/react/index.ts'],
-  ];
-  for (const [label, entry] of ENTRIES) {
-    const res = await build({ absWorkingDir: pkg, entryPoints: [entry], bundle: true, format: 'esm', minify: true, target: 'es2020', write: false, legalComments: 'none', logLevel: 'silent' });
-    const code = res.outputFiles[0].contents;
-    rows.push([label, kb(code.length), kb(gz(code))]);
-  }
-  const IIFES = [
-    ['Script tag: chartist-lite.iife.min.js', 'dist/chartist-lite.iife.min.js'],
-    ['Script tag: chartist-lite-indicators.iife.min.js', 'dist/chartist-lite-indicators.iife.min.js'],
-    ['Script tag: chartist-lite.element.iife.min.js (the web component, includes the chart)', 'dist/chartist-lite.element.iife.min.js'],
-  ];
-  for (const [label, file] of IIFES) {
-    const buf = readFileSync(path.join(pkg, file));
-    rows.push([label, kb(buf.length), kb(gz(buf))]);
-  }
-  return rows;
+// ---------- live examples ----------
+const LIVE_NAMES = ['createChart', 'CandlestickSeries', 'BarSeries', 'LineSeries', 'AreaSeries', 'HistogramSeries', 'BaselineSeries',
+  'createPriceLine', 'createSeriesMarkers', 'lightTheme', 'darkTheme', 'formatPrice', 'formatPercent', 'MINUS_SIGN',
+  'sma', 'ema', 'wma', 'rsi', 'atr', 'obv', 'vwap', 'bollinger', 'donchian', 'macd', 'stochastic', 'supertrend', 'heikinAshi',
+  'aggregate', 'createIndicator', 'bars', 'intradayBars', 'benchmark'];
+const HEIGHTS = new Set(['220', '260', '280', '320', '360', '420', '480', '560']);
+const ZONES = [['Asia/Kolkata', 'Kolkata'], ['America/New_York', 'New York'], ['UTC', 'UTC']];
+
+/** The control strip of a live chart. Buttons act on the chart(s) in the same `[data-stage]`. */
+function controlsHtml(kind) {
+  if (kind === 'zone') return `<div class="seg" role="group" aria-label="Axis time zone">${ZONES.map(([z, l], i) => `<button type="button" data-zone="${z}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>`;
+  if (kind === 'theme') return `<div class="seg" role="group" aria-label="Chart theme"><button type="button" data-chart-theme="light" aria-pressed="false">Light</button><button type="button" data-chart-theme="dark" aria-pressed="false">Dark</button></div>`;
+  if (kind === 'scale') return `<div class="seg" role="group" aria-label="Price scale mode"><button type="button" data-scale="linear" aria-pressed="true">Linear</button><button type="button" data-scale="log" aria-pressed="false">Log</button><button type="button" data-scale="percent" aria-pressed="false">Percent</button></div>`;
+  return '';
+}
+
+function makeLive(slug, fns) {
+  let n = 0;
+  return ({ lang, code, attrs, heading }) => {
+    n++;
+    const id = `${slug}-${n}`;
+    const h = HEIGHTS.has(String(attrs.height)) ? attrs.height : '320';
+    const label = `Live example: ${heading || 'chart'}`;
+    const controls = `<div class="demo-bar"><span class="live-badge">Live</span>${attrs.controls ? `<span class="js-only">${controlsHtml(attrs.controls)}</span>` : ''}</div>`;
+    let stage;
+    if (lang === 'html') {
+      // The HTML runs as markup: the element script is loaded by the page, so the script tag line is dropped.
+      const markup = code.split('\n').filter((l) => !/<script\s+src=/.test(l)).join('\n').trim();
+      stage = markup;
+    } else {
+      const runnable = code.replace(/^\s*import\s[\s\S]*?from\s+['"][^'"]+['"];?[ \t]*$/gm, '').trim();
+      fns.push(`${JSON.stringify(id)}: function (api) { const { ${LIVE_NAMES.join(', ')} } = api; {\n${runnable}\n} }`);
+      stage = `<div class="chart h-${h}" data-demo="live" data-live="${id}" data-label="${esc(label)}"><p class="chart-fallback">The live chart appears here when JavaScript runs. The code below draws it.</p></div>`;
+    }
+    const note = lang === 'html'
+      ? 'This markup runs on this page as written, with the element script already loaded.'
+      : 'This code runs on this page as written, with <code>bars</code> set to invented demo data. The import lines are left to your bundler.';
+    return `<figure class="live window" data-stage>${controls}${stage}${codeBlock(code, lang, 'code--live')}<figcaption class="live-note">${note}</figcaption></figure>`;
+  };
 }
 
 // ---------- page chrome ----------
-const FAVICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1D1D1F"/><path d="M9 8v16M16 12v12M23 6v14" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>')}`;
+const ICON = {
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>',
+  sun: '<svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></svg>',
+  moon: '<svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z"/></svg>',
+  menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+};
+const MARK = '<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9"/><path d="M10 9v14M16 12v11M22 7v12" fill="none" stroke-width="3" stroke-linecap="round"/></svg>';
+const FAVICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#1D1D1F"/><path d="M10 9v14M16 12v11M22 7v12" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>')}`;
 const NAV = [
-  { label: 'Guide', path: 'guide/index.html', match: (p) => p.startsWith('guide/') },
+  { label: 'Guide', path: 'guide/index.html', match: (p) => p.startsWith('guide/') && p !== 'guide/api-reference.html' },
   { label: 'Examples', path: 'examples.html', match: (p) => p === 'examples.html' },
-  { label: 'API reference', path: 'guide/api-reference.html', match: () => false },
+  { label: 'API', path: 'guide/api-reference.html', match: (p) => p === 'guide/api-reference.html' },
   { label: 'README', path: 'readme.html', match: (p) => p === 'readme.html' },
 ];
-const THEME_BOOT = `try{var t=localStorage.getItem('cl-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}`;
 
-function ld(obj) {
-  return `<script type="application/ld+json">${JSON.stringify(obj).replace(/</g, '\\u003c')}</script>`;
-}
-
-function author() {
-  return { '@type': config.author.type, name: config.author.name, url: config.author.url };
-}
-
+function ld(obj) { return `<script type="application/ld+json">${JSON.stringify(obj).replace(/</g, '\\u003c')}</script>`; }
+function author() { return { '@type': config.author.type, name: config.author.name, url: config.author.url }; }
 function crumbList(crumbs) {
   return {
     '@context': 'https://schema.org', '@type': 'BreadcrumbList',
     itemListElement: crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.name, item: baseUrl + (c.path === 'index.html' ? '' : c.path) })),
   };
 }
-
 const ogImage = { path: 'assets/og-image.png', size: pngSize(path.join(pkg, config.ogImageSource)) };
 const OG_ALT = 'A daily candlestick chart with a 20-bar moving average, drawn by Chartist Lite from demo data.';
+
+function guideGroupsHtml(current) {
+  return GROUPS.map((grp) => {
+    const items = guides.filter((g) => g.group === grp.id);
+    return `<div class="nav-group"><p class="nav-group-title">${esc(grp.title)}</p><ul class="nav-list">${items.map((g) => `<li><a href="${rel(current, g.out)}"${g.out === current ? ' aria-current="page"' : ''}>${esc(g.title)}</a></li>`).join('')}</ul></div>`;
+  }).join('');
+}
 
 function layout(page) {
   const p = page.path;
   const url = baseUrl + (p === 'index.html' ? '' : p);
   const nav = NAV.map((n) => `<a href="${rel(p, n.path)}"${n.match(p) ? ' aria-current="page"' : ''}>${n.label}</a>`).join('');
-  const scripts = (page.scripts || []).map((s) => `<script src="${rel(p, s)}" defer></script>`).join('\n');
-  const crumbs = page.crumbs && page.crumbs.length > 1
-    ? `<nav class="crumbs" aria-label="Breadcrumb"><ol>${page.crumbs.map((c, i) => (i === page.crumbs.length - 1 ? `<li><span aria-current="page">${esc(c.name)}</span></li>` : `<li><a href="${rel(p, c.path)}">${esc(c.name)}</a></li>`)).join('')}</ol></nav>`
-    : '';
+  const drawerMain = `<ul class="nav-list main-links">${[{ label: 'Home', path: 'index.html', match: (x) => x === 'index.html' }, ...NAV].map((n) => `<li><a href="${rel(p, n.path)}"${n.match(p) ? ' aria-current="page"' : ''}>${n.label}</a></li>`).join('')}</ul>`;
   const ldBlocks = [...(page.ld || []), ...(page.crumbs && page.crumbs.length > 1 ? [crumbList(page.crumbs)] : [])].map(ld).join('\n');
   const img = baseUrl + ogImage.path;
+  const root = rootOf(p);
+  const g = (s) => rel(p, guideBySlug(s).out);
+  const dataAttrs = [`data-assets="${root}assets/"`, `data-root="${root}"`, page.live ? `data-live="${page.live}"` : '', page.demos ? 'data-demos' : ''].filter(Boolean).join(' ');
   return `<!doctype html>
-<html lang="${config.locale}">
+<html lang="${config.locale}" ${dataAttrs}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(page.title)}</title>
 <meta name="description" content="${esc(page.description)}">
 <link rel="canonical" href="${esc(url)}">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#F8F8F8" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0C0C0C" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#000000">
 <meta property="og:type" content="${page.ogType || 'website'}">
 <meta property="og:site_name" content="${esc(NAME)}">
 <meta property="og:title" content="${esc(page.title)}">
@@ -170,31 +302,48 @@ function layout(page) {
 <meta name="twitter:image" content="${esc(img)}">
 <meta name="twitter:image:alt" content="${esc(OG_ALT)}">
 <link rel="icon" href="${FAVICON}">
-<link rel="stylesheet" href="${rel(p, 'assets/site.css')}">
-<script>${THEME_BOOT}</script>
-${scripts}
+<link rel="stylesheet" href="${root}assets/site.css">
+<script src="${root}assets/boot.js"></script>
+<script src="${root}assets/site.js" defer></script>
 ${ldBlocks}
 </head>
-<body>
+<body class="${page.bodyClass || ''}">
 <a class="skip" href="#main">Skip to the content</a>
 <header class="site-header">
-  <div class="wrap">
-    <a class="brand" href="${rel(p, 'index.html')}">${esc(NAME)}</a>
+  <div class="header-row">
+    <a class="brand" href="${rel(p, 'index.html')}">${MARK}<span>${esc(NAME)}</span><span class="ver">${esc(VERSION)}</span></a>
     <nav class="main-nav" aria-label="Main">${nav}</nav>
-    <button class="btn" id="theme-toggle" type="button" aria-pressed="false" hidden>Dark mode</button>
+    <div class="header-tools">
+      <div class="tool-group js-only"><button class="search-btn" type="button" id="search-open" aria-label="Search the documentation" aria-keyshortcuts="/">${ICON.search}<span class="label">Search</span><kbd>/</kbd></button><button class="icon-btn" id="theme-toggle" type="button" aria-pressed="true" aria-label="Dark theme">${ICON.moon}${ICON.sun}</button></div>
+      <button class="icon-btn menu-btn js-only" id="menu-open" type="button" aria-label="Open the menu" aria-haspopup="dialog" aria-controls="drawer">${ICON.menu}</button>
+    </div>
   </div>
 </header>
+<dialog class="drawer" id="drawer" aria-label="Menu">
+  <div class="drawer-head"><a class="brand" href="${rel(p, 'index.html')}">${MARK}<span>${esc(NAME)}</span></a><button class="icon-btn" type="button" data-close aria-label="Close the menu">${ICON.close}</button></div>
+  <nav class="drawer-body" aria-label="Menu">${drawerMain}${guideGroupsHtml(p)}</nav>
+</dialog>
+<dialog class="search-dialog" id="search" aria-label="Search the documentation">
+  <div class="search-field">${ICON.search}<input id="search-input" type="search" placeholder="Search guides, options and API" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" aria-label="Search"><button class="icon-btn" type="button" data-close aria-label="Close search">${ICON.close}</button></div>
+  <ul class="search-results" id="search-results" role="listbox" aria-label="Results"></ul>
+  <p class="search-empty" id="search-status" role="status">Type to search every page and heading.</p>
+  <div class="search-foot" aria-hidden="true"><span><kbd>↑</kbd><kbd>↓</kbd> to move</span><span><kbd>↵</kbd> to open</span><span><kbd>esc</kbd> to close</span></div>
+</dialog>
 <main id="main" tabindex="-1">
-<div class="wrap">
-${crumbs}
 ${page.body}
-</div>
 </main>
 <footer class="site-footer">
   <div class="wrap">
-    <nav class="footer-nav" aria-label="Footer">${nav}</nav>
-    <p>${esc(NAME)} ${esc(pkgJson.version)} is an independent open-source project, written from scratch. It is not affiliated with, endorsed by or derived from TradingView or any other charting product. Licence: ${esc(config.license.name)}.</p>
-    <p>Made by <a href="${esc(config.author.url)}">${esc(config.author.name)}</a>. The charts on this site are drawn from invented demo data, not market data, and nothing here is investment advice.</p>
+    <div class="footer-grid">
+      <div class="footer-brand"><a class="brand" href="${rel(p, 'index.html')}">${MARK}<span>${esc(NAME)}</span></a><p>${esc(config.tagline)} Version ${esc(VERSION)}, not yet published to npm.</p></div>
+      <div class="footer-col"><h2 id="f-docs">Docs</h2><ul class="footer-nav" aria-labelledby="f-docs"><li><a href="${rel(p, 'guide/index.html')}">Guide</a></li><li><a href="${g('getting-started')}">Getting started</a></li><li><a href="${rel(p, 'examples.html')}">Examples</a></li><li><a href="${g('api-reference')}">API reference</a></li></ul></div>
+      <div class="footer-col"><h2 id="f-guides">Topics</h2><ul class="footer-nav" aria-labelledby="f-guides"><li><a href="${g('series-types')}">Series types</a></li><li><a href="${g('indicators')}">Indicators</a></li><li><a href="${g('time-and-time-zones')}">Time zones</a></li><li><a href="${g('accessibility')}">Accessibility</a></li></ul></div>
+      <div class="footer-col"><h2 id="f-project">Project</h2><ul class="footer-nav" aria-labelledby="f-project"><li><a href="${rel(p, 'readme.html')}">README</a></li><li><a href="${g('coming-from-lightweight-charts')}">Coming from Lightweight Charts</a></li><li><a href="${esc(config.author.url)}" rel="noopener">${esc(config.author.name)}</a></li></ul></div>
+    </div>
+    <div class="footer-legal">
+      <p>${esc(NAME)} ${esc(VERSION)} is an independent open-source project, written from scratch. It is not affiliated with, endorsed by or derived from TradingView or any other charting product. Licence: ${esc(config.license.name)}.</p>
+      <p>The charts on this site are drawn from invented demo data, not market data, and nothing here is investment advice. Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.</p>
+    </div>
   </div>
 </footer>
 </body>
@@ -202,230 +351,296 @@ ${page.body}
 `;
 }
 
-function guideNav(current) {
-  const items = guides.map((g) => `<li><a href="${rel(current, g.out)}"${g.out === current ? ' aria-current="page"' : ''}>${esc(g.title)}</a></li>`).join('');
-  return {
-    side: `<nav class="side-nav" aria-label="Guide pages"><p class="side-title">Guide</p><ul>${items}</ul></nav>`,
-    mobile: `<details class="mobile-nav"><summary>Guide pages</summary><ul>${items}</ul></details>`,
-  };
-}
-
 // ---------- pages ----------
 const pages = [];
+const liveBundles = new Map(); // page path -> [fn source]
+const searchDocs = [];
 
-function guidePage(g, i) {
-  const opts = renderOptions(g.out, g.src);
-  const md = renderMarkdown(g.body, opts);
-  const h2 = md.headings.filter((h) => h.level === 2);
-  const toc = h2.length >= 3
-    ? `<nav class="toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${h2.map((h) => `<li><a href="#${h.id}">${esc(h.text)}</a></li>`).join('')}</ul></nav>`
-    : '';
-  const html = md.html.replace('</h1>', `</h1>${toc}`);
-  const prev = guides[i - 1];
-  const next = guides[i + 1];
-  const pager = `<nav class="pager" aria-label="Previous and next guide">${prev ? `<a class="prev" href="${rel(g.out, prev.out)}" rel="prev"><small>Previous</small>${esc(prev.title)}</a>` : '<span></span>'}${next ? `<a class="next" href="${rel(g.out, next.out)}" rel="next"><small>Next</small>${esc(next.title)}</a>` : ''}</nav>`;
-  const related = g.related.map((s) => guides.find((x) => x.slug === s)).filter(Boolean);
-  const relatedHtml = related.length
-    ? `<section class="related" aria-labelledby="related-h"><h2 id="related-h">Related guides</h2><ul>${related.map((r) => `<li><a href="${rel(g.out, r.out)}">${esc(r.title)}</a>: ${esc(r.description)}</li>`).join('')}</ul></section>`
-    : '';
-  const nav = guideNav(g.out);
-  const crumbs = [{ name: 'Home', path: 'index.html' }, { name: 'Guide', path: 'guide/index.html' }, { name: g.title, path: g.out }];
-  pages.push({
-    path: g.out, title: `${g.title} | ${NAME}`, description: g.description, crumbs, ogType: 'article',
-    ld: [{
-      '@context': 'https://schema.org', '@type': 'TechArticle', headline: g.title, description: g.description, inLanguage: config.locale,
-      url: baseUrl + g.out, author: author(), isPartOf: { '@type': 'WebSite', name: NAME, url: baseUrl },
-      about: { '@type': 'SoftwareSourceCode', name: NAME },
-    }],
-    body: `<div class="guide">${nav.side}<article class="prose">${nav.mobile}${html}${relatedHtml}${pager}</article></div>`,
-  });
+
+const pad2 = (n) => String(n).padStart(2, '0');
+/** The chapter capsule: numbered coloured discs; the current one opens to show its title (scroll-spy in site.js). */
+function chaptersNav(items, label) {
+  return `<nav class="chapters" aria-label="${esc(label)}">${items.map((c, i) => `<a class="d-${(i % 5) + 1}" href="#${c.id}" aria-label="${pad2(i + 1)}: ${esc(c.text)}"${i === 0 ? ' aria-current="true"' : ''}><span class="disc" aria-hidden="true">${pad2(i + 1)}</span><span class="ct" aria-hidden="true">${esc(c.text)}</span></a>`).join('')}</nav>`;
 }
-guides.forEach(guidePage);
+/** The label that opens a chapter: "02 | Title", a thin rule, and "02 / 09" with ticks at the right. */
+function chapterLabel(i, total, title) {
+  const ticks = Array.from({ length: total }, (_, k) => `<i${k === i ? ' class="on"' : ''}></i>`).join('');
+  return `<div class="chapter-label"><span class="chapter-tag"><span class="n">${pad2(i + 1)}</span><span class="sep" aria-hidden="true"></span><span class="t">${esc(title)}</span></span><span class="chapter-rule" aria-hidden="true"></span><span class="chapter-progress"><span class="ticks" aria-hidden="true">${ticks}</span>${pad2(i + 1)} / ${pad2(total)}</span></div>`;
+}
 
-// Guide index
-pages.push({
-  path: 'guide/index.html', title: `Guide: how to use ${NAME}`, crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Guide', path: 'guide/index.html' }],
-  description: `Guides for ${NAME}: getting started, embedding, series types, indicators, panes and scales, time zones, theming, plugins, accessibility and the API reference.`,
-  body: `<div class="prose"><h1>Guide</h1><p class="lead">Each page covers one part of the library. Start with Getting started, then pick what you need.</p></div>
-<ul class="guide-list">${guides.map((g) => `<li><a class="card" href="${rel('guide/index.html', g.out)}"><h2>${esc(g.title)}</h2><p>${esc(g.description)}</p></a></li>`).join('')}</ul>`,
+function docPage({ path: p, src, title, description, body, group, prevNext, related, crumbs, ld: ldExtra, live, entries, html: allowHtml }) {
+  const fns = [];
+  const md = renderMarkdown(body, renderOptions(p, src, { live: live ? makeLive(live, fns) : null, entries, html: !!allowHtml }));
+  if (fns.length) liveBundles.set(p, fns);
+  const h1Match = /<h1 id="[^"]*">([\s\S]*?)<\/h1>/.exec(md.html);
+  let html = md.html.replace(/<h1 id="[^"]*">[\s\S]*?<\/h1>\n?/, '');
+  let lead = '';
+  const firstP = /^<p>([\s\S]*?)<\/p>\n?/.exec(html);
+  if (firstP) { lead = firstP[1]; html = html.slice(firstP[0].length); }
+  const h2s = md.headings.filter((h) => h.level === 2);
+  h2s.forEach((h, i) => { html = html.replace(`<h2 id="${h.id}">`, `${chapterLabel(i, h2s.length, title)}<h2 id="${h.id}">`); });
+  const filter = entries ? `<div class="api-filter js-only"><label>${ICON.search}<span class="visually-hidden">Filter the reference</span><input id="api-filter" type="search" placeholder="Filter: setData, priceScale, legend..." autocomplete="off" spellcheck="false"></label><p class="api-count" id="api-count" role="status"></p></div>` : '';
+  const pager = prevNext ? `<nav class="pager" aria-label="Previous and next guide">${prevNext.prev ? `<a class="prev" href="${rel(p, prevNext.prev.out)}" rel="prev"><small>Previous</small>${esc(prevNext.prev.title)}</a>` : ''}${prevNext.next ? `<a class="next" href="${rel(p, prevNext.next.out)}" rel="next"><small>Next</small>${esc(prevNext.next.title)}</a>` : ''}</nav>` : '';
+  const onward = prevNext && prevNext.next
+    ? `<p class="onward">Next, read <a href="${rel(p, prevNext.next.out)}">${esc(prevNext.next.title)}</a>: ${esc(lowerFirst(prevNext.next.summary))}</p>`
+    : `<p class="onward">That is the whole guide. Try the <a href="${rel(p, 'examples.html')}">examples</a>, or go back to <a href="${rel(p, 'guide/index.html')}">the guide index</a>.</p>`;
+  const relatedHtml = related && related.length ? `<nav class="related" aria-label="Related guides"><span class="k">Related</span>${related.map((r) => `<a href="${rel(p, r.out)}">${esc(r.title)}</a>`).join('')}</nav>` : '';
+  const crumb = crumbs && crumbs.length > 1 ? `<nav class="crumb" aria-label="Breadcrumb">${crumbs.slice(1, -1).map((c) => `<a href="${rel(p, c.path)}">${esc(c.name)}</a><span class="sep" aria-hidden="true">›</span>`).join('')}<span aria-current="page">${esc(crumbs[crumbs.length - 1].name)}</span></nav>` : '';
+  const article = `<article class="doc prose">
+<header class="doc-head">${crumb}${group ? `<p class="eyebrow">${esc(group)}</p>` : ''}<h1 id="top">${h1Match ? h1Match[1] : esc(title)}</h1>${lead ? `<p class="lead">${lead}</p>` : ''}</header>
+${h2s.length >= 2 ? chaptersNav(h2s, 'Chapters on this page') : ''}
+${filter}
+${html}
+${relatedHtml}
+${pager}
+${onward}
+</article>`;
+  pages.push({
+    path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
+    bodyClass: 'docs-page', ld: ldExtra,
+    body: `<div class="docs"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}</div>`,
+  });
+  searchDocs.push({ t: title, u: p, d: description, s: md.headings.filter((h) => h.level <= 3).map((h) => [h.text, h.id, firstSentence(h.lead)]) });
+}
+function lowerFirst(s) { return s ? s[0].toLowerCase() + s.slice(1) : s; }
+function firstSentence(t) { if (!t) return ''; const m = /^(.{20,220}?[.:])\s/.exec(t + ' '); return (m ? m[1] : t.slice(0, 200)).trim(); }
+
+guides.forEach((g, i) => {
+  const grp = GROUPS.find((x) => x.id === g.group);
+  docPage({
+    path: g.out, src: g.src, title: g.title, description: g.description, body: g.body, group: grp.title,
+    prevNext: { prev: guides[i - 1], next: guides[i + 1] }, related: g.related.map(guideBySlug).filter(Boolean),
+    crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Guide', path: 'guide/index.html' }, { name: g.title, path: g.out }],
+    ld: [{ '@context': 'https://schema.org', '@type': 'TechArticle', headline: g.title, description: g.description, inLanguage: config.locale, url: baseUrl + g.out, author: author(), isPartOf: { '@type': 'WebSite', name: NAME, url: baseUrl }, about: { '@type': 'SoftwareSourceCode', name: NAME } }],
+    live: g.slug, entries: g.layout === 'api',
+  });
 });
 
-// README
+// README, in the docs frame.
+docPage({
+  path: 'readme.html', src: 'README.md', html: true, title: 'README', description: `The ${NAME} README: what it is, how to install and use it, the feature list with measured sizes, what it is not, and how it differs in approach.`,
+  body: read('README.md'), group: 'Project',
+  crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'README', path: 'readme.html' }],
+  ld: [{ '@context': 'https://schema.org', '@type': 'TechArticle', headline: `${NAME} README`, inLanguage: config.locale, url: baseUrl + 'readme.html', author: author(), isPartOf: { '@type': 'WebSite', name: NAME, url: baseUrl } }],
+});
+{ const r = pages.find((x) => x.path === 'readme.html'); r.title = `README: ${NAME} overview, install and features`; }
+
+// Guide index: cards by task.
+const TASK_ICONS = {
+  'getting-started': 'play', embedding: 'code', 'series-types': 'candles', indicators: 'wave', 'panes-and-scales': 'panes',
+  'time-and-time-zones': 'clock', theming: 'sun', plugins: 'pin', accessibility: 'keys', 'api-reference': 'book',
+  'coming-from-lightweight-charts': 'swap',
+};
 {
-  const g = { out: 'readme.html', src: 'README.md' };
-  const md = renderMarkdown(read('README.md'), renderOptions(g.out, g.src));
+  const p = 'guide/index.html';
+  let k = 0;
+  const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Guide</span></nav>
+<h1 id="top">Learn it one task <span class="serif-frame">at a time.</span></h1><p class="lead">Eleven short pages, each about one job. Start with Getting started; every page after it has live charts you can touch and code you can copy.</p></div></section>
+<div class="wrap">
+${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"><div class="task-group-head"><h2 id="g-${grp.id}">${esc(grp.title)}</h2><p>${esc(grp.blurb)}</p></div><ul class="task-grid">${guides.filter((x) => x.group === grp.id).map((x) => { k++; return `<li><a class="card task-card" href="${rel(p, x.out)}"><span class="tile tile--${((k - 1) % 5) + 1}">${GLYPH[TASK_ICONS[x.slug]] || GLYPH.book}</span><p class="task">${esc(x.task)}</p><h3>${esc(x.title)}</h3><p>${esc(x.summary)}</p><span class="go">Read the guide ${ICON.arrow}</span></a></li>`; }).join('')}</ul></section>`).join('\n')}
+</div>`;
   pages.push({
-    path: g.out, title: `README: ${NAME} overview, install and features`, ogType: 'article',
-    description: `The ${NAME} README: what it is, how to install and use it, the feature list with measured sizes, what it is not, and how it differs in approach.`,
-    crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'README', path: 'readme.html' }],
-    ld: [{ '@context': 'https://schema.org', '@type': 'TechArticle', headline: `${NAME} README`, inLanguage: config.locale, url: baseUrl + g.out, author: author(), isPartOf: { '@type': 'WebSite', name: NAME, url: baseUrl } }],
-    body: `<article class="prose">${md.html}</article>`,
+    path: p, title: `Guide: how to use ${NAME}`, crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Guide', path: p }],
+    description: `Guides for ${NAME}, grouped by task: getting started, embedding, series types, indicators, panes, time zones, theming, plugins, accessibility and the API reference.`,
+    body,
   });
+  searchDocs.push({ t: 'Guide', u: p, d: 'All guides, grouped by task.', s: [] });
 }
 
-// Examples
+// Examples gallery.
 {
+  const p = 'examples.html';
+  const g = (s) => rel(p, guideBySlug(s).out);
+  const KINDS = [['all', 'All'], ['series', 'Series'], ['indicators', 'Indicators'], ['panes', 'Panes and scales'], ['time', 'Time'], ['element', 'Element']];
   const demo = makeBars(60, 19, 120);
   const hi = Math.max(...demo.map((b) => b.high));
   const lo = Math.min(...demo.map((b) => b.low));
-  const first = demo[0];
-  const last = demo[demo.length - 1];
-  const rowsJson = (rows) => JSON.stringify(rows);
-  const ohlc = demo.map(({ time, open, high, low, close, volume }) => ({ time, open, high, low, close, volume }));
-  const vals = demo.map((b) => ({ time: b.time, value: b.close }));
+  const first = demo[0]; const last = demo[demo.length - 1];
   const fb = (cap) => `<table><caption>${cap}</caption><tr><th>Fact</th><th>Value</th></tr><tr><td>First bar</td><td>${first.time}, close ${first.close.toFixed(2)}</td></tr><tr><td>Last bar</td><td>${last.time}, close ${last.close.toFixed(2)}</td></tr><tr><td>Highest high</td><td>${hi.toFixed(2)}</td></tr><tr><td>Lowest low</td><td>${lo.toFixed(2)}</td></tr><tr><td>Bars</td><td>${demo.length}</td></tr></table>`;
-  const ex = (id, title, text, label, cls, code, caption, extra = '') => `<section class="example" id="${id}" aria-labelledby="${id}-h">
-<h2 id="${id}-h">${title}</h2>
-<p>${text}</p>
-<figure>${extra}<div class="chart ${cls}" data-demo="${id}" data-label="${esc(label)}"></div><figcaption>${caption}</figcaption></figure>
-<pre tabindex="0"><code class="language-js">${esc(code)}</code></pre>
-</section>`;
-  const cap = 'Demo data: a seeded random walk, not a real instrument. Hover, scroll, drag or use the keyboard.';
-  const toc = [['candles', 'Candlesticks, price lines and markers'], ['line', 'Line'], ['area', 'Area'], ['bar', 'OHLC bars'], ['histogram', 'Histogram'], ['baseline', 'Baseline'], ['indicators', 'Indicators on the price pane'], ['panes', 'Panes: volume and RSI'], ['zone', 'Time zones'], ['element', 'The chartist-chart element']];
-  const body = `<div class="prose"><h1>Examples</h1>
-<p class="lead">Every chart on this page is drawn by ${esc(NAME)} itself, in your browser, from invented demo data. Each one is created when it scrolls into view. The text under each chart says what it shows, so the page reads without JavaScript too.</p>
-<nav class="toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${toc.map(([id, t]) => `<li><a href="#${id}">${t}</a></li>`).join('')}</ul></nav></div>
-${ex('candles', 'Candlesticks, price lines and markers', 'A candlestick series with two price lines (resistance and support, from the highest high and lowest low of the last 30 bars) and a few buy and sell markers. Price lines and markers are small plugins built on the same primitive contract you can use for your own overlays.', 'Demo candlestick chart with price lines and markers', 'chart--tall', `const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });
-candles.setData(bars);
-createPriceLine(candles, { price: 152.4, title: 'Resistance', lineStyle: 'dashed' });
-createSeriesMarkers(candles, [
-  { time: '2024-03-04', position: 'belowBar', shape: 'arrowUp', text: 'Buy' },
-]);`, cap)}
-${ex('line', 'Line', 'A line series of closing prices. Options include the colour, the width, the style (solid, dashed or dotted) and a step type that holds each value until the next bar.', 'Demo line chart of closing prices', '', `chart.addSeries(LineSeries, { title: 'Close' })
-  .setData(bars.map(b => ({ time: b.time, value: b.close })));`, cap)}
-${ex('area', 'Area', 'The same closing prices as an area series: a line with a fill below it that fades towards the bottom of the pane.', 'Demo area chart of closing prices', '', `chart.addSeries(AreaSeries, { title: 'Close' }).setData(rows);`, cap)}
-${ex('bar', 'OHLC bars', 'The bar series draws open, high, low and close as a stem with an open tick on the left and a close tick on the right.', 'Demo OHLC bar chart', '', `chart.addSeries(BarSeries, { title: 'DEMO' }).setData(bars);`, cap)}
-${ex('histogram', 'Histogram', 'Columns that grow from a base value. Each row here carries its own colour: the theme\'s up colour when the bar closed above its open, the down colour otherwise.', 'Demo volume histogram coloured by direction', '', `const volume = chart.addSeries(HistogramSeries, { title: 'Volume' });
-volume.setData(bars.map(b => ({
-  time: b.time, value: b.volume, color: b.close >= b.open ? lightTheme.up : lightTheme.down,
-})));`, cap)}
-${ex('baseline', 'Baseline', 'A line split around a base value (100 here): green with a light fill above it, red with a light fill below it.', 'Demo baseline chart around a value of 100', '', `chart.addSeries(BaselineSeries, { baseValue: 100, title: 'Close' }).setData(rows);`, cap)}
-${ex('indicators', 'Indicators on the price pane', 'Candles with a 20-bar simple moving average (orange) and Bollinger bands (grey: basis dashed, upper and lower solid), computed by the <code>indicators</code> entry and drawn as line series. The indicator functions return rows aligned with your bars, with time-only rows while a window fills.', 'Demo candlestick chart with a moving average and Bollinger bands', 'chart--tall', `import { sma, bollinger } from '@mrchartist/chartist-lite/indicators';
-
-chart.addSeries(LineSeries, { title: 'SMA 20' }).setData(sma(bars, 20));
-const bb = bollinger(bars, { period: 20, mult: 2 });
-chart.addSeries(LineSeries, { title: 'Bollinger upper' }).setData(bb.upper);`, cap)}
-${ex('panes', 'Panes: volume and RSI', 'The price pane holds candles and, on an overlay scale at the bottom, volume columns. A second pane below holds the 14-bar RSI with dotted guides at 70 and 30. Panes share the time axis and the crosshair. Drag the line between the panes, or focus it and use the up and down arrow keys, to resize them.', 'Demo candlestick chart with volume and an RSI pane below', 'chart--panes', `const rsiLine = chart.addSeries(LineSeries, { title: 'RSI 14' }, 1);   // pane 1
-rsiLine.setData(rsi(bars, 14));
-createPriceLine(rsiLine, { price: 70, lineStyle: 'dotted' });`, cap)}
-${ex('zone', 'Time zones', 'Five sessions of five-minute bars, stored as UNIX seconds. The time axis has no slot for the night between sessions, so nothing is drawn as a gap, and its labels are read in the zone you choose. Switch the zone to see the same bars labelled in another city. The zone changes the labels, never the data.', 'Demo five-minute candlestick chart over five sessions', 'chart--tall', `createChart('chart', { timeScale: { timeZone: 'Asia/Kolkata' } });
-chart.applyOptions({ timeScale: { timeZone: 'America/New_York' } });`, 'Demo data: five invented sessions from 09:15 to 15:30 in UTC+5:30. The data does not change when you switch the zone.', `<div class="zones" data-zones role="group" aria-label="Axis time zone"><span>Axis zone:</span><button class="btn" type="button" data-zone="Asia/Kolkata" aria-pressed="true">Asia/Kolkata</button><button class="btn" type="button" data-zone="America/New_York" aria-pressed="false">America/New_York</button><button class="btn" type="button" data-zone="UTC" aria-pressed="false">UTC</button></div>`)}
-<section class="example" id="element" aria-labelledby="element-h">
-<h2 id="element-h">The chartist-chart element</h2>
-<p>The same chart as a custom element, for pages with no build step. These two read their data from an inline <code>&lt;script type="application/json"&gt;</code> and carry a small table as fallback content: that table is what crawlers and visitors without JavaScript see, and the element hides it once the chart is drawn.</p>
-<figure>
-<chartist-chart type="candlestick" theme="auto" volume height="320" aria-label="Demo candlestick chart with volume, from the custom element">
-<script type="application/json">${rowsJson(ohlc)}</script>
-${fb('Demo bars for the candlestick element')}
-</chartist-chart>
-<figcaption>Attributes: <code>type="candlestick" volume height="320"</code>. ${demo.length} invented daily bars.</figcaption>
-</figure>
-<figure>
-<chartist-chart type="area" theme="auto" height="260" aria-label="Demo area chart, from the custom element">
-<script type="application/json">${rowsJson(vals)}</script>
-${fb('Demo closing values for the area element')}
-</chartist-chart>
-<figcaption>Attributes: <code>type="area" height="260"</code>. The same bars, read as one closing value per day.</figcaption>
-</figure>
-<pre tabindex="0"><code class="language-html">&lt;script src="chartist-lite.element.iife.min.js"&gt;&lt;/script&gt;
-&lt;chartist-chart type="candlestick" volume height="320"&gt;
-  &lt;script type="application/json"&gt;[{"time":"2024-01-02","open":10,"high":12,"low":9,"close":11,"volume":900}]&lt;/script&gt;
-&lt;/chartist-chart&gt;</code></pre>
-</section>`;
+  const ohlc = JSON.stringify(demo.map(({ time, open, high, low, close, volume }) => ({ time, open, high, low, close, volume })));
+  const vals = JSON.stringify(demo.map((b) => ({ time: b.time, value: b.close })));
+  const ELEMENTS = {
+    'element-candles': `<chartist-chart type="candlestick" volume height="240" aria-label="Demo candlestick chart with volume, from the custom element"><script type="application/json">${ohlc}</script>${fb('Demo bars for the candlestick element')}</chartist-chart>`,
+    'element-area': `<chartist-chart type="area" height="240" aria-label="Demo area chart, from the custom element"><script type="application/json">${vals}</script>${fb('Demo closing values for the area element')}</chartist-chart>`,
+  };
+  const cards = EXAMPLES.map((ex) => {
+    const stage = ex.element ? ELEMENTS[ex.id] : `<div class="chart h-240" data-demo="${ex.id}" data-label="${esc(ex.label)}"><p class="chart-fallback">${esc(ex.label)}. The chart appears when JavaScript runs.</p></div>`;
+    const controls = ex.controls ? `<div class="demo-bar js-only">${controlsHtml(ex.controls)}</div>` : '';
+    const tpl = ex.element ? `<template data-large>${ELEMENTS[ex.id].replace('height="240"', 'height="540"')}</template>` : '';
+    return `<article class="card ex-card" id="${ex.id}" data-kind="${ex.kind}" aria-labelledby="${ex.id}-h">
+<div data-stage>${stage}${controls}</div>
+<div class="ex-body"><h2 id="${ex.id}-h">${esc(ex.title)}</h2><p>${ex.text}</p><div class="ex-tags">${ex.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div></div>
+<div class="ex-actions"><button class="btn btn--sm js-only" type="button" data-open="${ex.id}" aria-haspopup="dialog">Open with code</button><a href="${g(ex.guide[0])}">${esc(ex.guide[1])}</a></div>
+<div class="ex-source" hidden>${codeBlock(ex.code, ex.lang || 'js')}${tpl}</div>
+</article>`;
+  }).join('\n');
+  const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Examples</span></nav>
+<h1 id="top">Charts you can <span class="serif-frame">touch.</span></h1><p class="lead">Every chart here is drawn by ${esc(NAME)} in your browser, from invented demo data. Drag to pan, scroll or pinch to zoom, tab in and press Enter to step through bars. Open any card for a large chart and its code.</p></div></section>
+<div class="wrap">
+<div class="filters js-only"><div class="seg" role="group" aria-label="Filter examples">${KINDS.map(([k, l], i) => `<button type="button" data-filter="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div></div>
+<div class="gallery" id="ex-gallery">
+${cards}
+</div>
+</div>
+<dialog class="ex-dialog" id="ex-dialog" aria-labelledby="ex-dialog-title">
+  <div class="ex-dialog-head"><h2 id="ex-dialog-title">Example</h2><a class="btn btn--sm" id="ex-dialog-guide" href="${g('getting-started')}">Guide</a><button class="icon-btn" type="button" data-close aria-label="Close the example">${ICON.close}</button></div>
+  <div class="ex-dialog-body"><div class="ex-dialog-stage" data-stage id="ex-dialog-stage"></div><div class="ex-dialog-side"><p id="ex-dialog-text"></p><div id="ex-dialog-code"></div></div></div>
+</dialog>`;
   pages.push({
-    path: 'examples.html', title: `Examples: candlestick, line, area, indicators and panes | ${NAME}`,
-    description: `Live ${NAME} charts you can touch: every series type, indicators, a volume and RSI pane, a time zone switch and the chartist-chart web component.`,
-    crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Examples', path: 'examples.html' }],
-    scripts: ['assets/chartist-lite.iife.min.js', 'assets/chartist-lite-indicators.iife.min.js', 'assets/chartist-lite.element.iife.min.js', 'assets/site.js'],
+    path: p, title: `Examples: candlestick, line, area, indicators and panes | ${NAME}`, demos: true,
+    description: `Live ${NAME} charts you can touch: every series type, indicators, MACD and RSI panes, scale modes, a time zone switch and the chartist-chart web component.`,
+    crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Examples', path: p }],
     body,
   });
+  searchDocs.push({ t: 'Examples', u: p, d: 'Live charts with their code.', s: EXAMPLES.map((ex) => [ex.title, ex.id, ex.text.replace(/<[^>]+>/g, '')]) });
 }
 
-// Home
+// Home: the product story in chapters.
 {
   const sizes = await measureSizes();
-  const g = (slug) => guides.find((x) => x.slug === slug).out;
+  const coreGzip = sizes[0][2];
+  const indGzip = sizes[1][2];
   const p = 'index.html';
-  const card = (title, text, to) => `<div class="card"><h3>${title}</h3><p>${text}</p>${to ? `<p><a href="${rel(p, g(to[0]))}">${to[1]}</a></p>` : ''}</div>`;
-  const body = `<section class="hero" aria-labelledby="hero-h">
-<h1 id="hero-h">${esc(NAME)}: a small canvas chart for financial data</h1>
-<p class="lead">${esc(NAME)} is a lightweight financial chart library for the web. It draws <strong>candlestick</strong>, bar, line, area, histogram and baseline series on one canvas, with built-in indicators, stacked panes and exchange time zones. Use it from JavaScript or React, or drop in the <code>&lt;chartist-chart&gt;</code> web component. It has no runtime dependencies.</p>
-<div class="actions">
-<a class="btn btn--primary" href="${rel(p, g('getting-started'))}">Get started</a>
-<a class="btn" href="${rel(p, 'examples.html')}">See more examples</a>
+  const g = (s) => rel(p, guideBySlug(s).out);
+  const homeBars = makeBars(60, 19, 120);
+  const ohlc = JSON.stringify(homeBars.map(({ time, open, high, low, close, volume }) => ({ time, open, high, low, close, volume })));
+  const install = [
+    ['script', 'Script tag', 'html', `<script src="chartist-lite.element.iife.min.js"></script>
+
+<chartist-chart type="candlestick" src="/data/prices.json" height="360"
+  time-zone="Asia/Kolkata" aria-label="Daily price"></chartist-chart>`, 'No build step. The tag reads JSON or CSV from <code>src</code>, an inline script or a <code>.data</code> property.'],
+    ['module', 'ES module', 'js', `import { createChart, CandlestickSeries } from '@mrchartist/chartist-lite';
+
+const chart = createChart('chart', { theme: 'dark', ariaLabel: 'Daily price' });
+chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);`, 'The container needs a height in CSS; the chart fills it and follows its size.'],
+    ['react', 'React', 'jsx', `import * as React from 'react';
+import { createChartistReact } from '@mrchartist/chartist-lite/react';
+
+export const { ChartistChart } = createChartistReact(React);
+
+<ChartistChart height={420} options={{ theme: 'auto' }}
+  series={[{ id: 'price', type: 'candlestick', data: candles }]} />`, 'React is an optional peer dependency; the wrapper takes your React once, at module level.'],
+  ];
+  const tabs = `<div class="tabs" data-tabs>
+<div class="tablist"><div class="seg" role="tablist" aria-label="Ways to install">${install.map(([id, label], i) => `<button type="button" role="tab" id="tab-${id}" aria-controls="panel-${id}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${label}</button>`).join('')}</div></div>
+${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}" tabindex="0"${i ? ' hidden' : ''}>${codeBlock(code, lang)}<p>${note}</p></div>`).join('')}
+</div>`;
+  const CH = [
+    ['what', 'What it is'], ['move', 'See it move'], ['series', 'Series'], ['panes', 'Indicators and panes'],
+    ...(DRAWINGS ? [['drawings', 'Drawing tools']] : []), ['embed', 'Embed anywhere'], ['speed', 'Speed'], ['start', 'Get started'],
+  ];
+  const chapter = (key, h2, lead, content) => {
+    const i = CH.findIndex((c) => c[0] === key);
+    return `<section class="chapter" aria-labelledby="ch-${key}">${chapterLabel(i, CH.length, CH[i][1])}<div class="chapter-head"><h2 id="ch-${key}">${h2}</h2>${lead ? `<p>${lead}</p>` : ''}</div>${content}</section>`;
+  };
+  const win = (title, inner, extra = '') => `<div class="window" data-stage><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">${title}</span>${extra}</div>${inner}</div>`;
+  const apart = [
+    [1, 'gauge', 'Built for 120 Hz', PERF && PERF.pan !== null ? `A pan frame over ${PERF.panBars} bars costs ${PERF.pan.toFixed(2)} ms (median) of the ${PERF.budget.toFixed(2)} ms a 120 Hz frame allows, in headless Chromium. Measure your own device.` : 'Each frame paints only what changed, and dense history folds into one column per pixel. Measure your own device.', '#ch-speed', 'See the meter'],
+    [2, 'wave', 'Indicators built in', `${INDICATOR_NAMES.length} indicators as plain functions in a ${indGzip} KB entry, with live forms that cost the same per tick.`, g('indicators'), 'Indicators guide'],
+    [3, 'panes', 'Stacked panes', 'RSI or MACD in its own pane, sharing the time axis and the crosshair, with a divider you can drag or move by keyboard.', g('panes-and-scales'), 'Panes guide'],
+    [4, 'clock', 'Exchange time, no gaps', 'One slot per bar, so nights and weekends take no space; labels in any IANA zone, daylight saving included.', g('time-and-time-zones'), 'Time guide'],
+    [5, 'code', 'A tag, no code', 'Write <code>&lt;chartist-chart&gt;</code> with a data source. The fallback table inside it is what crawlers read.', g('embedding'), 'Embedding guide'],
+    [1, 'keys', 'Keyboard and screen reader', 'Focus the chart, press Enter, and step through bars; each one is announced through a live region.', g('accessibility'), 'Accessibility guide'],
+    [2, 'shield', 'Safe on strict pages', 'Works under a <code>style-src \'self\'</code> policy; hostile page CSS and right-to-left pages do not reach it.', g('embedding') + '#strict-content-security-policy-hostile-page-css-right-to-left-pages', 'What was checked'],
+    [3, 'minus', 'Numbers that read right', 'A true minus sign (<span class="num">−2.35</span>), no grouping commas (<span class="num">12345.60</span>), tabular figures on the axes.', g('time-and-time-zones') + '#numbers-on-the-axis', 'Number rules'],
+  ];
+  const body = `<section class="hero-panel" aria-labelledby="hero-h"><div class="wrap hero">
+<div class="hero-text">
+<p class="pill"><span class="tile tile--5">${GLYPH.candles}</span>Open source charting, version ${esc(VERSION)}</p>
+<h1 id="hero-h">Financial charts <span class="serif-frame">that stay light.</span></h1>
+<p class="lead">Candlesticks, indicators, stacked panes and exchange time zones on one canvas. ${coreGzip} KB gzip, no runtime dependencies, and every chart works from the keyboard.</p>
+<div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Get started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'examples.html')}">Browse examples</a></div>
 </div>
-<p class="status">Version ${esc(pkgJson.version)}. Not yet published to npm. Licence ${esc(config.license.name)}.</p>
-</section>
-<figure>
-<div class="chart chart--tall" data-demo="home" data-label="Demo daily candlestick chart with a 20-bar moving average"><noscript><img src="${rel(p, 'assets/img/basic-light.png')}" width="${ogImage.size.width}" height="${ogImage.size.height}" alt="${esc(OG_ALT)}"></noscript></div>
-<figcaption>A live chart from ${esc(NAME)}, drawn from demo data (a seeded random walk, not a real instrument): daily candles and a 20-bar simple moving average. Scroll to zoom, drag to pan, press Enter on the chart to step through bars with the keyboard.</figcaption>
-</figure>
-
-<section class="section" aria-labelledby="quick-h">
-<h2 id="quick-h">Quick start</h2>
-<p class="sub">One script tag and one element. The data can be a URL, an inline JSON script or a property. The chart is created when it scrolls near the viewport.</p>
-<pre tabindex="0"><code class="language-html">&lt;script src="chartist-lite.element.iife.min.js"&gt;&lt;/script&gt;
-
-&lt;chartist-chart type="candlestick" theme="auto" src="/data/prices.json" height="360"
-  time-zone="Asia/Kolkata" aria-label="Daily price"&gt;&lt;/chartist-chart&gt;</code></pre>
-<p>Prefer code? <a href="${rel(p, g('getting-started'))}">Getting started</a> shows the ES module with <code>createChart</code> and the React wrapper, and <a href="${rel(p, g('embedding'))}">Embedding the chart</a> covers the attributes, the data formats and iframes.</p>
-</section>
-
-<section class="section" aria-labelledby="features-h">
-<h2 id="features-h">What it does</h2>
-<p class="sub">A focused set of features for charts of prices, written down in the guides.</p>
-<div class="grid">
-${card('Six series types', 'Candlestick, OHLC bar, line, area, histogram and baseline, with per-series colours that follow the theme.', ['series-types', 'Series types'])}
-${card('Built-in indicators', 'Twelve indicators (moving averages, Bollinger, RSI, MACD, Supertrend and more), Heikin-Ashi and bar aggregation, as plain functions with incremental forms for live data.', ['indicators', 'Indicators'])}
-${card('Stacked panes', 'Put RSI or MACD in a pane under the price, with its own scale, a shared time axis and a draggable divider.', ['panes-and-scales', 'Panes and scales'])}
-${card('Exchange-aware time axis', 'No gap for nights and weekends, ticks on real calendar boundaries, labels read in any IANA time zone, daylight saving included.', ['time-and-time-zones', 'Time and time zones'])}
-${card('Light, dark and auto', 'Built-in palettes, colour overrides, system fonts and a switch at runtime. A true minus sign and no grouping commas by default.', ['theming', 'Theming'])}
-${card('Accessible by design', 'A focusable chart with a name, keyboard control and a live region that reads the bar you inspect. Read what is and is not tested.', ['accessibility', 'Accessibility'])}
-${card('Plugins', 'Price lines and series markers, built on a small primitive contract you can use for your own overlays.', ['plugins', 'Plugins and primitives'])}
-${card('Four ways to embed', 'A web component, an ES module, React, or an iframe for sites that forbid scripts.', ['embedding', 'Embedding the chart'])}
+<div class="hero-visual">
+${win('', `<div class="chart" data-demo="home" data-label="Demo daily candlestick chart with a 20-bar moving average"><noscript><img src="${rel(p, 'assets/img/basic-light.png')}" width="${ogImage.size.width}" height="${ogImage.size.height}" alt="${esc(OG_ALT)}"></noscript></div>
+<div class="demo-bar js-only"><div class="seg" role="group" aria-label="Series type"><button type="button" data-hero-type="candles" aria-pressed="true">Candles</button><button type="button" data-hero-type="bars" aria-pressed="false">Bars</button><button type="button" data-hero-type="line" aria-pressed="false">Line</button><button type="button" data-hero-type="area" aria-pressed="false">Area</button></div><div class="hero-controls" role="group" aria-label="Indicators"><button class="chip" type="button" data-hero-ind="sma" aria-pressed="true"><span class="dot" aria-hidden="true"></span>SMA 20</button><button class="chip" type="button" data-hero-ind="bb" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Bollinger</button><button class="chip" type="button" data-hero-ind="volume" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Volume</button><button class="chip" type="button" data-hero-ind="rsi" aria-pressed="false"><span class="dot" aria-hidden="true"></span>RSI pane</button></div></div>`, `<span class="js-only"><span class="seg" role="group" aria-label="Theme"><button type="button" data-set-theme="dark" aria-pressed="true">Dark</button><button type="button" data-set-theme="light" aria-pressed="false">Light</button></span></span>`)}
+<div class="hero-chips"><span class="fact-chip fc-1"><span class="k">Size</span><span class="v">${coreGzip} KB gzip</span></span><span class="fact-chip fc-2"><span class="k">${PERF && PERF.over === 0 ? '120 Hz frame' : 'Series'}</span><span class="v">${PERF && PERF.over === 0 ? `p95 under ${PERF.budget.toFixed(2)} ms` : `${SERIES_COUNT} types`}</span></span><span class="fact-chip fc-3"><span class="k">Dependencies</span><span class="v">${RUNTIME_DEPS === 0 ? 'None' : RUNTIME_DEPS}</span></span></div>
 </div>
-</section>
+</div></section>
 
-<section class="section" aria-labelledby="sizes-h">
-<h2 id="sizes-h">Sizes</h2>
-<p class="sub">Measured when this site was built, from the package's own source: each entry bundled and minified with esbuild, then gzipped at level 9. The script files are the ones in <code>dist/</code>.</p>
-<div class="table-wrap" role="region" tabindex="0" aria-label="Table: sizes"><table><thead><tr><th scope="col">Build</th><th scope="col" class="num">Minified, KB</th><th scope="col" class="num">Gzip, KB</th></tr></thead><tbody>${sizes.map((r) => `<tr><td>${esc(r[0])}</td><td class="num">${r[1]}</td><td class="num">${r[2]}</td></tr>`).join('')}</tbody></table></div>
-<p class="note">The core entry has a budget of 45 KB gzip that the package's own size check enforces. Charts with 100000 one-minute bars are covered in the README, with the machine and browser they were measured on.</p>
-</section>
+<div class="wrap home-chapters">
+${chaptersNav(CH.map(([k, t]) => ({ id: `ch-${k}`, text: t })), 'Chapters')}
 
-<section class="section" aria-labelledby="not-h">
-<h2 id="not-h">What it is not</h2>
-<ul>
-<li>It has no drawing tools (no trend lines, Fibonacci or text notes), though you can draw your own marks with a primitive.</li>
-<li>It has no data feed. You give it rows; it never fetches prices on its own (the element can load a JSON or CSV file you point it at).</li>
-<li>It places no orders and has no trading features.</li>
-</ul>
-</section>
+${chapter('what', 'What it <span class="serif-frame">is.</span>', '', `<div class="intro"><div><p class="intro-statement">${esc(NAME)} is a small JavaScript library that draws price charts on one canvas, with the parts a market page needs built in.</p>
+<div class="fact-cards">
+<div class="fact-card"><span class="tile tile--1">${GLYPH.candles}</span><span><span class="k">Kind</span><span class="v">Canvas chart library</span></span></div>
+<div class="fact-card"><span class="tile tile--2">${GLYPH.gauge}</span><span><span class="k">Size</span><span class="v">${coreGzip} KB gzip core</span></span></div>
+<div class="fact-card"><span class="tile tile--4">${GLYPH.code}</span><span><span class="k">Comes as</span><span class="v">Module, React, a tag</span></span></div>
+<div class="fact-card"><span class="tile tile--5">${GLYPH.book}</span><span><span class="k">Licence</span><span class="v">${esc(config.license.name)}</span></span></div>
+</div></div>
+<div class="intro-side"><p>${SERIES_COUNT} series types, ${INDICATOR_NAMES.length} indicators, stacked panes, exchange time zones and a legend that reads the bar under the pointer. It has no runtime dependencies and never fetches data on its own.</p><p>It is written from scratch by ${esc(config.author.name)}. Many names will feel familiar if you know Lightweight Charts, on purpose; the code is its own, and the guide lists where behaviour differs.</p></div></div>
+<div class="apart">${apart.map(([c, icon, t, text, href, link], i) => `<div class="apart-item"><span class="tile tile--${c}">${GLYPH[icon]}</span><div><h3 id="apart-${i + 1}">${t}</h3><p>${text} <a href="${href}">${link}</a></p></div></div>`).join('')}</div>`)}
 
-<section class="section" aria-labelledby="indep-h">
-<h2 id="indep-h">An independent project</h2>
-<p>${esc(NAME)} is independent and written from scratch by <a href="${esc(config.author.url)}">${esc(config.author.name)}</a>. It is not affiliated with TradingView, and it contains no code from any other charting library. The way you create a chart and add series will feel familiar on purpose; the code is its own, and <a href="${rel(p, 'readme.html')}">the README</a> says how the approach differs.</p>
-</section>`;
+${chapter('move', 'See it <span class="serif-frame">move.</span>', 'Two things a canvas usually cannot do: read exchange time, and be read aloud.', `<div class="duo">
+<div>${win('Five sessions, five-minute bars', `<div class="chart h-320" data-demo="zone" data-label="Demo five-minute candlestick chart over five sessions"></div><div class="demo-bar js-only"><span class="group-label">Axis zone</span>${controlsHtml('zone')}</div>`)}<div class="duo-text"><h3 id="move-zones">Exchange time, with no gaps</h3><p>Nights and weekends take no space, ticks land on session boundaries, and labels read in the zone you choose. The data never changes.</p><a href="${g('time-and-time-zones')}">Time and time zones</a></div></div>
+<div>${win('Keyboard inspect mode', `<div class="chart h-320" data-demo="keys" data-label="Demo chart for keyboard control: press Enter to inspect bars"></div><div class="demo-bar js-only"><button class="btn btn--sm" type="button" data-focus-chart>Focus the chart</button><span class="keys"><kbd>←</kbd> <kbd>→</kbd></span><span class="group-label">pan</span><span class="keys"><kbd>Enter</kbd></span><span class="group-label">inspect</span></div>`)}<div class="duo-text"><h3 id="move-keys">Readable without a mouse</h3><p>The chart takes focus and has a name. Enter starts stepping through bars; each is announced, with the legend following along.</p><a href="${g('accessibility')}">Accessibility</a></div></div>
+</div>`)}
+
+${chapter('series', 'Six ways to draw a <span class="serif-frame">price.</span>', 'Every type takes the same rows and follows the theme. Each chart below is live.', `<div class="series-grid">${[['s-candles', 'Candlestick', 'CandlestickSeries'], ['s-bar', 'OHLC bars', 'BarSeries'], ['s-line', 'Line', 'LineSeries'], ['s-area', 'Area', 'AreaSeries'], ['s-histogram', 'Histogram', 'HistogramSeries'], ['s-baseline', 'Baseline', 'BaselineSeries']].map(([id, t, def]) => `<figure class="window series-card"><div class="chart h-200" data-demo="${id}" data-label="Demo ${t.toLowerCase()} chart"></div><figcaption><span>${t}</span><code>${def}</code></figcaption></figure>`).join('')}</div>
+<p class="duo-text"><a href="${g('series-types')}">Series types: rows and options</a></p>`)}
+
+${chapter('panes', 'Indicators and <span class="serif-frame">panes.</span>', `Overlays on the price, oscillators underneath. The indicator entry is ${indGzip} KB gzip and imports nothing from the chart.`, `<div class="duo">
+<div>${win('SMA 20 and Bollinger bands', `<div class="chart h-360" data-demo="indicators" data-label="Demo candlestick chart with a moving average and Bollinger bands"></div>`)}<div class="duo-text"><h3 id="panes-ind">Plain functions, aligned rows</h3><p><code>setData(sma(bars, 20))</code> just works: every indicator returns one row per bar, with empty rows while its window fills.</p><a href="${g('indicators')}">Indicators</a></div></div>
+<div>${win('Volume overlay and an RSI pane', `<div class="chart h-360" data-demo="panes" data-label="Demo candlestick chart with volume and an RSI pane below"></div><div class="demo-bar js-only"><span class="group-label">Price scale</span>${controlsHtml('scale')}</div>`)}<div class="duo-text"><h3 id="panes-panes">A pane is one argument</h3><p>Pass a pane index to <code>addSeries</code>. Drag the divider, or focus it and press the arrow keys.</p><a href="${g('panes-and-scales')}">Panes and scales</a></div></div>
+</div>`)}
+
+${DRAWINGS ? chapter('drawings', 'Drawing <span class="serif-frame">tools.</span>', DRAWINGS.lead, DRAWINGS.html) : ''}
+
+${chapter('embed', 'Embed it <span class="serif-frame">anywhere.</span>', 'From a CMS block that takes one script tag to a React app: the same chart and the same options.', `<div class="install">
+<div>${win('&lt;chartist-chart&gt;, no code', `<chartist-chart type="candlestick" volume height="300" aria-label="Demo candlestick chart from the chartist-chart element"><script type="application/json">${ohlc}</script><table><caption>Demo bars for the element</caption><tr><th>First bar</th><td>${homeBars[0].time}</td></tr><tr><th>Last close</th><td>${homeBars[homeBars.length - 1].close.toFixed(2)}</td></tr></table></chartist-chart>`)}</div>
+${tabs}
+</div>
+<div class="embed-grid">
+<div class="card embed-card"><span class="tile tile--1">${GLYPH.code}</span><h3>Web component</h3><p>A script tag and <code>&lt;chartist-chart&gt;</code>. Attributes set the type, theme, zone and height.</p><code class="snippet">&lt;chartist-chart src="prices.json"&gt;</code><a href="${g('embedding')}#1-script-tag-and-the-web-component">Element guide</a></div>
+<div class="card embed-card"><span class="tile tile--2">${GLYPH.box}</span><h3>ES module</h3><p>Import <code>createChart</code> and the series you use; a bundler keeps only those.</p><code class="snippet">createChart('chart', options)</code><a href="${g('embedding')}#2-es-module">Module guide</a></div>
+<div class="card embed-card"><span class="tile tile--4">${GLYPH.atom}</span><h3>React</h3><p>A component and a hook that update only the bars that changed.</p><code class="snippet">&lt;ChartistChart series={rows} /&gt;</code><a href="${g('embedding')}#3-react">React guide</a></div>
+<div class="card embed-card"><span class="tile tile--5">${GLYPH.frame}</span><h3>An iframe</h3><p>For hosts that forbid scripts: a small page you host, framed by theirs.</p><code class="snippet">&lt;iframe src="frame.html?src=..."&gt;</code><a href="${g('embedding')}#4-an-iframe-for-sites-that-forbid-scripts">Iframe guide</a></div>
+</div>`)}
+
+${chapter('speed', 'Built for <span class="serif-frame">120 Hz.</span>', 'A 120 Hz display gives each frame 8.33 ms. The meter times this chart on your own device while it pans and zooms through 5000 bars.', `<div class="speed">
+${win('Frame meter, on your device', `<div class="chart h-280" data-demo="meter" data-label="Demo chart of 5000 bars used to time pan and zoom frames on this device"></div><div class="meter js-only" id="meter"><canvas id="meter-canvas" width="600" height="96" aria-hidden="true"></canvas><div class="meter-read" role="status" id="meter-read">The meter runs when the chart is on screen.</div><div class="meter-legend"><span>Each bar is one frame: the time to move the view and paint it.</span><span>The line is the 8.33 ms budget of a 120 Hz frame.</span></div></div>`, `<span class="js-only"><button class="btn btn--sm" type="button" id="meter-run">Run again</button></span>`)}
+<div class="card bench">${benchHtml()}</div>
+</div>`)}
+
+${chapter('start', 'Start in a <span class="serif-frame">minute.</span>', `Version ${esc(VERSION)} is not on npm yet, so build it once and host the file yourself.`, `<div class="install">
+<div><ol class="install-steps"><li>Run <code>npm install</code> and <code>npm run build</code> in <code>packages/chartist-lite</code>.</li><li>Copy the file you need from <code>dist/</code> next to your page.</li><li>Paste one of the snippets above and give it your rows.</li></ol>
+<div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Read Getting started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'guide/index.html')}">All guides</a></div></div>
+<div class="honest"><div class="card"><h3 id="not-h">What it is not</h3><ul class="not-list"><li>No data feed. You give it rows; it never fetches prices by itself (the element can load a JSON or CSV file you point it at).</li><li>No order placement and no trading features.</li><li>No pattern detection or signals. Markers show what you give them.</li>${DRAWINGS ? '' : '<li>No drawing tools in this version: no trend lines, Fibonacci tools or text notes. A primitive can draw your own marks.</li>'}</ul></div>
+<div class="card"><h3 id="status-h">Status</h3><dl class="status-list"><dt>Version</dt><dd>${esc(VERSION)}, not yet on npm</dd><dt>Licence</dt><dd>${esc(config.license.name)}</dd><dt>Tested in</dt><dd>Chromium, through Playwright</dd><dt>Not yet tested</dt><dd>Firefox, Safari, screen readers</dd><dt>Made by</dt><dd><a href="${esc(config.author.url)}" rel="noopener">${esc(config.author.name)}</a></dd></dl></div></div>
+</div>`)}
+</div>`;
   pages.unshift({
-    path: p, title: `${NAME}: a lightweight financial chart library, no dependencies`,
+    path: p, title: `${NAME}: a lightweight financial chart library, no dependencies`, demos: true, bodyClass: 'home',
     description: 'A lightweight financial chart library: candlestick and other series, indicators, panes, time zones and a chartist-chart web component. No dependencies.',
-    scripts: ['assets/chartist-lite.iife.min.js', 'assets/site.js'], body,
-    ld: [{
-      '@context': 'https://schema.org', '@type': 'SoftwareSourceCode', name: NAME, description: config.tagline,
-      programmingLanguage: 'TypeScript', license: config.license.url, version: pkgJson.version, url: baseUrl,
-      author: author(), ...(config.repoUrl ? { codeRepository: config.repoUrl } : {}),
-    }],
+    body,
+    ld: [{ '@context': 'https://schema.org', '@type': 'SoftwareSourceCode', name: NAME, description: config.tagline, programmingLanguage: 'TypeScript', license: config.license.url, version: VERSION, url: baseUrl, author: author(), ...(config.repoUrl ? { codeRepository: config.repoUrl } : {}) }],
   });
+  searchDocs.unshift({ t: NAME, u: p, d: 'Home: what the library is, live demos, install.', s: CH.map(([k, t]) => [t, `ch-${k}`, '']) });
 }
 
 // ---------- write ----------
 rmSync(out, { recursive: true, force: true });
 mkdirSync(path.join(out, 'assets', 'img'), { recursive: true });
-mkdirSync(path.join(out, 'guide'), { recursive: true });
+mkdirSync(path.join(out, 'assets', 'live'), { recursive: true });
 
-const bundle = await build({ entryPoints: [path.join(here, 'src', 'site.js')], bundle: true, format: 'iife', target: 'es2020', minify: true, write: false, legalComments: 'none', logLevel: 'warning' });
-writeFileSync(path.join(out, 'assets', 'site.js'), bundle.outputFiles[0].text);
+const bundleOpts = { bundle: true, format: 'iife', target: 'es2020', minify: true, write: false, legalComments: 'none', logLevel: 'warning' };
+for (const [src, dest] of [['site.js', 'site.js'], ['demos.js', 'demos.js']]) {
+  const b = await build({ ...bundleOpts, entryPoints: [path.join(here, 'src', src)] });
+  writeFileSync(path.join(out, 'assets', dest), b.outputFiles[0].text);
+}
+writeFileSync(path.join(out, 'assets', 'boot.js'), (await transform(readFileSync(path.join(here, 'src', 'boot.js'), 'utf8'), { minify: true, target: 'es2015' })).code);
+for (const [p, fns] of liveBundles) {
+  const name = `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js`;
+  const srcCode = `window.__CL_LIVE = Object.assign(window.__CL_LIVE || {}, {\n${fns.join(',\n')}\n});`;
+  let code;
+  try { code = (await transform(srcCode, { minify: true, target: 'es2020', loader: 'js' })).code; }
+  catch (e) { throw new Error(`a live example on ${p} does not compile: ${e.message}`); }
+  writeFileSync(path.join(out, 'assets', name), code);
+}
+writeFileSync(path.join(out, 'assets', 'search-index.js'), `window.__CL_SEARCH=${JSON.stringify(searchDocs).replace(/</g, '\\u003c')};`);
 copyFileSync(path.join(here, 'assets', 'site.css'), path.join(out, 'assets', 'site.css'));
+copyFileSync(path.join(here, 'assets', 'fonts.css'), path.join(out, 'assets', 'fonts.css'));
+cpSync(path.join(here, 'assets', 'fonts'), path.join(out, 'assets', 'fonts'), { recursive: true });
 for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js', 'chartist-lite.element.iife.min.js']) {
   const src = path.join(pkg, 'dist', f);
   if (!existsSync(src)) throw new Error(`dist/${f} is missing: run "npm run build" in packages/chartist-lite first`);
@@ -448,5 +663,8 @@ writeFileSync(path.join(out, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap:
 if (baseUrl.includes('example.invalid')) warnings.push('baseUrl in site/site.config.json is the placeholder; set the real address before publishing (canonical, Open Graph, JSON-LD and sitemap use it)');
 let bytes = 0;
 (function walk(d) { for (const f of readdirSync(d)) { const p = path.join(d, f); statSync(p).isDirectory() ? walk(p) : (bytes += statSync(p).size); } })(out);
+const sz = (f) => statSync(path.join(out, 'assets', f)).size;
+const gzs = (f) => gzipSync(readFileSync(path.join(out, 'assets', f)), { level: 9 }).length;
 console.log(`site: ${pages.length} pages, ${(bytes / 1024).toFixed(0)} KB, written to ${posix(path.relative(process.cwd(), out)) || '.'}`);
+console.log(`  site.css ${sz('site.css')} B (gzip ${gzs('site.css')}), site.js ${sz('site.js')} B (gzip ${gzs('site.js')}), demos.js ${sz('demos.js')} B (gzip ${gzs('demos.js')}), boot.js ${sz('boot.js')} B, search-index.js ${sz('search-index.js')} B (gzip ${gzs('search-index.js')}), live scripts ${[...liveBundles.keys()].length}`);
 for (const w of [...new Set(warnings)]) console.warn(`warning: ${w}`);

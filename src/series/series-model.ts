@@ -6,6 +6,9 @@ import { mapToUnion } from '../core/time-index';
 import type { ChartPrimitive } from '../plugins/primitive';
 import type { RowBase, SeriesCommonOptions, SeriesDefinition } from './definition';
 
+const EXT_BLOCK = 128;
+const VAL_BLOCK = 32;
+
 export type UpdateKind = 'replace' | 'append' | 'insert';
 
 export class SeriesModel<R extends RowBase = RowBase, O extends object = object> {
@@ -16,6 +19,17 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
   count = 0;
   /** Slot on the time axis of each row. */
   pos = new Int32Array(0);
+  /** `def.value(row)` of each row (NaN for whitespace): the typed fast path for dense drawing (scope.values). */
+  vals = new Float64Array(0);
+  /** `def.low(row, options)` / `def.high(row, options)` of each row (NaN for whitespace), for dense drawing. */
+  lows = new Float64Array(0);
+  highs = new Float64Array(0);
+
+  private fillRow(i: number): void {
+    const r = this.rows[i];
+    if (r) { this.vals[i] = this.def.value(r); this.lows[i] = this.def.low(r, this.options); this.highs[i] = this.def.high(r, this.options); }
+    else { this.vals[i] = Number.NaN; this.lows[i] = Number.NaN; this.highs[i] = Number.NaN; }
+  }
   /** null while empty; else whether the times were given as business days. */
   businessDays: boolean | null = null;
   primitives: ChartPrimitive[] = [];
@@ -25,6 +39,83 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
   constructor(def: SeriesDefinition<R, O>, options: O & SeriesCommonOptions) {
     this.def = def;
     this.options = options;
+  }
+
+  // Per-block extremes for autoscale: blocks of EXT_BLOCK rows, computed lazily, invalidated by data / option changes.
+  private extLo = new Float64Array(0);
+  private extHi = new Float64Array(0);
+  private extOk = new Uint8Array(0);
+
+  // Per-block min / max of `vals` (VAL_BLOCK rows; NaN in a block marks it), for folding dense lines.
+  private vMin = new Float64Array(0);
+  private vMax = new Float64Array(0);
+  private vOk = new Uint8Array(0);
+
+  /** Block minima / maxima of `vals` (NaN for a block holding a gap), all valid on return. */
+  valueBlocks(): { size: number; min: Float64Array; max: Float64Array } {
+    const B = VAL_BLOCK;
+    const nb = Math.ceil(this.count / B);
+    if (this.vOk.length < nb) {
+      const a = new Float64Array(nb * 2); a.set(this.vMin); this.vMin = a;
+      const b = new Float64Array(nb * 2); b.set(this.vMax); this.vMax = b;
+      const c = new Uint8Array(nb * 2); c.set(this.vOk); this.vOk = c;
+    }
+    const v = this.vals;
+    for (let k = 0; k < nb; k++) {
+      if (this.vOk[k]) continue;
+      let lo = Infinity, hi = -Infinity;
+      const end = Math.min(this.count, (k + 1) * B);
+      for (let i = k * B; i < end; i++) {
+        const x = v[i];
+        if (x !== x) { lo = Number.NaN; hi = Number.NaN; break; }
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+      }
+      this.vMin[k] = lo; this.vMax[k] = hi; this.vOk[k] = 1;
+    }
+    return { size: B, min: this.vMin, max: this.vMax };
+  }
+
+  /** Forget cached extremes (options changed: a histogram's base, say). */
+  invalidateExtents(): void {
+    this.extOk.fill(0);
+    for (let i = 0; i < this.count; i++) this.fillRow(i);
+  }
+
+  /** Lowest low and highest high of rows a..b into out[0], out[1] (+Infinity / -Infinity when none). */
+  extents(a: number, b: number, out: Float64Array): void {
+    const B = EXT_BLOCK;
+    const nb = Math.ceil(this.count / B);
+    if (this.extOk.length < nb) {
+      const lo = new Float64Array(nb * 2); lo.set(this.extLo); this.extLo = lo;
+      const hi = new Float64Array(nb * 2); hi.set(this.extHi); this.extHi = hi;
+      const ok = new Uint8Array(nb * 2); ok.set(this.extOk); this.extOk = ok;
+    }
+    const def = this.def;
+    const o = this.options;
+    const rows = this.rows;
+    let lo = Infinity;
+    let hi = -Infinity;
+    let i = a;
+    while (i <= b) {
+      if (i % B === 0 && i + B - 1 <= b) {
+        const k = i / B;
+        if (!this.extOk[k]) {
+          let l = Infinity, h = -Infinity;
+          for (let j = i; j < i + B; j++) { const r = rows[j]; if (r) { const x = def.low(r, o), y = def.high(r, o); if (x < l) l = x; if (y > h) h = y; } }
+          this.extLo[k] = l; this.extHi[k] = h; this.extOk[k] = 1;
+        }
+        if (this.extLo[k] < lo) lo = this.extLo[k];
+        if (this.extHi[k] > hi) hi = this.extHi[k];
+        i += B;
+      } else {
+        const r = rows[i];
+        if (r) { const x = def.low(r, o), y = def.high(r, o); if (x < lo) lo = x; if (y > hi) hi = y; }
+        i++;
+      }
+    }
+    out[0] = lo;
+    out[1] = hi;
   }
 
   /** Bumped on every data change (setData, update). */
@@ -69,9 +160,15 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
     this.times = times;
     this.count = n;
     this.pos = new Int32Array(times.length);
+    this.vals = new Float64Array(times.length);
+    this.lows = new Float64Array(times.length);
+    this.highs = new Float64Array(times.length);
+    for (let i = 0; i < n; i++) this.fillRow(i);
     this.businessDays = n > 0 ? business : null;
     this.version++;
     this.dataCache = null;
+    this.extOk.fill(0);
+    this.vOk.fill(0);
   }
 
   /**
@@ -88,8 +185,11 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
       const last = this.times[this.count - 1];
       if (t === last) {
         this.rows[this.count - 1] = value;
+        this.fillRow(this.count - 1);
         this.version++;
         this.dataCache = null;
+        if (this.extOk.length) this.extOk[Math.floor((this.count - 1) / EXT_BLOCK)] = 0;
+        if (this.vOk.length) this.vOk[Math.floor((this.count - 1) / VAL_BLOCK)] = 0;
         return { kind: 'replace', t };
       }
       if (t < last) throw new RangeError('Chartist Lite: update() accepts the last bar or a newer one, not an older bar');
@@ -101,13 +201,22 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
       const pos = new Int32Array(times.length);
       pos.set(this.pos);
       this.pos = pos;
+      const grow = (a: Float64Array): Float64Array<ArrayBuffer> => { const b = new Float64Array(times.length); b.set(a); return b; };
+      this.vals = grow(this.vals);
+      this.lows = grow(this.lows);
+      this.highs = grow(this.highs);
     }
     this.times[this.count] = t;
     this.rows.push(value);
+    this.fillRow(this.count);
     this.count++;
     this.businessDays = b;
     this.version++;
     this.dataCache = null;
+    const blk = Math.floor((this.count - 1) / EXT_BLOCK);
+    if (blk < this.extOk.length) this.extOk[blk] = 0;
+    const vb = Math.floor((this.count - 1) / VAL_BLOCK);
+    if (vb < this.vOk.length) this.vOk[vb] = 0;
     return { kind: 'append', t };
   }
 

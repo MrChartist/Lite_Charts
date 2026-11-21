@@ -8,7 +8,7 @@
 // crosshair's vertical line. Each pane has its own price scales ('right', 'left', overlays).
 
 import type {
-  AnySeriesDefinition, ChartApi, LogicalRangeChangeHandler, MouseEventHandler, MouseEventParams, PaneApi, PriceScaleApi,
+  AnySeriesDefinition, ChartApi, ChartPointerEvent, ChartPointerHandler, LogicalRangeChangeHandler, MouseEventHandler, MouseEventParams, PaneApi, PriceScaleApi,
   SeriesApi, TimeRange, TimeScaleApi,
 } from '../api';
 import { formatPercent, formatPrice, formatStamp, resolvePriceFormat } from '../core/format';
@@ -61,6 +61,8 @@ interface Pane {
 }
 
 let uid = 0;
+/** Scratch [low, high] for SeriesModel.extents (no allocation per frame). */
+const ext = new Float64Array(2);
 
 /** A view request made before the chart had a width or data; applied by the first layout that can. */
 type PendingView = { kind: 'fit' } | { kind: 'logical'; range: LogicalRange } | { kind: 'time'; range: TimeRange };
@@ -95,6 +97,7 @@ class SeriesHandle<D extends AnySeriesDefinition> implements SeriesApi<D> {
   data(): never[] { return this.model.data() as never[]; }
   applyOptions(options: object): void {
     mergeInto(this.model.options, options);
+    this.model.invalidateExtents();
     withPriceFormat(this.model.options, options);
     this.chart.scaleFor(this.model);
     this.chart.invalidate(LAYOUT | MAIN | OVERLAY);
@@ -162,6 +165,9 @@ export class Chart implements ChartApi, InputTarget {
   /** Price-scale options a NEW pane starts from: the chart's creation options plus later chart-level patches only. */
   private paneScaleDefaults!: { right: PriceScaleOptions; left: PriceScaleOptions };
   private pendingView: PendingView | null = null;
+  private handlers: ChartPointerHandler[] = [];
+  private forcedCursor: string | null = null;
+  private rootCursor = '';
   private linkAnchor: HTMLAnchorElement | null = null;
   private darkQuery: MediaQueryList | null = null;
   private motionQuery: MediaQueryList | null = null;
@@ -281,7 +287,7 @@ export class Chart implements ChartApi, InputTarget {
     css(this.root, {
       width: o.autoSize ? '100%' : `${o.width}px`,
       height: o.autoSize ? '100%' : `${o.height}px`,
-      'touch-action': touchActionFor(o.interaction),
+      'touch-action': this.handlers.some(h => h.blocksTouch?.()) ? 'none' : touchActionFor(o.interaction),
     });
     if (o.attribution.visible && !this.link) this.makeLink();
     else if (!o.attribution.visible && this.link) {
@@ -609,7 +615,7 @@ export class Chart implements ChartApi, InputTarget {
   attachTo(list: ChartPrimitive[], p: ChartPrimitive, series: unknown): void {
     if (list.includes(p)) return;
     list.push(p);
-    p.attached?.({ requestUpdate: () => this.invalidate(MAIN | OVERLAY), series });
+    p.attached?.({ requestUpdate: () => this.invalidate(MAIN | OVERLAY), requestOverlay: () => this.invalidate(OVERLAY), series });
     this.invalidate(LAYOUT | MAIN | OVERLAY);
   }
 
@@ -674,12 +680,18 @@ export class Chart implements ChartApi, InputTarget {
           if (rr) {
             const def = s.def;
             const rows = s.rows;
-            for (let i = rr.from; i <= rr.to; i++) {
+            if (log) {
+              // Log mode needs each row's low checked against zero: the plain scan.
+              for (let i = rr.from; i <= rr.to; i++) { const row = rows[i]; if (row) take(def.low(row, s.options), def.high(row, s.options)); }
+            } else {
+              // Cached per-block extremes: O(visible / 128) once warm, whatever the zoom.
+              s.extents(rr.from, rr.to, ext);
+              if (ext[1] >= ext[0]) take(ext[0], ext[1]);
+            }
+            // Percent base: the first value that is not zero (a zero base has no percent change).
+            for (let i = rr.from; i <= rr.to && Number.isNaN(base); i++) {
               const row = rows[i];
-              if (!row) continue;
-              take(def.low(row, s.options), def.high(row, s.options));
-              // Percent base: the first value that is not zero (a zero base has no percent change).
-              if (Number.isNaN(base)) { const v = def.value(row); if (v !== 0 && Number.isFinite(v)) base = v; }
+              if (row) { const v = def.value(row); if (v !== 0 && Number.isFinite(v)) base = v; }
             }
           }
           if (r) for (const p of s.primitives) { const a = p.autoscale?.(r); if (a) take(a.min, a.max); }
@@ -885,6 +897,15 @@ export class Chart implements ChartApi, InputTarget {
       pane: rect,
       decimate: access => decimateColumns(s.rows, from, to, x, access),
       paneIndex: pi,
+      values: s.vals,
+      lows: s.lows,
+      highs: s.highs,
+      slots: pos,
+      // x(i) = (left + width - (rightIndex - slot + 0.5) * spacing) * hpr = xOrigin + xStep * slot
+      xOrigin: (left + ts.width - (ts.rightIndex() + 0.5) * ts.barSpacing) * hpr,
+      xStep: ts.barSpacing * hpr,
+      // Only worth building when rows are denser than device pixels.
+      valueBlocks: ts.barSpacing * hpr < 1 ? s.valueBlocks() : undefined,
     };
     this.main.ctx.save();
     s.def.draw(scope);
@@ -1323,6 +1344,72 @@ export class Chart implements ChartApi, InputTarget {
     this.fireCross({ x: this.cross.x, y: this.crossY(this.cross) });
   }
 
+  // ── plugin input (drawing tools) ──
+
+  pointerHandlers(): readonly ChartPointerHandler[] { return this.handlers; }
+
+  addPointerHandler(h: ChartPointerHandler): () => void {
+    this.handlers.push(h);
+    this.syncDom();
+    return () => {
+      const i = this.handlers.indexOf(h);
+      if (i >= 0) this.handlers.splice(i, 1);
+      if (!this.removed) this.syncDom();
+    };
+  }
+
+  setCursor(cursor: string | null): void {
+    this.forcedCursor = cursor;
+    this.setRootCursor(this.rootCursor);
+    this.syncDom(); // touch-action follows the handlers' blocksTouch()
+  }
+
+  setRootCursor(cursor: string): void {
+    this.rootCursor = cursor;
+    css(this.root, { cursor: this.forcedCursor ?? (cursor || 'default') });
+  }
+
+  pluginEvent(p: { x: number; y: number }, e: { pointerType?: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }, pane?: number): ChartPointerEvent {
+    const pi = pane !== undefined && pane >= 0 && pane < this.paneList.length ? pane : paneAt(this.paneList, p.y);
+    const x = p.x - this.plotL;
+    return {
+      point: { x, y: pi >= 0 ? p.y - this.paneList[pi].top : p.y },
+      paneIndex: pi, logical: this.ts.xToIndex(x), area: this.hit(p.x, p.y), pointerType: e.pointerType ?? 'mouse',
+      shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+    };
+  }
+
+  /** Median gap of the last bars (seconds), for extrapolating times past the data. */
+  private barStep(): number {
+    const { times, count } = this.index;
+    if (count < 2) return 60;
+    const gaps: number[] = [];
+    for (let i = Math.max(1, count - 64); i < count; i++) gaps.push(times[i] - times[i - 1]);
+    gaps.sort((a, b) => a - b);
+    return gaps[gaps.length >> 1] || 60;
+  }
+
+  timeToLogical(time: Time | number): number | null {
+    const { times, count } = this.index;
+    if (count === 0) return null;
+    const t = typeof time === 'number' ? time : timeToSeconds(time);
+    if (!Number.isFinite(t)) return null;
+    const i = this.index.lowerBound(t);
+    if (i < count && times[i] === t) return i;
+    if (i === 0) return (t - times[0]) / this.barStep();
+    if (i === count) return count - 1 + (t - times[count - 1]) / this.barStep();
+    return i - 1 + (t - times[i - 1]) / (times[i] - times[i - 1]);
+  }
+
+  logicalToTime(logical: number): number | null {
+    const { times, count } = this.index;
+    if (count === 0 || !Number.isFinite(logical)) return null;
+    if (logical <= 0) return times[0] + logical * this.barStep();
+    if (logical >= count - 1) return times[count - 1] + (logical - (count - 1)) * this.barStep();
+    const i = Math.floor(logical);
+    return times[i] + (logical - i) * (times[i + 1] - times[i]);
+  }
+
   // ── input target ──
 
   interaction() { return this.opts.interaction; }
@@ -1492,6 +1579,8 @@ export class Chart implements ChartApi, InputTarget {
       },
       logicalToCoordinate: (l: number) => (ts.width > 0 ? ts.indexToX(l) : null),
       coordinateToLogical: (x: number) => (ts.width > 0 ? ts.xToIndex(x) : null),
+      timeToLogical: (time: Time | number) => chart.timeToLogical(time),
+      logicalToTime: (logical: number) => chart.logicalToTime(logical),
       width: () => chart.plotW,
       applyOptions(o: DeepPartial<ChartTimeScaleOptions>) { chart.applyOptions({ timeScale: o }); },
       options: () => chart.opts.timeScale,
