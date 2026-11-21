@@ -212,5 +212,5 @@ allow its own script and its data URL in `connect-src`.
 Tested in Chromium (`scripts/screenshots-element.cjs`): ways 1, 2, 3 and 4 as the example pages, light and dark;
 lazy creation; remove and re-add twelve times; attribute changes; a missing `src`; React updates without
 re-creation; React under `StrictMode` including unmount; React server rendering with `react-dom/server`; no console
-errors. Not tested: other browsers, WordPress or any specific CMS, content security policies, and React versions
+errors. Not tested: other browsers, a page with JavaScript off (the fallback content rule follows from how browsers treat unknown tags), WordPress or any specific CMS, content security policies, `::part(frame)` styling, and React versions
 other than 19.

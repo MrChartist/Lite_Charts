@@ -138,6 +138,78 @@ const url = 'file://' + path.join(root, 'examples', 'basic.html');
     return { setDataMs: +setDataMs.toFixed(1), panMedianMs: +frames[30].toFixed(2), panMaxMs: +frames[59].toFixed(2), allBarsMedianMs: +zoomedOut[10].toFixed(2), visible: ts.getVisibleLogicalRange() };
   });
   await page.screenshot({ path: path.join(out, 'perf-100k.png') });
+  report.perfFit = await page.evaluate(() => {
+    const { chart } = window.__demo;
+    const ts = chart.timeScale();
+    const frames = [];
+    for (let k = 0; k < 30; k++) {
+      const t0 = performance.now();
+      ts.fitContent();
+      chart.paint();
+      frames.push(performance.now() - t0);
+    }
+    frames.sort((a, b) => a - b);
+    return { fitAllMedianMs: +frames[15].toFixed(2), fitAllMaxMs: +frames[29].toFixed(2), visible: ts.getVisibleLogicalRange() };
+  });
+  await page.screenshot({ path: path.join(out, 'perf-100k-fit.png') });
+  await page.close();
+
+  // Two panes: price + volume + left-scale benchmark above, RSI below.
+  const purl = 'file://' + path.join(root, 'examples', 'panes.html');
+  const pp = await browser.newPage({ viewport: { width: 960, height: 640 }, deviceScaleFactor: 1 });
+  pp.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`[${m.type()}] ${m.text()}`); });
+  pp.on('pageerror', e => errors.push(`[pageerror] ${e.message}`));
+  await pp.goto(purl);
+  await pp.waitForTimeout(300);
+  await pp.screenshot({ path: path.join(out, 'panes-light.png') });
+  const cbox = await pp.locator('#chart').boundingBox();
+  report.panes = {};
+  report.panes.before = await pp.evaluate(() => window.__demo.chart.panes().map(p => p.getHeight()));
+  report.panes.leftWidth = await pp.evaluate(() => window.__demo.chart.priceScale('left').width());
+  // Drag the divider up by 60 px.
+  const div = pp.locator('[role="separator"]');
+  const dbox = await div.boundingBox();
+  await pp.mouse.move(dbox.x + 200, dbox.y + dbox.height / 2);
+  await pp.mouse.down();
+  await pp.mouse.move(dbox.x + 200, dbox.y + dbox.height / 2 - 60, { steps: 6 });
+  await pp.mouse.up();
+  await pp.waitForTimeout(100);
+  report.panes.afterDrag = await pp.evaluate(() => window.__demo.chart.panes().map(p => p.getHeight()));
+  await div.focus();
+  await pp.keyboard.press('ArrowDown');
+  await pp.waitForTimeout(100);
+  report.panes.afterKey = await pp.evaluate(() => window.__demo.chart.panes().map(p => p.getHeight()));
+  report.panes.dividerValue = await div.getAttribute('aria-valuenow');
+  // Crosshair over the RSI pane, then keyboard inspect mode with the live region.
+  await pp.mouse.move(cbox.x + 500, cbox.y + cbox.height - 70);
+  await pp.waitForTimeout(100);
+  await pp.screenshot({ path: path.join(out, 'panes-light-crosshair.png') });
+  await pp.locator('#chart [role="application"]').focus();
+  await pp.keyboard.press('Enter');
+  await pp.keyboard.press('ArrowLeft');
+  await pp.keyboard.press('ArrowLeft');
+  await pp.waitForTimeout(100);
+  report.panes.live = await pp.evaluate(() => document.querySelector('#chart [aria-live]').textContent);
+  report.panes.describedBy = await pp.evaluate(() => { const r = document.querySelector('#chart [role="application"]'); return document.getElementById(r.getAttribute('aria-describedby')).textContent; });
+  await pp.keyboard.press('Home');
+  await pp.waitForTimeout(100);
+  report.panes.liveHome = await pp.evaluate(() => document.querySelector('#chart [aria-live]').textContent);
+  await pp.keyboard.press('Escape');
+  // Removing the RSI series removes its pane.
+  report.panes.afterRemove = await pp.evaluate(() => { const d = window.__demo; d.chart.removeSeries(d.rsiLine); d.chart.paint(); const n = d.chart.panes().length;
+    d.rsiLine = d.chart.addSeries(ChartistLite.LineSeries, { title: 'RSI 14' }, 1); d.rsiLine.setData(d.bars.map(b => ({ time: b.time, value: 50 }))); return n; });
+  await pp.reload();
+  await pp.waitForTimeout(200);
+  await pp.click('#theme');
+  await pp.mouse.move(cbox.x + 500, cbox.y + 200);
+  await pp.waitForTimeout(150);
+  await pp.screenshot({ path: path.join(out, 'panes-dark-crosshair.png') });
+  await pp.mouse.move(2, 2);
+  await pp.click('#fit');
+  await pp.mouse.move(2, 2);
+  await pp.waitForTimeout(150);
+  await pp.screenshot({ path: path.join(out, 'panes-dark.png') });
+  await pp.close();
   await browser.close();
   console.log(JSON.stringify(report, null, 2));
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }

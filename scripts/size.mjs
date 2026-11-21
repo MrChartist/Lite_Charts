@@ -13,6 +13,13 @@ const ENTRIES = {
   react: 'src/react/index.ts',
 };
 
+// The one-tag IIFE builds, as shipped (read from dist/; run `npm run build` first).
+const IIFES = {
+  'iife core': 'dist/chartist-lite.iife.min.js',
+  'iife indic.': 'dist/chartist-lite-indicators.iife.min.js',
+  'iife element': 'dist/chartist-lite.element.iife.min.js',
+};
+
 let failed = false;
 const rows = [];
 for (const [name, entry] of Object.entries(ENTRIES)) {
@@ -25,6 +32,14 @@ for (const [name, entry] of Object.entries(ENTRIES)) {
   const budget = BUDGET_GZIP[name];
   if (budget && gz > budget) failed = true;
   rows.push(`${name.padEnd(12)} min ${(code.length / 1024).toFixed(1).padStart(6)} KB   gzip ${(gz / 1024).toFixed(1).padStart(5)} KB${budget ? `   budget ${(budget / 1024).toFixed(0)} KB ${gz > budget ? 'OVER' : 'ok'}` : ''}`);
+}
+const { readFileSync, existsSync } = await import('node:fs');
+for (const [name, file] of Object.entries(IIFES)) {
+  const p = join(root, file);
+  if (!existsSync(p)) { rows.push(`${name.padEnd(12)} missing (${file}); run npm run build`); continue; }
+  const code = readFileSync(p);
+  const gz = gzipSync(code, { level: 9 }).length;
+  rows.push(`${name.padEnd(12)} min ${(code.length / 1024).toFixed(1).padStart(6)} KB   gzip ${(gz / 1024).toFixed(1).padStart(5)} KB`);
 }
 console.log(rows.join('\n'));
 if (failed) { console.error('size budget exceeded'); process.exit(1); }

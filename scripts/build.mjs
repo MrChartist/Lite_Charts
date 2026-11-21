@@ -44,5 +44,17 @@ await build({
   logLevel: 'warning',
 });
 
+// One-tag scripts for plain pages: the indicators (global ChartistLiteIndicators) and the custom element, which
+// registers <chartist-chart> on load (global ChartistLiteElement; src/element/auto.ts).
+for (const [entry, outfile, globalName] of [
+  ['src/indicators/index.ts', 'dist/chartist-lite-indicators.iife.min.js', 'ChartistLiteIndicators'],
+  ['src/element/auto.ts', 'dist/chartist-lite.element.iife.min.js', 'ChartistLiteElement'],
+]) {
+  await build({
+    absWorkingDir: root, entryPoints: [entry], outfile, bundle: true, format: 'iife', globalName, minify: true,
+    target: 'es2020', sourcemap: true, legalComments: 'none', logLevel: 'warning',
+  });
+}
+
 execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.build.json'], { cwd: root, stdio: 'inherit' });
 console.log('built dist/');
