@@ -243,6 +243,7 @@ const ICON = {
   moon: '<svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z"/></svg>',
   menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
 };
 const MARK = '<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9"/><path d="M10 9v14M16 12v11M22 7v12" fill="none" stroke-width="3" stroke-linecap="round"/></svg>';
@@ -265,11 +266,28 @@ function crumbList(crumbs) {
 const ogImage = { path: 'assets/og-image.png', size: pngSize(path.join(pkg, config.ogImageSource)) };
 const OG_ALT = 'A daily candlestick chart with a 20-bar moving average, drawn by Chartist Lite from demo data.';
 
-function guideGroupsHtml(current) {
-  return GROUPS.map((grp) => {
+// One glyph per guide page, drawn in the ink of its row.
+const TASK_ICONS = {
+  'getting-started': 'play', embedding: 'code', 'series-types': 'candles', indicators: 'wave', 'panes-and-scales': 'panes',
+  'time-and-time-zones': 'clock', 'drawing-tools': 'pen', theming: 'sun', plugins: 'pin', accessibility: 'keys',
+  'api-reference': 'book', 'coming-from-lightweight-charts': 'swap',
+};
+
+/** The guide navigation panel: groups of icon rows, the current page with its one-line task, and a foot with
+ *  "n of N" and previous / next. Used beside the page on wide screens and inside the drawer elsewhere. */
+function guideGroupsHtml(current, where = 'side') {
+  const idx = guides.findIndex((g) => g.out === current);
+  const groups = GROUPS.map((grp) => {
     const items = guides.filter((g) => g.group === grp.id);
-    return `<div class="nav-group"><p class="nav-group-title">${esc(grp.title)}</p><ul class="nav-list">${items.map((g) => `<li><a href="${rel(current, g.out)}"${g.out === current ? ' aria-current="page"' : ''}>${esc(g.title)}</a></li>`).join('')}</ul></div>`;
+    return `<div class="nav-group"><p class="nav-group-title">${esc(grp.title)}</p><ul class="nav-list">${items.map((g) => `<li><a href="${rel(current, g.out)}"${g.out === current ? ' aria-current="page"' : ''}><span class="nav-ico">${GLYPH[TASK_ICONS[g.slug]] || GLYPH.book}</span><span class="nav-text"><span class="nav-label">${esc(g.title)}</span><span class="nav-desc">${esc(g.task)}</span></span></a></li>`).join('')}</ul></div>`;
   }).join('');
+  const prev = idx > 0 ? guides[idx - 1] : null;
+  const next = idx >= 0 && idx < guides.length - 1 ? guides[idx + 1] : null;
+  const step = (g, dir) => (g ? `<a class="nav-step" href="${rel(current, g.out)}" aria-label="${dir === 'prev' ? 'Previous' : 'Next'}: ${esc(g.title)}">${dir === 'prev' ? ICON.back : ICON.arrow}</a>` : `<span class="nav-step" aria-hidden="true"></span>`);
+  const foot = idx >= 0
+    ? `<div class="nav-foot"><span class="nav-pos">${idx + 1} of ${guides.length}</span><span class="nav-bar" aria-hidden="true">${guides.map((_, k) => `<i${k <= idx ? ' class="on"' : ''}></i>`).join('')}</span>${step(prev, 'prev')}${step(next, 'next')}</div>`
+    : `<div class="nav-foot"><span class="nav-pos">${guides.length} pages</span></div>`;
+  return `<div class="nav-panel nav-panel--${where}"><div class="nav-scroll" data-nav-scroll tabindex="-1">${groups}</div>${foot}</div>`;
 }
 
 function layout(page) {
@@ -327,7 +345,7 @@ ${ldBlocks}
 </header>
 <dialog class="drawer" id="drawer" aria-label="Menu">
   <div class="drawer-head"><a class="brand" href="${rel(p, 'index.html')}">${MARK}<span>${esc(NAME)}</span></a><button class="icon-btn" type="button" data-close aria-label="Close the menu">${ICON.close}</button></div>
-  <nav class="drawer-body" aria-label="Menu">${drawerMain}${guideGroupsHtml(p)}</nav>
+  <nav class="drawer-body" aria-label="Menu">${drawerMain}${guideGroupsHtml(p, 'drawer')}</nav>
 </dialog>
 <dialog class="search-dialog" id="search" aria-label="Search the documentation">
   <div class="search-field">${ICON.search}<input id="search-input" type="search" placeholder="Search guides, options and API" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" aria-label="Search"><button class="icon-btn" type="button" data-close aria-label="Close search">${ICON.close}</button></div>
@@ -394,6 +412,7 @@ function docPage({ path: p, src, title, description, body, group, prevNext, rela
   const relatedHtml = related && related.length ? `<nav class="related" aria-label="Related guides"><span class="k">Related</span>${related.map((r) => `<a href="${rel(p, r.out)}">${esc(r.title)}</a>`).join('')}</nav>` : '';
   const crumb = crumbs && crumbs.length > 1 ? `<nav class="crumb" aria-label="Breadcrumb">${crumbs.slice(1, -1).map((c) => `<a href="${rel(p, c.path)}">${esc(c.name)}</a><span class="sep" aria-hidden="true">›</span>`).join('')}<span aria-current="page">${esc(crumbs[crumbs.length - 1].name)}</span></nav>` : '';
   const article = `<article class="doc prose">
+<button class="guide-menu js-only" type="button" data-open-drawer aria-haspopup="dialog" aria-controls="drawer"><span class="nav-ico">${GLYPH[TASK_ICONS[(guides.find((g) => g.out === p) || {}).slug]] || GLYPH.book}</span><span class="nav-text"><span class="nav-desc">Guide menu</span><span class="nav-label">${esc(title)}</span></span>${ICON.menu}</button>
 <header class="doc-head">${crumb}${group ? `<p class="eyebrow">${esc(group)}</p>` : ''}<h1 id="top">${h1Match ? h1Match[1] : esc(title)}</h1>${lead ? `<p class="lead">${lead}</p>` : ''}</header>
 ${h2s.length >= 2 ? chaptersNav(h2s, 'Chapters on this page') : ''}
 ${filter}
@@ -405,7 +424,7 @@ ${onward}
   pages.push({
     path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', drawings: usesDrawings, live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
     bodyClass: 'docs-page', ld: ldExtra,
-    body: `<div class="docs"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}</div>`,
+    body: `<div class="docs"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}${h2s.length >= 2 ? `<aside class="docs-toc"><nav class="page-toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${h2s.map((h, i) => `<li><a href="#${h.id}"${i === 0 ? ' aria-current="true"' : ''}>${esc(h.text)}</a></li>`).join('')}</ul></nav></aside>` : ''}</div>`,
   });
   searchDocs.push({ t: title, u: p, d: description, s: md.headings.filter((h) => h.level <= 3).map((h) => [h.text, h.id, firstSentence(h.lead)]) });
 }
@@ -445,11 +464,6 @@ if (existsSync(path.join(pkg, 'docs', 'PERFORMANCE.md'))) {
 }
 
 // Guide index: cards by task.
-const TASK_ICONS = {
-  'getting-started': 'play', embedding: 'code', 'series-types': 'candles', indicators: 'wave', 'panes-and-scales': 'panes',
-  'time-and-time-zones': 'clock', theming: 'sun', plugins: 'pin', accessibility: 'keys', 'api-reference': 'book',
-  'coming-from-lightweight-charts': 'swap',
-};
 {
   const p = 'guide/index.html';
   let k = 0;

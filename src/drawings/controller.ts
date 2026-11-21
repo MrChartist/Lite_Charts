@@ -10,7 +10,7 @@ import type { ChartPrimitive, PrimitiveDrawScope, PrimitiveHost } from '../plugi
 import { createToolbar } from './toolbar';
 import { constrainAngle, nearestOhlc, simplifyPath, type Pt, type Rect } from './geometry';
 import {
-  BODY, colorOf, handlePoints, hitDrawing, overlaps, paintBox, renderDrawing, renderLabels, toolInfo, TOOLS,
+  BODY, colorOf, handlePoints, hitDrawing, overlaps, paintBox, renderDrawing, renderLabels, toolInfo, TOOL_KEYS, TOOLS,
   type Anchor, type Drawing, type DrawingStyle, type Proj, type RenderCtx, type ToolId, type ToolInfo,
 } from './tools';
 
@@ -160,6 +160,7 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
   let drag: { id: string; part: number; pane: number; start: { logical: number; price: number }; orig: Anchor[]; down: Pt; moved: boolean; before: string } | null = null;
   /** The drawing painted on the overlay instead of the main layer while it moves. */
   let liveId: string | null = null;
+  let layoutKey = '';
 
   const ts = chart.timeScale();
   const emit = (ev: DrawingEvent, d: Drawing | null): void => { for (const h of listeners.get(ev) ?? []) h(d ? copy(d) : null); };
@@ -317,7 +318,10 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
       draw(scope) {
         const changed = colors !== scope.colors && JSON.stringify(colors) !== JSON.stringify(scope.colors);
         colors = scope.colors;
-        if (changed) ui?.sync();
+        // The toolbar follows the pane's size and place (a resize, a pane separator drag, a left axis appearing).
+        const r = scope.pane;
+        const key = `${r.x},${r.y},${r.width},${r.height}`;
+        if (pane === 0 && key !== layoutKey) { layoutKey = key; ui?.sync(); } else if (changed) ui?.sync();
         if (hidden) return;
         const rc = makeRc(scope);
         for (const d of list) if (d.pane === pane && d.id !== liveId) paint(rc, d, scope);
@@ -546,6 +550,11 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
       if (mod && (k === 'z' || k === 'Z')) return e.shiftKey ? ctl.redo() || true : ctl.undo() || true;
       if (mod && (k === 'y' || k === 'Y')) return ctl.redo() || true;
       if (mod) return false;
+      // Single-key tool shortcuts (TOOL_KEYS), only without modifiers.
+      if (!e.shiftKey && !e.altKey && k.length === 1) {
+        const id = (Object.keys(TOOL_KEYS) as ToolId[]).find(t => TOOL_KEYS[t] === k.toUpperCase());
+        if (id) { ctl.setTool(tool === id ? null : id); return true; }
+      }
       if (k === 'Escape') {
         if (creating) { creating = null; repaintOverlay(); return true; }
         if (tool) { ctl.setTool(null); return true; }

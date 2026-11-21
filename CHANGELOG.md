@@ -31,7 +31,8 @@ First version (not yet published).
 
 - Drawing tools entry (`./drawings`, script-tag file `chartist-lite-drawings.iife.min.js`): trend line, ray, extended
   line, horizontal line and ray, vertical line, rectangle, parallel channel, Fibonacci retracement, measure, long and
-  short position, arrow, text note, brush; magnet, keep drawing, undo / redo, versioned JSON, optional toolbar.
+  short position, arrow, text note, brush; magnet, keep drawing, undo / redo, versioned JSON, optional toolbar (one
+  grouped rail with flyouts, single-key shortcuts T, H, V, R, F, M, L, S, A, N, B).
 - Plugin input hooks: `chart.addPointerHandler`, `chart.setCursor`, `timeScale().timeToLogical` / `logicalToTime`.
 - Frame-cost bench (`npm run bench`, `docs/PERFORMANCE.md`): every measured gesture within a 120 Hz and a 144 Hz frame.
 

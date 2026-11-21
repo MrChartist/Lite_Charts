@@ -208,3 +208,41 @@ describe('controller', () => {
     expect(tools.drawings()[2].points[0].price).toBe(500 - (300 - 36));
   });
 });
+
+describe('toolbar groups and shortcuts', () => {
+  it('every tool is in exactly one group; groups are the rail buttons', async () => {
+    const { TOOL_GROUPS, TOOLS } = await import('../drawings/tools');
+    const all = TOOL_GROUPS.flatMap(g => [...g.tools]);
+    expect(new Set(all).size).toBe(all.length);
+    expect([...all].sort()).toEqual(TOOLS.map(t => t.id).sort());
+    expect(TOOL_GROUPS.map(g => g.label)).toEqual(['Lines', 'Shapes', 'Fibonacci', 'Measure', 'Positions', 'Annotate']);
+  });
+
+  it('single keys are unique letters that the chart does not use', async () => {
+    const { TOOL_KEYS } = await import('../drawings/tools');
+    const keys = Object.values(TOOL_KEYS);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const k of keys) expect(k).toMatch(/^[A-Z]$/);
+    // The chart's own keys and the drawing keys stay free.
+    for (const used of ['+', '-', '=', '_', ' ']) expect(keys).not.toContain(used);
+    const { toolTitle } = await import('../drawings/toolbar');
+    expect(toolTitle('trend')).toBe('Trend line (T)');
+    expect(toolTitle('ray')).toBe('Ray');
+  });
+
+  it('a shortcut key arms its tool and the same key disarms it; Shift + H still adds a line', () => {
+    const f = fakeChart();
+    const tools = createDrawingTools(f.chart as never, f.series as never);
+    const key = (k: string, mods: Partial<KeyboardEvent> = {}) => f.handler().keyDown?.({ key: k, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...mods } as KeyboardEvent);
+    expect(key('t')).toBe(true);
+    expect(tools.tool()).toBe('trend');
+    expect(key('f')).toBe(true);
+    expect(tools.tool()).toBe('fib');
+    expect(key('F')).toBe(true);
+    expect(tools.tool()).toBeNull();
+    expect(key('q')).toBe(false);
+    expect(key('H', { shiftKey: true })).toBe(true);
+    expect(tools.drawings()[0].tool).toBe('horizontal');
+    expect(tools.tool()).toBeNull();
+  });
+});

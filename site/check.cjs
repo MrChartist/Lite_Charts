@@ -315,6 +315,51 @@ async function interactive(browser, origin) {
     await ctx.close();
   }
 
+  // Guide navigation panel: a clear gap under the top bar at every scroll position, the current row in view on load,
+  // the selected row readable in both themes, the foot's previous / next inside the panel.
+  for (const theme of ['dark', 'light']) for (const width of [1440, 1280, 1024]) {
+    const ctx = await browser.newContext({ viewport: { width, height: 760 } });
+    await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); } catch (e) { /* none */ } }, theme);
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/guide/coming-from-lightweight-charts.html`, { waitUntil: 'load' });
+    await page.waitForTimeout(200);
+    const gaps = [];
+    for (const f of [0, 0.1, 0.35, 0.6, 0.9, 1]) {
+      await page.evaluate((x) => window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * x), f);
+      await page.waitForTimeout(120);
+      gaps.push(await page.evaluate(() => Math.round(document.querySelector('.docs-nav .nav-panel').getBoundingClientRect().top - document.querySelector('.header-row').getBoundingClientRect().bottom)));
+    }
+    ok(gaps.every((g) => g >= 12), `guide nav @${width} ${theme}: never touches or slides under the top bar (gaps ${gaps.join(', ')} px)`);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const vis = await page.evaluate(() => { const sc = document.querySelector('.docs-nav [data-nav-scroll]'); const a = sc.querySelector('[aria-current="page"]'); const r = a.getBoundingClientRect(); const s = sc.getBoundingClientRect(); return r.top >= s.top - 1 && r.bottom <= s.bottom + 1; });
+    ok(vis, `guide nav @${width} ${theme}: the current page (the last one) is in view on load, the panel scrolled to it`);
+    const c = await page.evaluate(() => {
+      const a = document.querySelector('.docs-nav [aria-current="page"]');
+      const rgb = (v) => v.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+      const ratio = (x, y) => { const a1 = lum(rgb(x)); const b1 = lum(rgb(y)); return (Math.max(a1, b1) + 0.05) / (Math.min(a1, b1) + 0.05); };
+      const bg = getComputedStyle(a).backgroundColor;
+      return { label: ratio(getComputedStyle(a.querySelector('.nav-label')).color, bg), desc: ratio(getComputedStyle(a.querySelector('.nav-desc')).color, bg) };
+    });
+    ok(c.label >= 4.5 && c.desc >= 4.5, `guide nav @${width} ${theme}: the selected row reads at ${c.label.toFixed(1)}:1 (title) and ${c.desc.toFixed(1)}:1 (task line)`);
+    const foot = await page.evaluate(() => { const p = document.querySelector('.docs-nav .nav-panel').getBoundingClientRect(); return Array.from(document.querySelectorAll('.docs-nav .nav-foot .nav-step')).every((b) => { const r = b.getBoundingClientRect(); return r.right <= p.right && r.left >= p.left; }); });
+    ok(foot, `guide nav @${width} ${theme}: previous and next sit inside the panel`);
+    await ctx.close();
+  }
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/guide/series-types.html`, { waitUntil: 'load' });
+    ok(await page.evaluate(() => { const b = document.querySelector('.guide-menu'); return !!b && b.offsetParent !== null && /Guide menu/.test(b.textContent) && /Series types/.test(b.textContent); }), 'guide menu @390: the button says "Guide menu" and names the current page');
+    await page.click('.guide-menu');
+    await page.waitForTimeout(400);
+    ok(await page.evaluate(() => { const d = document.getElementById('drawer'); const a = d.querySelector('[data-nav-scroll] [aria-current="page"]'); return d.open && a && document.activeElement === a; }), 'guide menu @390: opens the drawer with focus on the current page');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    ok(await page.evaluate(() => document.activeElement.classList.contains('guide-menu')), 'guide menu @390: Escape returns focus to the button');
+    await ctx.close();
+  }
+
   // Fonts: the brand faces load over http, and their arrival barely moves the layout.
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -463,7 +508,7 @@ async function screenshots(browser, origin) {
         const small = await page.evaluate(() => {
           const out = [];
           if (!matchMedia('(pointer: coarse)').matches) return ['pointer is not coarse in this context'];
-          for (const el of document.querySelectorAll('.btn, .chip, .seg button, .copy, .icon-btn, .search-btn, .main-nav a, .footer-nav a, .nav-list a, .chapters a, .pager a, .crumb a, .related a, .skip')) {
+          for (const el of document.querySelectorAll('.btn, .chip, .seg button, .copy, .icon-btn, .search-btn, .main-nav a, .footer-nav a, .nav-list a, .nav-step, .guide-menu, .page-toc a, .chapters a, .pager a, .crumb a, .related a, .skip')) {
             const r = el.getBoundingClientRect();
             if (r.width === 0 || r.height === 0) continue;
             if (r.height < 43.5 || r.width < 43.5) out.push(`${el.tagName}.${el.className} ${Math.round(r.width)}x${Math.round(r.height)} "${el.textContent.trim().slice(0, 20)}"`);

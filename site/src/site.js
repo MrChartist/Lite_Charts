@@ -203,7 +203,7 @@ function initTabs() {
 
 // ---------- chapters: scroll-spy on the capsule ----------
 function initChapters() {
-  for (const nav of $$('nav.chapters')) {
+  for (const nav of $$('nav.chapters, nav.page-toc')) {
     const links = $$('a', nav);
     const targets = links.map((a) => document.getElementById(a.getAttribute('href').slice(1)));
     let current = -1;
@@ -491,11 +491,45 @@ function initMeter() {
   }
 }
 
+// ---------- guide navigation: keep its scroll, current row in view, faded edges ----------
+function initGuideNav() {
+  for (const sc of $$('[data-nav-scroll]')) {
+    const fades = () => {
+      sc.classList.toggle('fade-top', sc.scrollTop > 2);
+      sc.classList.toggle('fade-bottom', sc.scrollTop + sc.clientHeight < sc.scrollHeight - 2);
+    };
+    const inDrawer = !!sc.closest('dialog');
+    if (!inDrawer) {
+      let saved = 0;
+      try { saved = Number(sessionStorage.getItem('cl-nav-scroll')) || 0; } catch (e) { saved = 0; }
+      if (saved) sc.scrollTop = saved;
+      const cur = $('[aria-current="page"]', sc);
+      if (cur) {
+        const top = cur.offsetTop - sc.offsetTop; const bottom = top + cur.offsetHeight;
+        if (top < sc.scrollTop + 8 || bottom > sc.scrollTop + sc.clientHeight - 8) sc.scrollTop = Math.max(0, top - sc.clientHeight / 2 + cur.offsetHeight / 2);
+      }
+      window.addEventListener('pagehide', () => { try { sessionStorage.setItem('cl-nav-scroll', String(sc.scrollTop)); } catch (e) { /* storage blocked */ } });
+    }
+    sc.addEventListener('scroll', fades, { passive: true });
+    window.addEventListener('resize', fades);
+    fades();
+  }
+  const drawer = $('#drawer');
+  for (const b of $$('[data-open-drawer]')) {
+    b.addEventListener('click', () => {
+      openDialog(drawer, b, $('[data-nav-scroll] [aria-current="page"]', drawer) || $('[data-close]', drawer));
+      const sc = $('[data-nav-scroll]', drawer); const cur = sc && $('[aria-current="page"]', sc);
+      if (cur) cur.scrollIntoView({ block: 'center' });
+      if (sc) sc.dispatchEvent(new Event('scroll'));
+    });
+  }
+}
+
 // ---------- start ----------
 function start() {
   const toggle = $('#theme-toggle');
   if (toggle) toggle.addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true));
   applyTheme(currentTheme(), false);
-  initCopy(); initTabs(); initDialogs(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initCharts(); initMeter();
+  initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initCharts(); initMeter();
 }
 start();

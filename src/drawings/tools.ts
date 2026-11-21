@@ -368,3 +368,24 @@ export function paintBox(d: Drawing, pts: readonly Proj[]): Rect | null {
 export function overlaps(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }
+
+/**
+ * Single-key shortcuts while the chart has focus (no modifier). Chosen not to clash with the chart's keys (arrows,
+ * + and -, Home, End, Enter, Space, Escape) or the drawing keys (Delete, Backspace, Shift + H, ctrl / cmd + Z / Y).
+ */
+export const TOOL_KEYS: Readonly<Partial<Record<ToolId, string>>> = {
+  trend: 'T', horizontal: 'H', vertical: 'V', rectangle: 'R', fib: 'F', measure: 'M', long: 'L', short: 'S',
+  arrow: 'A', text: 'N', brush: 'B',
+};
+
+export interface ToolGroup { id: string; label: string; tools: readonly ToolId[] }
+
+/** How the toolbar groups the tools: one rail button per group, a flyout when a group has more than one. */
+export const TOOL_GROUPS: readonly ToolGroup[] = [
+  { id: 'lines', label: 'Lines', tools: ['trend', 'ray', 'extended', 'horizontal', 'horizontalRay', 'vertical'] },
+  { id: 'shapes', label: 'Shapes', tools: ['rectangle', 'channel'] },
+  { id: 'fib', label: 'Fibonacci', tools: ['fib'] },
+  { id: 'measure', label: 'Measure', tools: ['measure'] },
+  { id: 'positions', label: 'Positions', tools: ['long', 'short'] },
+  { id: 'annotate', label: 'Annotate', tools: ['text', 'arrow', 'brush'] },
+];
