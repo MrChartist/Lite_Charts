@@ -1,12 +1,13 @@
 // Area series: a line with a vertical gradient fill down to the pane bottom. The fill is one path (one polygon per
 // unbroken run of values) and the line one stroke, so a frame costs two draw calls whatever the zoom. Rows closer
-// than one device pixel collapse to one point per pixel column (the column's last value).
+// than one device pixel fold to the first, highest, lowest and last value of each pixel column (render/decimate.ts).
 
 import type { Time } from '../core/time';
 import { copyTime } from '../core/time';
 import { parseColor } from '../core/theme';
 import { deviceWidth } from '../render/pixel';
 import type { RowBase, SeriesDefinition, SeriesDrawScope } from './definition';
+import { decimateColumns } from '../render/decimate';
 
 export interface AreaData extends RowBase {
   time: Time;
@@ -41,9 +42,12 @@ let ptY = new Float64Array(512);
  * `valueOf` picks the number a row plots. Returns the point count. Shared by area and baseline.
  */
 export function collectPoints<R extends RowBase>(
-  s: Pick<SeriesDrawScope<R, unknown>, 'rows' | 'from' | 'to' | 'x' | 'y'>,
+  s: Pick<SeriesDrawScope<R, unknown>, 'rows' | 'from' | 'to' | 'x' | 'y'> & { barSpacing?: number },
   valueOf: (r: R) => number,
 ): { n: number; xs: Float64Array; ys: Float64Array } {
+  // Closer than one device pixel: per pixel column the first, highest, lowest and last value (the shared min/max
+  // decimation), so a spike inside a column is not lost when zoomed far out.
+  if (s.barSpacing !== undefined && s.barSpacing < 1) return collectDecimated(s, valueOf);
   const need = s.to - s.from + 2;
   if (need > ptX.length) {
     let cap = ptX.length;
@@ -68,6 +72,42 @@ export function collectPoints<R extends RowBase>(
     ptX[n] = xx;
     ptY[n] = yy;
     n++;
+  }
+  return { n, xs: ptX, ys: ptY };
+}
+
+function collectDecimated<R extends RowBase>(
+  s: Pick<SeriesDrawScope<R, unknown>, 'rows' | 'from' | 'to' | 'x' | 'y'>,
+  valueOf: (r: R) => number,
+): { n: number; xs: Float64Array; ys: Float64Array } {
+  const ok = (i: number): boolean => { const r = s.rows[i]; return !!r && Number.isFinite(s.y(valueOf(r))); };
+  const access = { high: valueOf, low: valueOf };
+  let n = 0;
+  const push = (x: number, y: number): void => {
+    if (n + 1 >= ptX.length) {
+      const nx = new Float64Array(ptX.length * 2); nx.set(ptX); ptX = nx;
+      const ny = new Float64Array(ptY.length * 2); ny.set(ptY); ptY = ny;
+    }
+    ptX[n] = x; ptY[n] = y; n++;
+  };
+  let a = s.from;
+  while (a <= s.to) {
+    while (a <= s.to && !ok(a)) a++;
+    if (a > s.to) break;
+    let b = a;
+    while (b + 1 <= s.to && ok(b + 1)) b++;
+    if (n > 0) push(0, NaN);
+    const cols = decimateColumns(s.rows, a, b, s.x, access);
+    for (let k = 0; k < cols.count; k++) {
+      const cx = cols.x[k] + 0.5;
+      push(cx, s.y(cols.first[k]));
+      if (cols.rows[k] > 1) {
+        push(cx, s.y(cols.high[k]));
+        push(cx, s.y(cols.low[k]));
+        push(cx, s.y(cols.last[k]));
+      }
+    }
+    a = b + 1;
   }
   return { n, xs: ptX, ys: ptY };
 }

@@ -71,15 +71,12 @@ export function createPriceLine(series: PrimitiveOwner, options: Partial<PriceLi
   if (!Number.isFinite(opts.price)) throw new TypeError('Chartist Lite: createPriceLine needs a finite "price"');
   let host: PrimitiveHost | null = null;
   let attached = true;
-  // The theme's line colour, remembered from the last draw so the axis tag follows a theme switch.
-  let themeLine = '#0066CC';
 
   const primitive: ChartPrimitive = {
     zOrder: 'normal',
     attached(h) { host = h; },
     detached() { host = null; },
     draw(s: PrimitiveDrawScope) {
-      themeLine = s.colors.line;
       const y = s.priceToY(opts.price);
       if (y === null) return;
       const { ctx, pane, pixelRatio: r } = s;
@@ -114,8 +111,8 @@ export function createPriceLine(series: PrimitiveOwner, options: Partial<PriceLi
         ctx.restore();
       }
     },
-    priceAxisLabels() {
-      return opts.axisLabelVisible ? [{ price: opts.price, color: opts.color ?? themeLine }] : NO_LABELS;
+    priceAxisLabels(colors) {
+      return opts.axisLabelVisible ? [{ price: opts.price, color: opts.color ?? colors.line }] : NO_LABELS;
     },
   };
   series.attachPrimitive(primitive);

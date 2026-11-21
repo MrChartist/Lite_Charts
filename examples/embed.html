@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: embed</title>
+<style>
+  body { margin: 0; padding: 24px 16px; font: 400 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1D1D1F; background: #F8F8F8; }
+  @media (prefers-color-scheme: dark) { body { color: #F5F5F7; background: #141414; } }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  p { margin: 0 0 16px; opacity: .75; }
+  /* The element is display:block and takes its height from the attribute; CSS on the page wins over the attribute. */
+  chartist-chart { border-radius: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DEMO · one script, one tag</h1>
+  <p>This page is the whole embed: a script tag, then the element.</p>
+
+  <!-- 1. Load the script (it registers the tag). -->
+  <script src="../dist/chartist-lite.element.iife.min.js"></script>
+
+  <!-- 2. Place the chart anywhere. -->
+  <chartist-chart type="candlestick" theme="auto" src="data/demo-daily.json" height="360"
+    aria-label="DEMO-A daily price, sample data"></chartist-chart>
+</main>
+</body>
+</html>

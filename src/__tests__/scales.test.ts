@@ -152,10 +152,16 @@ describe('time scale (visible-range maths)', () => {
     expect(r?.from).toBeLessThanOrEqual(998);
   });
 
-  it('spacing stays within limits; fitContent clamps to the minimum', () => {
+  it('spacing stays within limits; fitContent shows the whole series however long', () => {
     const t = make(100_000);
     t.fitContent();
-    expect(t.barSpacing).toBe(0.5);
+    expect(t.barSpacing).toBeCloseTo(800 / 100_002);
+    expect(t.visibleLogicalRange()?.from).toBeCloseTo(0);
+    t.zoom(400, 1e-6);
+    expect(t.barSpacing).toBeCloseTo(800 / 100_002);
+    const short = make(50);
+    short.zoom(400, 1e-6);
+    expect(short.barSpacing).toBe(0.5);
     t.zoom(400, 1e6);
     expect(t.barSpacing).toBe(64);
   });

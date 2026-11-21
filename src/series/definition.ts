@@ -83,9 +83,12 @@ export interface SeriesDefinition<R extends RowBase = RowBase, O extends object 
   normalize(input: Record<string, unknown> & { time: Time }): R | null;
   /** The row's single value: last-value tag, percent base, magnet crosshair. */
   value(row: R): number;
-  /** Lowest and highest price the row draws, for autoscale. */
-  low(row: R): number;
-  high(row: R): number;
+  /**
+   * Lowest and highest price the row draws, for autoscale. The chart passes the series' options as a second
+   * argument (added in stage 2; a definition that ignores it is still valid), e.g. a histogram's `base`.
+   */
+  low(row: R, options?: Readonly<O & SeriesCommonOptions>): number;
+  high(row: R, options?: Readonly<O & SeriesCommonOptions>): number;
   /** Colour of the last-value tag and price line for this row. */
   lastValueColor(row: R, options: Readonly<O & SeriesCommonOptions>, colors: Readonly<ThemeColors>): string;
   draw(scope: SeriesDrawScope<R, O>): void;

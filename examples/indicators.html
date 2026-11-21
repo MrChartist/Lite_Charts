@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: indicators</title>
+<style>
+  :root { color-scheme: light; --bg: #F8F8F8; --ink: #1D1D1F; --muted: #6E6E73; --card: #FFFFFF; --edge: rgba(0,0,0,0.1); }
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #0C0C0C; --ink: #F5F5F7; --muted: #98989D; --card: #141414; --edge: rgba(255,255,255,0.12); }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+    font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  #legend { color: var(--muted); font-variant-numeric: tabular-nums; min-height: 20px; margin-bottom: 8px; }
+  button { font: inherit; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge);
+    background: var(--card); color: var(--ink); cursor: pointer; }
+  button:focus-visible { outline: 2px solid #0066CC; outline-offset: 2px; }
+  .stack { border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
+  .stack > div + div { border-top: 1px solid var(--edge); }
+  #price { height: 340px; }
+  #rsi { height: 130px; }
+  #macd { height: 160px; }
+  .label { position: relative; }
+  .label::before { content: attr(data-label); position: absolute; z-index: 1; left: 10px; top: 6px; font-size: 12px; color: var(--muted); pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DEMO · candles with SMA 20 and Bollinger, RSI 14 and MACD below</h1>
+  <div><button id="theme" type="button">Dark theme</button> <button id="tick" type="button">Live tick</button></div>
+</header>
+<div id="legend"></div>
+<div class="stack">
+  <div id="price" class="label" data-label="Price, SMA 20, Bollinger 20 x 2"></div>
+  <div id="rsi" class="label" data-label="RSI 14"></div>
+  <div id="macd" class="label" data-label="MACD 12 26 9"></div>
+</div>
+<!-- Build first: `npm run build`, then `node scripts/screenshots-indicators.cjs` (it also writes the indicators script below
+     when `npm run build` has not). The indicators entry as a <script> global:
+     `npx esbuild src/indicators/index.ts --bundle --minify --format=iife --global-name=ChartistLiteIndicators --outfile=dist/chartist-lite-indicators.iife.min.js` -->
+<script src="../dist/chartist-lite.iife.min.js"></script>
+<script src="../dist/chartist-lite-indicators.iife.min.js"></script>
+<script>
+  // Deterministic data: a seeded random walk, business days only.
+  function makeBars(count, seed) {
+    let s = seed >>> 0;
+    const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const bars = [];
+    let close = 100;
+    let day = Date.UTC(2023, 0, 2) / 1000;
+    while (bars.length < count) {
+      const wd = new Date(day * 1000).getUTCDay();
+      if (wd !== 0 && wd !== 6) {
+        const open = close;
+        close = Math.max(1, open * (1 + (rand() - 0.49) * 0.04));
+        const high = Math.max(open, close) * (1 + rand() * 0.012);
+        const low = Math.min(open, close) * (1 - rand() * 0.012);
+        bars.push({ time: new Date(day * 1000).toISOString().slice(0, 10), open: +open.toFixed(2), high: +high.toFixed(2), low: +low.toFixed(2), close: +close.toFixed(2) });
+      }
+      day += 86400;
+    }
+    return bars;
+  }
+
+  const { createChart, CandlestickSeries, LineSeries, HistogramSeries, createPriceLine, formatPrice } = ChartistLite;
+  const { sma, bollinger, rsi, macd, createIndicator } = ChartistLiteIndicators;
+  const bars = makeBars(300, 7);
+
+  // Series colours per theme: the accents are the library's line blue and a warm orange, the bands are neutral.
+  const palette = {
+    light: { sma: '#0066CC', band: 'rgba(60,60,67,0.55)', rsi: '#B85C00', macd: '#0066CC', signal: '#B85C00', up: 'rgba(36,138,61,0.55)', down: 'rgba(215,0,21,0.55)', guide: 'rgba(60,60,67,0.45)' },
+    dark: { sma: '#0A84FF', band: 'rgba(235,235,245,0.55)', rsi: '#FF9F0A', macd: '#0A84FF', signal: '#FF9F0A', up: 'rgba(48,209,88,0.6)', down: 'rgba(255,69,58,0.6)', guide: 'rgba(235,235,245,0.45)' },
+  };
+  // The three charts are separate (multi-pane is not used here), so their price axes are as wide as their labels. Padding the
+  // lower labels with figure spaces (digit-wide) to the price axis' six characters keeps the bars of the three charts in line.
+  const padded = { localization: { priceFormatter: v => formatPrice(v, 2).padStart(6, '\u2007') } };
+  const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
+
+  const price = createChart('price', { theme: 'light', ariaLabel: 'DEMO price chart', timeScale: { visible: false } });
+  const candles = price.addSeries(CandlestickSeries, { title: 'DEMO' });
+  const avg = price.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'SMA 20' });
+  const bb = bollinger(bars, { period: 20, mult: 2 });
+  const basis = price.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: 'dashed', title: 'BB basis' });
+  const upper = price.addSeries(LineSeries, { ...quiet, lineWidth: 1, title: 'BB upper' });
+  const lower = price.addSeries(LineSeries, { ...quiet, lineWidth: 1, title: 'BB lower' });
+  candles.setData(bars);
+  avg.setData(sma(bars, 20));
+  basis.setData(bb.basis); upper.setData(bb.upper); lower.setData(bb.lower);
+
+  const rsiChart = createChart('rsi', { theme: 'light', ariaLabel: 'DEMO RSI', timeScale: { visible: false }, rightPriceScale: { scaleMargins: { top: 0.18, bottom: 0.1 } }, ...padded });
+  const rsiLine = rsiChart.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'RSI 14', lastValueVisible: true });
+  rsiLine.setData(rsi(bars, 14));
+  const guides = [70, 30].map(p => createPriceLine(rsiLine, { price: p, lineStyle: 'dotted', axisLabelVisible: true }));
+
+  const macdChart = createChart('macd', { theme: 'light', ariaLabel: 'DEMO MACD', ...padded, rightPriceScale: { scaleMargins: { top: 0.2, bottom: 0.1 } } });
+  const m = macd(bars, { fast: 12, slow: 26, signal: 9 });
+  const hist = macdChart.addSeries(HistogramSeries, { lastValueVisible: false, priceLineVisible: false, title: 'Histogram' });
+  const macdLine = macdChart.addSeries(LineSeries, { ...quiet, lineWidth: 2, title: 'MACD' });
+  const sigLine = macdChart.addSeries(LineSeries, { ...quiet, lineWidth: 1.5, title: 'Signal' });
+  // Histogram columns coloured by sign: green above zero, red below (the sign is also the column direction).
+  const colorHist = (rows, pal) => rows.map(r => (r.value === undefined ? r : { ...r, color: r.value >= 0 ? pal.up : pal.down }));
+  macdLine.setData(m.macd); sigLine.setData(m.signal);
+
+  const charts = [price, rsiChart, macdChart];
+
+  function paint(name) {
+    const p = palette[name];
+    for (const c of charts) c.applyOptions({ theme: name });
+    avg.applyOptions({ color: p.sma });
+    for (const s of [basis, upper, lower]) s.applyOptions({ color: p.band });
+    rsiLine.applyOptions({ color: p.rsi });
+    for (const g of guides) g.applyOptions({ color: p.guide });
+    macdLine.applyOptions({ color: p.macd });
+    sigLine.applyOptions({ color: p.signal });
+    hist.setData(colorHist(m.histogram, p));
+  }
+  paint('light');
+
+  // One shared view: the three charts show the same bars (their price axes differ by a few pixels of width).
+  let syncing = false;
+  for (const src of charts) {
+    src.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (!range || syncing) return;
+      syncing = true;
+      for (const dst of charts) if (dst !== src) dst.timeScale().setVisibleLogicalRange(range);
+      syncing = false;
+    });
+  }
+  for (const c of charts) c.timeScale().setVisibleLogicalRange({ from: bars.length - 130, to: bars.length + 2 });
+
+  const at = (series, time) => { const r = series.data().find(x => x.time === time); return r ? formatPrice(r.value, 2) : 'n/a'; };
+  const legend = document.getElementById('legend');
+  price.subscribeCrosshairMove(p => {
+    const row = p.seriesData.get(candles);
+    legend.textContent = row
+      ? `${row.time}  C ${formatPrice(row.close, 2)}  SMA ${at(avg, row.time)}  BB ${at(lower, row.time)} to ${at(upper, row.time)}  RSI ${at(rsiLine, row.time)}  MACD ${at(macdLine, row.time)}`
+      : '';
+  });
+
+  // Live tick with the incremental forms: each tick costs O(1) per indicator, not a recompute of the series.
+  const live = { sma: createIndicator('sma', { period: 20 }), rsi: createIndicator('rsi', { period: 14 }), macd: createIndicator('macd') };
+  for (const k of Object.keys(live)) live[k].seed(bars);
+  let tickN = 0;
+  function feed(bar) {
+    candles.update(bar);
+    avg.update(live.sma.next(bar));
+    rsiLine.update(live.rsi.next(bar));
+    const o = live.macd.next(bar);
+    macdLine.update(o.macd); sigLine.update(o.signal);
+    hist.update(o.histogram.value === undefined ? o.histogram : { ...o.histogram, color: palette[document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'][o.histogram.value >= 0 ? 'up' : 'down'] });
+  }
+  document.getElementById('tick').addEventListener('click', () => {
+    const last = candles.data()[candles.data().length - 1];
+    const close = +(last.close * (tickN++ % 2 ? 0.99 : 1.012)).toFixed(2);
+    feed({ ...last, close, high: Math.max(last.high, close), low: Math.min(last.low, close) });
+  });
+
+  const themeBtn = document.getElementById('theme');
+  themeBtn.addEventListener('click', () => {
+    const dark = document.documentElement.dataset.theme !== 'dark';
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    paint(dark ? 'dark' : 'light');
+    themeBtn.textContent = dark ? 'Light theme' : 'Dark theme';
+  });
+
+  window.__demo = { charts, price, rsiChart, macdChart, candles, bars, feed, live };
+</script>
+</body>
+</html>

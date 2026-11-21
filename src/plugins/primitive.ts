@@ -35,6 +35,11 @@ export interface PrimitiveDrawScope {
 export interface PriceAxisLabel {
   price: number;
   text?: string;
+  /**
+   * When the price is outside the pane: false (default) shows no tag, true pins the tag to the nearest pane edge.
+   * Series last-value tags are always pinned.
+   */
+  keepInView?: boolean;
   /** Tag fill; the text colour is picked for contrast unless given. */
   color: string;
   textColor?: string;
@@ -56,8 +61,8 @@ export interface ChartPrimitive {
   draw?(scope: PrimitiveDrawScope): void;
   /** Overlay layer: repainted on every crosshair move. Keep it cheap. */
   drawOverlay?(scope: PrimitiveDrawScope & { crosshair: { x: number; y: number; logical: number } | null }): void;
-  /** Tags on the price axis (drawn after the series' last-value tags). */
-  priceAxisLabels?(): readonly PriceAxisLabel[];
+  /** Tags on the price axis (drawn after the series' last-value tags). Receives the theme colours in use. */
+  priceAxisLabels?(colors: Readonly<ThemeColors>): readonly PriceAxisLabel[];
   /** Extra range autoscale must include for the visible logical range; null for none. */
   autoscale?(range: LogicalRange): { min: number; max: number } | null;
   /** Pane primitives only: the overlay scale id whose prices `priceToY` maps. Default 'right'. */

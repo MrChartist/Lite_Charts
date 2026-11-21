@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: frame</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; }
+  chartist-chart { height: 100%; }
+</style>
+</head>
+<body>
+<!-- A page meant for an <iframe>: /examples/frame.html?src=data/demo-line.csv&type=line&theme=dark
+     Only data on this site is accepted; other values keep the defaults. -->
+<script src="../dist/chartist-lite.element.iife.min.js"></script>
+<script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var el = document.createElement('chartist-chart');
+    var src = q.get('src');
+    try { if (src && new URL(src, location.href).origin === location.origin) el.setAttribute('src', src); } catch (e) { /* ignore */ }
+    ['type', 'theme', 'time-zone', 'volume', 'aria-label'].forEach(function (name) {
+      if (q.has(name)) el.setAttribute(name, q.get(name));
+    });
+    el.setAttribute('loading', 'eager');
+    document.body.appendChild(el);
+  })();
+</script>
+</body>
+</html>

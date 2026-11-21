@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: module</title>
+</head>
+<body style="margin:16px;font-family:system-ui,sans-serif">
+<!-- ES module use: register the tag yourself. From a bundler, import from '@mrchartist/chartist-lite/element'. -->
+<script type="module">
+  import { defineChartistElement } from '../dist/element.js';
+  defineChartistElement();
+</script>
+
+<chartist-chart type="line" src="data/demo-line.csv" height="300" aria-label="DEMO-B weekly values, sample data"></chartist-chart>
+</body>
+</html>

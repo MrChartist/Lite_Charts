@@ -13,6 +13,7 @@ export function layoutPanes(stretch: readonly number[], total: number, separator
   const weights = stretch.map(s => (Number.isFinite(s) && s > 0 ? s : 1));
   const sum = weights.reduce((a, b) => a + b, 0);
   const heights = weights.map(w => Math.floor((avail * w) / sum));
+  heights[0] += avail - heights.reduce((a, b) => a + b, 0);
   // Lift short panes to the minimum, taking the height from the tallest panes, when everything fits.
   const floor = n * minHeight <= avail ? minHeight : Math.floor(avail / n);
   for (let i = 0; i < n; i++) {
@@ -25,8 +26,6 @@ export function layoutPanes(stretch: readonly number[], total: number, separator
       heights[tallest] -= take;
     }
   }
-  const used = heights.reduce((a, b) => a + b, 0);
-  heights[0] += avail - used;
   const out: PaneBox[] = [];
   let top = 0;
   for (let i = 0; i < n; i++) {

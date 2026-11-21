@@ -105,9 +105,9 @@ export const HistogramSeries: SeriesDefinition<HistogramData, HistogramOptions> 
     return row;
   },
   value: r => r.value,
-  // The row cannot see the series' base option: the default base 0 is always inside the range.
-  low: r => Math.min(r.value, 0),
-  high: r => Math.max(r.value, 0),
+  // Columns grow from `base`, so autoscale includes it (the chart passes the options).
+  low: (r, o) => Math.min(r.value, o?.base ?? 0),
+  high: (r, o) => Math.max(r.value, o?.base ?? 0),
   lastValueColor: (r, o, c) => r.color ?? o.color ?? c.line,
   draw: drawHistogram,
 };

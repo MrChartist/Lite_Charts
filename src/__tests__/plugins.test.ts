@@ -5,6 +5,7 @@ import {
   StackCursor, createSeriesMarkers, findRow, prepareMarkers, rowExtent, type SeriesMarker,
 } from '../plugins/markers';
 import type { ChartPrimitive } from '../plugins/primitive';
+import { lightTheme } from '../core/theme';
 
 const base: PriceLineOptions = { price: 10, lineWidth: 1, lineStyle: 'dashed', title: '', axisLabelVisible: true };
 
@@ -31,9 +32,9 @@ describe('price line options', () => {
     attached[0].attached?.({ requestUpdate: () => { updates++; }, series: null });
     h.applyOptions({ price: 6 });
     expect(updates).toBe(1);
-    expect(attached[0].priceAxisLabels?.()).toEqual([{ price: 6, color: '#123456' }]);
+    expect(attached[0].priceAxisLabels?.(lightTheme)).toEqual([{ price: 6, color: '#123456' }]);
     h.applyOptions({ axisLabelVisible: false });
-    expect(attached[0].priceAxisLabels?.()).toEqual([]);
+    expect(attached[0].priceAxisLabels?.(lightTheme)).toEqual([]);
     h.remove();
     h.remove();
     expect(detached).toEqual([attached[0]]);

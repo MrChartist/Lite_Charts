@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: React</title>
+<style>
+  :root { color-scheme: light dark; --bg: #F8F8F8; --ink: #1D1D1F; --muted: #6E6E73; --card: #FFFFFF; --edge: rgba(0,0,0,0.1); }
+  @media (prefers-color-scheme: dark) { :root { --bg: #141414; --ink: #F5F5F7; --muted: #98989D; --card: #0C0C0C; --edge: rgba(255,255,255,0.12); } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 400 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  button { font: inherit; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge); background: var(--card); color: var(--ink); cursor: pointer; }
+  button:focus-visible { outline: 2px solid #0066CC; outline-offset: 2px; }
+  #legend { color: var(--muted); font-variant-numeric: tabular-nums; min-height: 20px; margin-bottom: 8px; }
+  .card { border: 1px solid var(--edge); border-radius: 14px; overflow: hidden; background: var(--card); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="dist/app.js"></script>
+</body>
+</html>

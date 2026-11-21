@@ -13,7 +13,7 @@ import { ChartController } from './controller';
 import type { ChartOptionsInput, ChartProps, SeriesSpec } from './controller';
 
 export { ChartController } from './controller';
-export type { ChartProps, SeriesSpec, ChartOptionsInput, ControllerDeps } from './controller';
+export type { ChartProps, SeriesSpec, SeriesRow, ChartOptionsInput, ControllerDeps } from './controller';
 export { deepEqual, diffData, planSeries, seriesKey, MAX_TAIL_UPDATES } from './diff';
 export type { DataChange, SeriesPlan, KeyedSeries } from './diff';
 export type { SeriesTypeName } from '../element/series-map';
