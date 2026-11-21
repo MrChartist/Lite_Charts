@@ -3,5 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  }
 }
