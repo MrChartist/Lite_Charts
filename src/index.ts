@@ -28,6 +28,18 @@ export { CandlestickSeries } from './series/candlestick';
 export type { CandlestickData, CandlestickOptions } from './series/candlestick';
 export { LineSeries } from './series/line';
 export type { LineData, LineOptions, LineStyle } from './series/line';
+export { AreaSeries } from './series/area';
+export type { AreaData, AreaOptions } from './series/area';
+export { BarSeries } from './series/bar';
+export type { BarData, BarOptions } from './series/bar';
+export { HistogramSeries } from './series/histogram';
+export type { HistogramData, HistogramOptions } from './series/histogram';
+export { BaselineSeries } from './series/baseline';
+export type { BaselineData, BaselineOptions } from './series/baseline';
+export { createPriceLine } from './plugins/price-line';
+export type { PriceLineOptions, PriceLineHandle, PriceLineStyle } from './plugins/price-line';
+export { createSeriesMarkers } from './plugins/markers';
+export type { SeriesMarker, SeriesMarkersHandle, MarkerPosition, MarkerShape } from './plugins/markers';
 
 export { lightTheme, darkTheme } from './core/theme';
 export { formatPrice, formatPercent, MINUS_SIGN } from './core/format';

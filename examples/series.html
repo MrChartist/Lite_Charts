@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: series types</title>
+<style>
+  :root { color-scheme: light; --bg: #F8F8F8; --ink: #1D1D1F; --muted: #6E6E73; --card: #FFFFFF; --edge: rgba(0,0,0,0.1); }
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #0C0C0C; --ink: #F5F5F7; --muted: #98989D; --card: #141414; --edge: rgba(255,255,255,0.12); }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+    font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  button { font: inherit; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge);
+    background: var(--card); color: var(--ink); cursor: pointer; }
+  button:focus-visible { outline: 2px solid #0066CC; outline-offset: 2px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  figure { margin: 0; }
+  figcaption { font-weight: 600; font-size: 13px; margin: 0 2px 6px; }
+  figcaption span { font-weight: 400; color: var(--muted); }
+  .box { height: 260px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
+</style>
+</head>
+<body>
+<header>
+  <h1>DEMO · the six series types</h1>
+  <button id="theme" type="button">Dark theme</button>
+</header>
+<div class="grid">
+  <figure><figcaption>Candlestick <span>with price lines and markers</span></figcaption><div class="box" id="c-candles"></div></figure>
+  <figure><figcaption>Line</figcaption><div class="box" id="c-line"></div></figure>
+  <figure><figcaption>Area</figcaption><div class="box" id="c-area"></div></figure>
+  <figure><figcaption>Bar <span>OHLC</span></figcaption><div class="box" id="c-bar"></div></figure>
+  <figure><figcaption>Histogram <span>per-row colours</span></figcaption><div class="box" id="c-hist"></div></figure>
+  <figure><figcaption>Baseline <span>around 100</span></figcaption><div class="box" id="c-base"></div></figure>
+</div>
+<script src="../dist/chartist-lite.iife.min.js"></script>
+<script>
+  // Deterministic data: a seeded random walk on business days.
+  function makeBars(count, seed) {
+    let s = seed >>> 0;
+    const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const bars = [];
+    let close = 100;
+    let day = Date.UTC(2024, 0, 2) / 1000;
+    while (bars.length < count) {
+      const wd = new Date(day * 1000).getUTCDay();
+      if (wd !== 0 && wd !== 6) {
+        const open = close;
+        close = Math.max(1, open * (1 + (rand() - 0.49) * 0.04));
+        const high = Math.max(open, close) * (1 + rand() * 0.012);
+        const low = Math.min(open, close) * (1 - rand() * 0.012);
+        bars.push({
+          time: new Date(day * 1000).toISOString().slice(0, 10),
+          open: +open.toFixed(2), high: +high.toFixed(2), low: +low.toFixed(2), close: +close.toFixed(2),
+          volume: Math.round(800 + rand() * 1200),
+        });
+      }
+      day += 86400;
+    }
+    return bars;
+  }
+
+  const L = ChartistLite;
+  const bars = makeBars(120, 11);
+  const theme = new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+  const mk = id => L.createChart(id, { theme, ariaLabel: 'DEMO ' + id });
+  const charts = [];
+
+  // 1. Candlesticks, price lines, markers.
+  const c1 = mk('c-candles'); charts.push(c1);
+  const candles = c1.addSeries(L.CandlestickSeries, { title: 'DEMO' });
+  candles.setData(bars);
+  const hi = Math.max(...bars.slice(-30).map(b => b.high));
+  const lo = Math.min(...bars.slice(-30).map(b => b.low));
+  const lines = [
+    L.createPriceLine(candles, { price: hi, title: 'Resistance', lineStyle: 'dashed' }),
+    L.createPriceLine(candles, { price: lo, title: 'Support', lineStyle: 'dotted', color: '#B25000' }),
+  ];
+  const marks = [];
+  for (let i = 70; i < bars.length - 3; i += 11) {
+    const b = bars[i];
+    marks.push({ time: b.time, position: 'belowBar', shape: 'arrowUp', text: 'Buy' });
+    marks.push({ time: bars[i + 5].time, position: 'aboveBar', shape: 'arrowDown', text: 'Sell' });
+    if (i % 2 === 0) marks.push({ time: bars[i + 5].time, position: 'aboveBar', shape: 'circle', text: 'Alert' });
+  }
+  marks.push({ time: bars[bars.length - 2].time, position: 'inBar', shape: 'square', color: '#B25000' });
+  const markers = L.createSeriesMarkers(candles, marks);
+
+  // 2. Line.
+  const c2 = mk('c-line'); charts.push(c2);
+  c2.addSeries(L.LineSeries, { title: 'Close' }).setData(bars.map(b => ({ time: b.time, value: b.close })));
+
+  // 3. Area.
+  const c3 = mk('c-area'); charts.push(c3);
+  c3.addSeries(L.AreaSeries, { title: 'Close' }).setData(bars.map(b => ({ time: b.time, value: b.close })));
+
+  // 4. Bars.
+  const c4 = mk('c-bar'); charts.push(c4);
+  c4.addSeries(L.BarSeries, { title: 'DEMO' }).setData(bars.map(({ volume, ...r }) => r));
+
+  // 5. Histogram, coloured by direction (rows carry their own colour).
+  const c5 = mk('c-hist'); charts.push(c5);
+  const hist = c5.addSeries(L.HistogramSeries, { title: 'Volume' });
+  const fillHist = name => {
+    const t = name === 'dark' ? L.darkTheme : L.lightTheme;
+    hist.setData(bars.map(b => ({ time: b.time, value: b.volume, color: b.close >= b.open ? t.up : t.down })));
+  };
+  fillHist(theme);
+
+  // 6. Baseline around 100.
+  const c6 = mk('c-base'); charts.push(c6);
+  c6.addSeries(L.BaselineSeries, { baseValue: 100, title: 'Close' }).setData(bars.map(b => ({ time: b.time, value: b.close })));
+
+  const themeBtn = document.getElementById('theme');
+  function setTheme(name) {
+    document.documentElement.dataset.theme = name;
+    charts.forEach(c => c.applyOptions({ theme: name }));
+    fillHist(name);
+    themeBtn.textContent = name === 'dark' ? 'Light theme' : 'Dark theme';
+  }
+  themeBtn.textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+  themeBtn.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+  window.__series = { charts, candles, lines, markers, setTheme, bars };
+</script>
+</body>
+</html>

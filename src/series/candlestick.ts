@@ -5,6 +5,7 @@
 import type { Time } from '../core/time';
 import { copyTime } from '../core/time';
 import { candleLayout } from '../render/pixel';
+import { decimateColumns } from '../render/decimate';
 import type { RowBase, SeriesDefinition, SeriesDrawScope } from './definition';
 
 export interface CandlestickData extends RowBase {
@@ -24,21 +25,12 @@ export interface CandlestickOptions {
   wickDownColor?: string;
 }
 
-// Scratch columns for the zoomed-out path, grown on demand and reused every frame (no per-frame allocation).
-let colX = new Float64Array(256);
-let colHi = new Float64Array(256);
-let colLo = new Float64Array(256);
-let colUp = new Uint8Array(256);
-
-function growColumns(n: number): void {
-  if (n <= colX.length) return;
-  let cap = colX.length;
-  while (cap < n) cap *= 2;
-  colX = new Float64Array(cap);
-  colHi = new Float64Array(cap);
-  colLo = new Float64Array(cap);
-  colUp = new Uint8Array(cap);
-}
+const ACCESS = {
+  high: (r: CandlestickData) => r.high,
+  low: (r: CandlestickData) => r.low,
+  first: (r: CandlestickData) => r.open,
+  last: (r: CandlestickData) => r.close,
+};
 
 function num(row: Record<string, unknown>, key: string): number {
   const v = row[key];
@@ -55,38 +47,16 @@ function drawCandles(s: SeriesDrawScope<CandlestickData, CandlestickOptions>): v
   const layout = candleLayout(s.barSpacing, s.pixelRatio);
 
   if (layout.mode === 'columns') {
-    growColumns(to - from + 2);
-    let n = 0;
-    let cur = NaN;
-    let open = 0;
-    let close = 0;
-    for (let i = from; i <= to; i++) {
-      const r = rows[i];
-      if (!r) continue;
-      const col = Math.floor(x(i));
-      if (col !== cur) {
-        if (n > 0) colUp[n - 1] = close >= open ? 1 : 0;
-        cur = col;
-        colX[n] = col;
-        colHi[n] = r.high;
-        colLo[n] = r.low;
-        open = r.open;
-        n++;
-      } else {
-        if (r.high > colHi[n - 1]) colHi[n - 1] = r.high;
-        if (r.low < colLo[n - 1]) colLo[n - 1] = r.low;
-      }
-      close = r.close;
-    }
-    if (n > 0) colUp[n - 1] = close >= open ? 1 : 0;
+    // Compressed form: one column per device pixel, lowest low to highest high, coloured by first open vs last close.
+    const cols = s.decimate ? s.decimate(ACCESS) : decimateColumns(rows, from, to, x, ACCESS);
     for (let pass = 0; pass < 2; pass++) {
       ctx.beginPath();
-      for (let k = 0; k < n; k++) {
-        if (colUp[k] !== (pass === 0 ? 1 : 0)) continue;
-        const top = Math.round(y(colHi[k]));
-        const bottom = Math.round(y(colLo[k]));
+      for (let k = 0; k < cols.count; k++) {
+        if ((cols.last[k] >= cols.first[k]) !== (pass === 0)) continue;
+        const top = Math.round(y(cols.high[k]));
+        const bottom = Math.round(y(cols.low[k]));
         if (!Number.isFinite(top) || !Number.isFinite(bottom)) continue;
-        ctx.rect(colX[k], top, 1, Math.max(1, bottom - top));
+        ctx.rect(cols.x[k], top, 1, Math.max(1, bottom - top));
       }
       ctx.fillStyle = pass === 0 ? up : down;
       ctx.fill();

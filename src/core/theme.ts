@@ -8,6 +8,8 @@ export interface ThemeColors {
   /** Secondary text (the attribution link). */
   mutedText: string;
   grid: string;
+  /** Line between stacked panes. */
+  paneSeparator: string;
   crosshair: string;
   /** Crosshair axis tags: fill and text. */
   tagBackground: string;
@@ -24,6 +26,7 @@ export const lightTheme: Readonly<ThemeColors> = {
   text: '#3A3A3C',
   mutedText: '#6E6E73',
   grid: 'rgba(60, 60, 67, 0.08)',
+  paneSeparator: 'rgba(60, 60, 67, 0.18)',
   crosshair: 'rgba(60, 60, 67, 0.55)',
   tagBackground: '#1D1D1F',
   tagText: '#FFFFFF',
@@ -38,6 +41,7 @@ export const darkTheme: Readonly<ThemeColors> = {
   text: '#D1D1D6',
   mutedText: '#98989D',
   grid: 'rgba(235, 235, 245, 0.08)',
+  paneSeparator: 'rgba(235, 235, 245, 0.2)',
   crosshair: 'rgba(235, 235, 245, 0.5)',
   tagBackground: '#F5F5F7',
   tagText: '#1D1D1F',

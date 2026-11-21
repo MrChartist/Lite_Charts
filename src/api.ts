@@ -14,8 +14,13 @@ export interface MouseEventParams {
   /** Time of the bar under the pointer, as given in the data; undefined off the data. */
   time?: Time;
   logical?: number;
-  /** Pointer position in CSS px relative to the chart; undefined when the crosshair left. */
+  /**
+   * Pointer position in CSS px relative to the plot area of the pane under it (x from the plot's left edge, y from
+   * the pane's top); undefined when the crosshair left. With one pane and no left axis this is chart-relative.
+   */
   point?: Point;
+  /** The pane under the pointer (0 = top). */
+  paneIndex?: number;
   /** The row each series has at that bar. */
   seriesData: Map<SeriesApi<AnySeriesDefinition>, RowBase>;
 }
@@ -53,7 +58,7 @@ export interface TimeScaleApi {
 export interface PriceScaleApi {
   applyOptions(options: DeepPartial<PriceScaleOptions>): void;
   options(): Readonly<PriceScaleOptions>;
-  /** CSS px of the drawn axis (0 for an overlay scale). */
+  /** CSS px of the drawn axis (0 for an overlay scale or a hidden axis). */
   width(): number;
 }
 
@@ -73,15 +78,39 @@ export interface SeriesApi<D extends AnySeriesDefinition> {
   coordinateToPrice(y: number): number | null;
   attachPrimitive(primitive: ChartPrimitive): void;
   detachPrimitive(primitive: ChartPrimitive): void;
+  /** The pane the series draws in (0 = top). */
+  paneIndex(): number;
+  /** Move the series to another pane (an index past the last pane adds one); an emptied pane below the top is removed. */
+  moveToPane(paneIndex: number): void;
+}
+
+/** One of the stacked panes. Heights are CSS px; panes share the height in proportion to their stretch factors. */
+export interface PaneApi {
+  paneIndex(): number;
+  getHeight(): number;
+  /** Give this pane `height` px; the other panes keep their proportions. */
+  setHeight(height: number): void;
+  getStretchFactor(): number;
+  setStretchFactor(factor: number): void;
+  getSeries(): SeriesApi<AnySeriesDefinition>[];
+  /** 'right', 'left' or an overlay id, in this pane. */
+  priceScale(id?: string): PriceScaleApi;
+  attachPrimitive(primitive: ChartPrimitive): void;
+  detachPrimitive(primitive: ChartPrimitive): void;
 }
 
 export interface ChartApi {
-  /** Add a series of the given type, e.g. `chart.addSeries(CandlestickSeries, { upColor: '#1A7F37' })`. */
-  addSeries<D extends AnySeriesDefinition>(definition: D, options?: DeepPartial<OptionsOf<D>>): SeriesApi<D>;
+  /**
+   * Add a series of the given type, e.g. `chart.addSeries(CandlestickSeries, { upColor: '#1A7F37' })`.
+   * `paneIndex` (default 0, the top pane) stacks it in another pane; an index past the last pane adds a pane.
+   */
+  addSeries<D extends AnySeriesDefinition>(definition: D, options?: DeepPartial<OptionsOf<D>>, paneIndex?: number): SeriesApi<D>;
   removeSeries(series: SeriesApi<AnySeriesDefinition>): void;
   timeScale(): TimeScaleApi;
-  /** 'right' (default) or an overlay scale id used by a series. */
-  priceScale(id?: string): PriceScaleApi;
+  /** 'right' (default), 'left' or an overlay scale id used by a series, in pane `paneIndex` (default 0). */
+  priceScale(id?: string, paneIndex?: number): PriceScaleApi;
+  /** The stacked panes, top to bottom. The top pane always exists; a lower pane goes when its last series goes. */
+  panes(): PaneApi[];
   applyOptions(options: DeepPartial<ChartOptions> & { attribution?: boolean | DeepPartial<ChartOptions['attribution']> }): void;
   options(): Readonly<ChartOptions>;
   /** Set the size in CSS px (turns autoSize off). */
@@ -92,7 +121,7 @@ export interface ChartApi {
   unsubscribeClick(handler: MouseEventHandler): void;
   /** A canvas holding the chart as drawn now (crosshair included). */
   takeScreenshot(): HTMLCanvasElement;
-  /** Primitive drawn on the pane (not tied to a series). */
+  /** Primitive drawn on the top pane (not tied to a series); `panes()[i].attachPrimitive` for another pane. */
   attachPrimitive(primitive: ChartPrimitive): void;
   detachPrimitive(primitive: ChartPrimitive): void;
   /** The chart's root element (focusable). */

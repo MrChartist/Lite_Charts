@@ -11,7 +11,7 @@
 // Ported and simplified from the host engine's time-axis planner (PROVENANCE.md).
 
 import type { TimeKind } from '../core/time';
-import type { CalendarFields } from '../core/time-index';
+import { lowerBoundInt, type CalendarFields } from '../core/time-index';
 import { formatClock, formatDayMonth, formatMonth, type TimeTextOptions } from '../core/format';
 import { weekKeyOfDay } from '../core/zone';
 
@@ -50,6 +50,11 @@ export interface TimeTickInput {
   cadencePadPx?: number;
   /** Clear space between a label and the plot edge. Default 4. */
   edgePadPx?: number;
+  /**
+   * Optional: the slots that open a day / a month (`TimeIndex.dayStarts` / `monthStarts`). With them the planner
+   * visits only those slots for the day, month and year cadences, so 100k bars in view cost a few thousand checks.
+   */
+  starts?: { day: Int32Array; dayCount: number; month: Int32Array; monthCount: number };
 }
 
 type Axis = 'time' | 'day' | 'month' | 'year';
@@ -115,18 +120,29 @@ export function planTimeTicks(input: TimeTickInput): TimeTick[] {
     month: formatMonth(9),
     year: '2026',
   };
+  const st = input.starts;
+  // Visit every slot in [from, to], or only the listed ones; stop early when `visit` returns false.
+  const each = (list: Int32Array | null, count: number, visit: (j: number) => boolean): void => {
+    if (!list) { for (let j = from; j <= to; j++) if (!visit(j)) return; return; }
+    for (let k = lowerBoundInt(list, count, from); k < count && list[k] <= to; k++) if (!visit(list[k])) return;
+  };
   const chosen: Rung[] = [];
   let dayRung: Rung | null = null;
+  let timeRung = false;
   for (const axis of ['time', 'day', 'month', 'year'] as Axis[]) {
     const level: TickLevel = axis === 'year' || axis === 'month' ? 3 : axis === 'day' && kind === 'intraday' ? 2 : 1;
     const need = measure(sample[axis], WEIGHT[level]) + pad;
+    const limit = span / need;
+    const list = !st || axis === 'time' ? null : axis === 'day' ? st.day : st.month;
+    const listCount = !st ? 0 : axis === 'day' ? st.dayCount : st.monthCount;
     let pick: Rung | null = null;
     for (const rung of ladders[axis]) {
       let n = 0;
-      for (let j = from; j <= to; j++) if (isBoundary(f, rung, j)) n++;
-      if (n > 0 && span / n < need) break; // finer rungs only get denser
+      each(list, listCount, j => { if (isBoundary(f, rung, j)) n++; return n <= limit; });
+      if (n > 0 && n > limit) break; // finer rungs only get denser
       pick = rung;
     }
+    if (pick && axis === 'time') timeRung = true;
     if (!pick) continue;
     chosen.push(pick);
     if (axis === 'day') dayRung = pick;
@@ -136,10 +152,11 @@ export function planTimeTicks(input: TimeTickInput): TimeTick[] {
   // 2. hierarchy: text and strength of each boundary in view.
   interface Cand { j: number; x: number; text: string; level: TickLevel; w: number; owns: number }
   const cands: Cand[] = [];
-  for (let j = from; j <= to && cands.length < MAX_CANDIDATES; j++) {
+  each(st && !timeRung ? st.day : null, st ? st.dayCount : 0, j => {
+    if (cands.length >= MAX_CANDIDATES) return false;
     let flagged = false;
     for (const r of chosen) if (isBoundary(f, r, j)) { flagged = true; break; }
-    if (!flagged) continue;
+    if (!flagged) return true;
     const first = j === 0;
     const yc = first ? kind !== 'intraday' : f.year[j] !== f.year[j - 1];
     const mc = yc || (!first && f.month[j] !== f.month[j - 1]);
@@ -152,7 +169,8 @@ export function planTimeTicks(input: TimeTickInput): TimeTick[] {
     else if (kind === 'intraday') { text = formatClock(Math.floor(f.minute[j] / 60), f.minute[j] % 60, txt.hours12); level = 1; }
     else { text = String(f.day[j]); level = 1; }
     cands.push({ j, x: input.xOf(j), text, level, w: measure(text, WEIGHT[level]), owns: 0 });
-  }
+    return true;
+  });
   // Bars each label owns: up to the next label of the same or a higher level. A one-bar stub of yesterday at the
   // left edge must not knock out the label of today's full session.
   const nextAtLeast = [to + 1, to + 1, to + 1, to + 1, to + 1];

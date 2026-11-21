@@ -11,6 +11,7 @@
 export interface TimeScaleOptions {
   /** CSS px between bar centres at first show and after a reset. */
   barSpacing: number;
+  /** Narrowest spacing for zooming; never stops a zoom-out before the whole series fits. */
   minBarSpacing: number;
   maxBarSpacing: number;
   /** Empty bars kept right of the last bar at first show and after a reset. */
@@ -73,7 +74,7 @@ export class TimeScaleModel {
   zoom(anchorX: number, factor: number): void {
     if (!(factor > 0) || !(this.width > 0)) return;
     const i0 = this.xToIndex(anchorX);
-    this.barSpacing = clamp(this.barSpacing * factor, this.options.minBarSpacing, this.maxSpacing());
+    this.barSpacing = clamp(this.barSpacing * factor, this.minSpacing(), this.maxSpacing());
     this.rightOffset = i0 - 0.5 - this.last() + (this.width - anchorX) / this.barSpacing;
     this.clamp();
   }
@@ -106,13 +107,22 @@ export class TimeScaleModel {
     if (this.rightOffset < -0.5) this.rightOffset -= added;
   }
 
+  /**
+   * The narrowest spacing allowed: `minBarSpacing`, or less when that is what it takes to show the whole series in
+   * the width (so `fitContent` and a full zoom-out always show every bar; the painters then draw a compressed form).
+   */
+  minSpacing(): number {
+    const fit = this.width > 0 ? this.width / Math.max(1, this.count + Math.max(0, this.options.rightOffset)) : this.options.minBarSpacing;
+    return Math.max(1e-6, Math.min(this.options.minBarSpacing, fit));
+  }
+
   maxSpacing(): number {
-    return Math.max(this.options.minBarSpacing, Math.min(this.options.maxBarSpacing, this.width > 0 ? this.width / 2 : Infinity));
+    return Math.max(this.minSpacing(), Math.min(this.options.maxBarSpacing, this.width > 0 ? this.width / 2 : Infinity));
   }
 
   /** Keep the spacing in range and at least a couple of bars on screen. */
   clamp(): void {
-    this.barSpacing = clamp(this.barSpacing, this.options.minBarSpacing, this.maxSpacing());
+    this.barSpacing = clamp(this.barSpacing, this.minSpacing(), this.maxSpacing());
     if (this.count === 0 || !(this.width > 0)) return;
     const keep = Math.min(this.count, 2);
     const lo = keep - 1 - this.last();

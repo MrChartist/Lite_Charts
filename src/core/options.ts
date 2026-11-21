@@ -77,11 +77,15 @@ export interface ChartOptions {
   crosshair: CrosshairOptions;
   timeScale: ChartTimeScaleOptions;
   rightPriceScale: PriceScaleOptions;
+  /** The left axis of the top pane; shown only while a series uses `priceScaleId: 'left'`. */
+  leftPriceScale: PriceScaleOptions;
   localization: LocalizationOptions;
   interaction: InteractionOptions;
   attribution: AttributionOptions;
   /** Accessible name of the chart. */
   ariaLabel: string;
+  /** Spoken help for keyboard users (the chart's accessible description). */
+  ariaDescription: string;
 }
 
 export const SYSTEM_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -100,10 +104,13 @@ export function defaultChartOptions(): ChartOptions {
     crosshair: { mode: 'normal', labels: true },
     timeScale: { barSpacing: 8, minBarSpacing: 0.5, maxBarSpacing: 64, rightOffset: 2, visible: true, timeZone: 'UTC' },
     rightPriceScale: { mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true },
+    leftPriceScale: { mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true },
     localization: { hours12: false, dateOrder: 'day-month' },
     interaction: { wheelZoom: true, dragPan: true, pinchZoom: true, kinetic: true, keyboard: true, doubleClickReset: true },
     attribution: { visible: true, position: 'bottom-left' },
     ariaLabel: 'Price chart',
+    ariaDescription: 'Left and right arrows pan, plus and minus zoom, Home and End jump to the first and last bar. '
+      + 'Press Enter to inspect bars one at a time with the arrow keys; Escape stops.',
   };
 }
 

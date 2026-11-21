@@ -4,6 +4,7 @@
 
 import type { Time } from '../core/time';
 import type { ThemeColors } from '../core/theme';
+import type { ColumnAccess, Columns } from '../render/decimate';
 
 /** Every stored row keeps the time exactly as the caller gave it. */
 export interface RowBase {
@@ -60,6 +61,14 @@ export interface SeriesDrawScope<R extends RowBase, O> {
   options: Readonly<O & SeriesCommonOptions>;
   colors: Readonly<ThemeColors>;
   pane: DeviceRect;
+  /**
+   * Fold rows `from..to` into one entry per device-pixel column (highest / lowest / first / last value per column), for
+   * drawing a compressed form when bars are closer than a pixel or two. The result is a shared buffer, valid until the
+   * next call. Always set by the chart (optional in the type so hand-made scopes in tests stay valid).
+   */
+  decimate?: (access: ColumnAccess<R>) => Columns;
+  /** Index of the pane being drawn (0 = top). Always set by the chart. */
+  paneIndex?: number;
 }
 
 export interface SeriesDefinition<R extends RowBase = RowBase, O extends object = object> {

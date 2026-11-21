@@ -19,6 +19,8 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
   /** null while empty; else whether the times were given as business days. */
   businessDays: boolean | null = null;
   primitives: ChartPrimitive[] = [];
+  /** The pane the series draws in (0 = top). */
+  paneIndex = 0;
 
   constructor(def: SeriesDefinition<R, O>, options: O & SeriesCommonOptions) {
     this.def = def;

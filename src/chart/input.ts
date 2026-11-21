@@ -10,6 +10,13 @@ export interface InputTarget {
   readonly win: Window;
   interaction(): InteractionOptions;
   hit(x: number, y: number): HitArea;
+  /** A drag starts at this point (chart CSS px): the chart notes the pane and axis under it. */
+  gestureStart(point: { x: number; y: number }): void;
+  /** Keyboard inspect mode: the crosshair steps bar by bar and each bar is announced. */
+  inspecting(): boolean;
+  toggleInspect(): void;
+  inspectStep(bars: number): void;
+  inspectEdge(edge: 'first' | 'last'): void;
   /** Pointer position in CSS px relative to the chart, or null to hide the crosshair. */
   setCrosshair(point: { x: number; y: number } | null): void;
   /** Move the content by dx (time) and dy (price, used only when the price scale is not autoscaling). */
@@ -99,6 +106,7 @@ export class InputController {
     this.moved = false;
     this.samples = [{ x: p.x, t: e.timeStamp }];
     const area = this.t.hit(p.x, p.y);
+    this.t.gestureStart(p);
     this.mode = !opts.dragPan ? 'none' : area === 'price' ? 'price' : area === 'pane' || area === 'time' ? 'pan' : 'none';
     if (e.pointerType === 'mouse') this.t.root.style.cursor = this.mode === 'pan' ? 'grabbing' : this.mode === 'price' ? 'ns-resize' : '';
   }
@@ -213,14 +221,20 @@ export class InputController {
     if (!this.t.interaction().keyboard || e.altKey || e.metaKey || e.ctrlKey) return;
     this.stopKinetic();
     let handled = true;
+    const inspect = this.t.inspecting();
     switch (e.key) {
-      case 'ArrowLeft': this.t.panBars(e.shiftKey ? -20 : -2); break;
-      case 'ArrowRight': this.t.panBars(e.shiftKey ? 20 : 2); break;
+      case 'ArrowLeft':
+        if (inspect) this.t.inspectStep(e.shiftKey ? -10 : -1); else this.t.panBars(e.shiftKey ? -20 : -2);
+        break;
+      case 'ArrowRight':
+        if (inspect) this.t.inspectStep(e.shiftKey ? 10 : 1); else this.t.panBars(e.shiftKey ? 20 : 2);
+        break;
       case '+': case '=': case 'ArrowUp': this.t.zoomCentre(1.2); break;
       case '-': case '_': case 'ArrowDown': this.t.zoomCentre(1 / 1.2); break;
-      case 'Home': this.t.home(); break;
-      case 'End': this.t.end(); break;
-      case 'Escape': this.t.setCrosshair(null); break;
+      case 'Home': if (inspect) this.t.inspectEdge('first'); else this.t.home(); break;
+      case 'End': if (inspect) this.t.inspectEdge('last'); else this.t.end(); break;
+      case 'Enter': case ' ': this.t.toggleInspect(); break;
+      case 'Escape': if (!inspect) { handled = false; break; } this.t.setCrosshair(null); break;
       default: handled = false;
     }
     if (handled) {

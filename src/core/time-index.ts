@@ -30,6 +30,15 @@ export class TimeIndex {
   count = 0;
   cal: CalendarFields = allocCalendar(16);
   kind: TimeKind = 'daily';
+  /**
+   * Slots that open a new calendar day / month in the display zone (slot 0 included), ascending. Every day, week,
+   * month and year boundary is one of them, so the time-axis planner can skip the bars between them when tens of
+   * thousands are in view.
+   */
+  dayStarts: Int32Array = new Int32Array(16);
+  dayStartCount = 0;
+  monthStarts: Int32Array = new Int32Array(16);
+  monthStartCount = 0;
   /** True when the data are business days (dates): the calendar is then read on UTC. */
   businessDays = false;
   private zone = 'UTC';
@@ -109,9 +118,20 @@ export class TimeIndex {
     this.cal = cal;
   }
 
+  private pushStart(day: boolean, slot: number): void {
+    if (day) {
+      if (this.dayStartCount >= this.dayStarts.length) this.dayStarts = grow(this.dayStarts);
+      this.dayStarts[this.dayStartCount++] = slot;
+    } else {
+      if (this.monthStartCount >= this.monthStarts.length) this.monthStarts = grow(this.monthStarts);
+      this.monthStarts[this.monthStartCount++] = slot;
+    }
+  }
+
   private readCalendar(from: number, to: number): void {
     const tz = this.displayZone();
     const c = this.cal;
+    if (from === 0) { this.dayStartCount = 0; this.monthStartCount = 0; }
     for (let i = from; i < to; i++) {
       const ms = this.times[i] * 1000;
       if (!Number.isFinite(ms)) { c.ok[i] = 0; continue; }
@@ -123,8 +143,27 @@ export class TimeIndex {
       c.day[i] = key % 100;
       c.dayNum[i] = dayNum;
       c.minute[i] = zoneMinuteOfDay(tz, ms);
+      if (i === 0 || !c.ok[i - 1] || c.dayNum[i] !== c.dayNum[i - 1]) this.pushStart(true, i);
+      if (i === 0 || !c.ok[i - 1] || c.month[i] !== c.month[i - 1] || c.year[i] !== c.year[i - 1]) this.pushStart(false, i);
     }
   }
+}
+
+function grow(a: Int32Array): Int32Array {
+  const b = new Int32Array(a.length * 2);
+  b.set(a);
+  return b;
+}
+
+/** First position in `list[0, count)` whose value is >= v. */
+export function lowerBoundInt(list: Int32Array, count: number, v: number): number {
+  let lo = 0;
+  let hi = count;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (list[mid] < v) lo = mid + 1; else hi = mid;
+  }
+  return lo;
 }
 
 /**
