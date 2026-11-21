@@ -29,6 +29,7 @@ import { TimeScaleModel, type LogicalRange } from '../scales/time-scale';
 import type { RowBase, SeriesCommonOptions, SeriesDefinition, SeriesDrawScope } from '../series/definition';
 import { SeriesModel } from '../series/series-model';
 import { InputController, type HitArea, type InputTarget } from './input';
+import { describeRow, isOhlc, LegendBox, type LegendEntry } from './legend';
 import { layoutPanes, moveSeparator, paneAt, stretchForHeight } from './pane-layout';
 
 const OVERLAY = 1;
@@ -56,6 +57,7 @@ interface Pane {
   tags: Record<Side, Tag[]>;
   shown: Record<Side, boolean>;
   divider: HTMLDivElement | null;
+  legend: LegendBox | null;
 }
 
 let uid = 0;
@@ -236,6 +238,7 @@ export class Chart implements ChartApi, InputTarget {
     if (patch && typeof patch === 'object') {
       const p = { ...(patch as Record<string, unknown>) };
       if (typeof p.attribution === 'boolean') p.attribution = { visible: p.attribution };
+      if (typeof p.legend === 'boolean') p.legend = { visible: p.legend };
       mergeInto(this.opts, p);
     }
     this.opts.fontSize = Math.max(MIN_FONT_SIZE, Number(this.opts.fontSize) || MIN_FONT_SIZE);
@@ -317,7 +320,9 @@ export class Chart implements ChartApi, InputTarget {
 
   /** True for an event target that is the attribution link (or its host): input leaves it to the browser. */
   isLink(target: EventTarget | null): boolean {
-    return !!this.link && (target === this.link || target === this.linkAnchor);
+    if (!!this.link && (target === this.link || target === this.linkAnchor)) return true;
+    // The legend too: a press there selects its text instead of panning.
+    return this.paneList.some(p => p.legend !== null && target === p.legend.host);
   }
 
   private placeLink(): void {
@@ -377,6 +382,7 @@ export class Chart implements ChartApi, InputTarget {
     if (m & LAYOUT) this.measure();
     if (m & (MAIN | LAYOUT)) this.paintMain();
     if (m) this.paintOverlay();
+    if (m) this.syncLegends();
   }
 
   private measure(): void {
@@ -402,7 +408,7 @@ export class Chart implements ChartApi, InputTarget {
     scales.set('left', new PriceScaleModel('left', index === 0 ? this.opts.leftPriceScale : clone(this.paneScaleDefaults.left)));
     const pane: Pane = {
       scales, stretch: index === 0 ? 3 : 1, top: 0, height: 0, prims: [],
-      ticks: { left: [], right: [] }, tags: { left: [], right: [] }, shown: { left: false, right: false }, divider: null,
+      ticks: { left: [], right: [] }, tags: { left: [], right: [] }, shown: { left: false, right: false }, divider: null, legend: null,
     };
     if (index > 0) pane.divider = this.makeDivider();
     return pane;
@@ -417,7 +423,7 @@ export class Chart implements ChartApi, InputTarget {
     d.setAttribute('aria-label', 'Resize panes');
     d.setAttribute('aria-valuemin', '0');
     d.setAttribute('aria-valuemax', '100');
-    cssReset(d, { position: 'absolute', left: '0', height: '9px', cursor: 'row-resize', 'z-index': '2', 'touch-action': 'none', 'border-radius': '4px', display: 'block' });
+    cssReset(d, { position: 'absolute', left: '0', height: '11px', cursor: 'row-resize', 'z-index': '2', 'touch-action': 'none', 'border-radius': '4px', display: 'block' });
     const indexOf = (): number => this.paneList.findIndex(p => p.divider === d);
     let start: { y: number; heights: number[] } | null = null;
     const stop = (e: Event): void => e.stopPropagation();
@@ -479,6 +485,7 @@ export class Chart implements ChartApi, InputTarget {
       const pane = this.paneList[i];
       for (const p of pane.prims) p.detached?.();
       pane.divider?.remove();
+      pane.legend?.remove();
       this.paneList.splice(i, 1);
       for (const s of this.series) if (s.paneIndex > i) s.paneIndex--;
     }
@@ -770,7 +777,7 @@ export class Chart implements ChartApi, InputTarget {
       if (!p.divider) return;
       const above = this.paneList[i - 1];
       const st = p.divider.style;
-      st.top = `${p.top - SEPARATOR / 2 - 4.5}px`;
+      st.top = `${p.top - SEPARATOR / 2 - 5.5}px`;
       st.width = `${this.cssW}px`;
       const pct = Math.round((above.height / Math.max(1, above.height + p.height)) * 100);
       p.divider.setAttribute('aria-valuenow', String(pct));
@@ -831,6 +838,15 @@ export class Chart implements ChartApi, InputTarget {
       ctx.setTransform(hpr, 0, 0, vpr, 0, 0);
       const y = this.panesH + this.timeH / 2;
       for (const t of this.timeTicks) this.mainText.draw(t.text, this.plotL + t.textX, y, t.level === 1 ? c.mutedText : c.text, tickWeight(t.level), 'center');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
+    // A chart without data says so, quietly, instead of showing an empty box.
+    const empty = this.opts.localization.noDataText;
+    if (this.index.count === 0 && empty && this.plotW > 0) {
+      const p0 = this.paneList[0];
+      ctx.setTransform(hpr, 0, 0, vpr, 0, 0);
+      this.mainText.draw(empty, this.plotL + this.plotW / 2, p0.top + p0.height / 2, c.mutedText, 400, 'center');
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
@@ -1004,11 +1020,13 @@ export class Chart implements ChartApi, InputTarget {
       const y = scale.priceToY(t.price);
       if (!(y >= fs / 2 + 1 && y <= pane.height - fs / 2 - 1)) continue;
       if (tags.some(tag => Math.abs(tag.y - y) < h * 0.9)) continue;
-      this.mainText.draw(this.priceText(scale, t.price, pi), box.textX, pane.top + y, this.colors.text, 400, 'right');
+      this.mainText.draw(this.priceText(scale, t.price, pi), box.textX, pane.top + y, this.colors.mutedText, 400, 'right');
     }
     for (const t of tags) this.drawTag(this.mainText, ctx, side, pane.top + t.y, t.text, t.fill, t.color);
     pane.tags[side] = tags;
   }
+
+  private crossShownAt = -1;
 
   private paintOverlay(): void {
     const { ctx, hpr, vpr } = this.top;
@@ -1019,6 +1037,13 @@ export class Chart implements ChartApi, InputTarget {
     const xR = Math.round((this.plotL + this.plotW) * hpr);
     const cross = this.cross;
     const showCross = cross !== null && this.opts.crosshair.mode !== 'hidden' && this.index.count > 0;
+    // The crosshair fades in over 120 ms when it appears (opacity only; at once under reduced motion).
+    const now = this.win.performance?.now?.() ?? 0;
+    if (!showCross) this.crossShownAt = -1;
+    else if (this.crossShownAt < 0) this.crossShownAt = now;
+    const fade = showCross && !this.reducedMotion() ? Math.min(1, Math.max(0, (now - this.crossShownAt) / 120)) : 1;
+    if (fade < 1) this.invalidate(OVERLAY);
+    ctx.globalAlpha = fade;
     if (showCross) {
       const x = this.plotL + this.ts.indexToX(cross.slot);
       const cp = this.paneOf(cross.pane);
@@ -1115,6 +1140,7 @@ export class Chart implements ChartApi, InputTarget {
         this.topText.draw(label, left + w / 2, this.panesH + this.timeH / 2, c.tagText, 500, 'center');
       }
     }
+    ctx.globalAlpha = 1;
     if (this.focusVisible()) {
       ctx.strokeStyle = c.focusRing;
       ctx.lineWidth = 2;
@@ -1198,6 +1224,35 @@ export class Chart implements ChartApi, InputTarget {
       this.index.kind,
       { hours12: this.opts.localization.hours12, dateOrder: this.opts.localization.dateOrder },
     );
+  }
+
+  // ── legend ──
+
+  /** Write each pane's legend (DOM); a pane's box is touched only when its text or place changed. */
+  private syncLegends(): void {
+    const c = this.colors;
+    const st = { fontFamily: this.opts.fontFamily, fontSize: this.opts.fontSize, text: c.text, muted: c.mutedText, up: c.upText, down: c.downText, background: c.background };
+    const slot = this.cross ? this.cross.slot : -1;
+    this.paneList.forEach((pane, pi) => {
+      const titled = this.series.filter(s => s.paneIndex === pi && s.options.visible && s.options.title);
+      if (!this.opts.legend.visible || titled.length === 0 || !(this.plotW > 0)) { pane.legend?.hide(); return; }
+      if (!pane.legend) pane.legend = new LegendBox(this.doc, this.root);
+      const entries: LegendEntry[] = titled.map(s => {
+        let r = slot >= 0 ? s.rowAtSlot(slot) : s.count - 1;
+        if (slot < 0) while (r >= 0 && !s.rows[r]) r--;
+        const row = r >= 0 ? s.rows[r] : null;
+        let prev: RowBase | null = null;
+        for (let k = r - 1; k >= 0 && k >= r - 64; k--) if (s.rows[k]) { prev = s.rows[k]; break; }
+        const precision = resolvePriceFormat(s.options.priceFormat).precision;
+        const f = this.opts.localization.priceFormatter;
+        const fmt = (v: number): string => (f ? f(v) : formatPrice(v, precision));
+        const d = describeRow(row as unknown as Record<string, unknown> | null, prev as unknown as Record<string, unknown> | null, fmt, x => s.def.value(x as unknown as RowBase));
+        const colourRow = row ?? s.lastRow();
+        const dot = !colourRow || isOhlc(colourRow as unknown as Record<string, unknown>) ? '' : s.def.lastValueColor(colourRow, s.options, c);
+        return { title: s.options.title, dot, values: d.values, change: d.change };
+      });
+      pane.legend.update(entries, { left: this.plotL + 6, top: pane.top + 6, maxWidth: Math.floor(this.plotW - 12) }, st);
+    });
   }
 
   // ── keyboard inspect mode and the live region ──
@@ -1550,6 +1605,7 @@ export class Chart implements ChartApi, InputTarget {
     this.rangeSubs.clear();
     this.main.destroy();
     this.top.destroy();
+    for (const p of this.paneList) p.legend?.remove();
     this.root.remove();
     this.series = [];
     this.handles.clear();

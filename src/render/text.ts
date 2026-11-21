@@ -64,6 +64,23 @@ export class TextPainter {
     return w;
   }
 
+  /**
+   * Baseline offset that puts the middle of the figures (digit top to baseline) on `y`. 'middle' centres the em box,
+   * which sits a pixel or so low or high depending on the font; the figures' own ink is what must look centred in a tag.
+   */
+  private baselineShift(weight: number): number {
+    const key = -1000 - weight;
+    let v = this.digitW.get(key);
+    if (v === undefined) {
+      const m = this.ctx.measureText('0123456789');
+      const asc = m.actualBoundingBoxAscent;
+      const desc = m.actualBoundingBoxDescent;
+      v = Number.isFinite(asc) && asc > 0 ? (asc - (Number.isFinite(desc) ? desc : 0)) / 2 : this.size * 0.36;
+      this.digitW.set(key, v);
+    }
+    return v;
+  }
+
   private digitWidth(weight: number): number {
     let w = this.digitW.get(weight);
     if (w === undefined) {
@@ -76,7 +93,8 @@ export class TextPainter {
 
   /**
    * Draw `text` with tabular figures. The context must already carry the CSS-px transform. `x` is the left edge,
-   * centre or right edge per `align`; `y` is the vertical middle.
+   * centre or right edge per `align`; `y` is where the middle of the figures lands (digits look centred in a tag at
+   * every DPR).
    */
   draw(text: string, x: number, y: number, color: string, weight = 400, align: 'left' | 'center' | 'right' = 'left'): void {
     const ctx = this.ctx;
@@ -84,11 +102,12 @@ export class TextPainter {
     let cx = align === 'left' ? x : align === 'center' ? x - total / 2 : x - total;
     ctx.font = this.font(weight);
     ctx.fillStyle = color;
-    ctx.textBaseline = 'middle';
+    ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     // Runs are placed left to right by hand: an RTL page must not flip them or eat the spaces between them.
     ctx.direction = 'ltr';
     const dw = this.digitWidth(weight);
+    y += this.baselineShift(weight);
     let run = '';
     for (let i = 0; i < text.length; i++) {
       const c = text.charCodeAt(i);

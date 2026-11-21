@@ -36,7 +36,8 @@ export interface CandleLayout {
 export function candleLayout(spacingDev: number, ratio: number): CandleLayout {
   const s = Number.isFinite(spacingDev) && spacingDev > 0 ? spacingDev : 0;
   if (s < COLUMN_MODE_BELOW) return { mode: 'columns', body: 1, wick: 1 };
-  const gap = Math.max(1, Math.round(s * 0.22));
+  // About 30% of the spacing is gap (never under one device pixel), so bodies read as separate candles.
+  const gap = Math.max(1, Math.round(s * 0.3));
   let body = Math.max(1, Math.floor(s) - gap);
   const wick = Math.max(1, Math.min(hairline(ratio), Math.floor(body / 3)));
   if ((body - wick) % 2 !== 0) body -= 1;

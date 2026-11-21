@@ -25,6 +25,10 @@ First version (not yet published).
 - Indicators entry (`./indicators`), custom element entry (`./element`), React entry (`./react`), and script-tag files
   for the core, the indicators and the element.
 
+- A calm default look: tuned up/down colours with text-safe variants, quiet volume, horizontal grid only, muted axis
+  figures with stronger year and month labels, a built-in legend per pane (`legend: false` hides it), a "No data" text
+  for empty charts, and a short crosshair fade-in (none under reduced motion).
+
 ### Behaviour worth knowing
 
 - The wheel does not trap page scrolling by default (`interaction.wheelZoom: 'auto'`).

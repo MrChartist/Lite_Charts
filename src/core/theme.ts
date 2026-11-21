@@ -14,8 +14,14 @@ export interface ThemeColors {
   /** Crosshair axis tags: fill and text. */
   tagBackground: string;
   tagText: string;
+  /** Candles, bars and other marks of a rise / fall (not for text: see upText / downText). */
   up: string;
   down: string;
+  /** Text and arrows of a rise / fall (legend change): at least 4.5:1 on the background. */
+  upText: string;
+  downText: string;
+  /** Default colour of a histogram (volume): quiet ink that sits behind price. */
+  volume: string;
   /** Default colour of a line series. */
   line: string;
   focusRing: string;
@@ -23,30 +29,36 @@ export interface ThemeColors {
 
 export const lightTheme: Readonly<ThemeColors> = {
   background: '#FFFFFF',
-  text: '#3A3A3C',
+  text: '#1D1D1F',
   mutedText: '#6E6E73',
-  grid: 'rgba(60, 60, 67, 0.08)',
-  paneSeparator: 'rgba(60, 60, 67, 0.18)',
-  crosshair: 'rgba(60, 60, 67, 0.55)',
+  grid: 'rgba(60, 60, 67, 0.07)',
+  paneSeparator: 'rgba(60, 60, 67, 0.16)',
+  crosshair: 'rgba(60, 60, 67, 0.45)',
   tagBackground: '#1D1D1F',
   tagText: '#FFFFFF',
-  up: '#248A3D',
-  down: '#D70015',
+  up: '#26A148',
+  down: '#E0262F',
+  upText: '#1E7E37',
+  downText: '#C8161F',
+  volume: 'rgba(60, 60, 67, 0.16)',
   line: '#0066CC',
   focusRing: '#0066CC',
 };
 
 export const darkTheme: Readonly<ThemeColors> = {
   background: '#141414',
-  text: '#D1D1D6',
+  text: '#F5F5F7',
   mutedText: '#98989D',
-  grid: 'rgba(235, 235, 245, 0.08)',
-  paneSeparator: 'rgba(235, 235, 245, 0.2)',
-  crosshair: 'rgba(235, 235, 245, 0.5)',
+  grid: 'rgba(235, 235, 245, 0.07)',
+  paneSeparator: 'rgba(235, 235, 245, 0.16)',
+  crosshair: 'rgba(235, 235, 245, 0.42)',
   tagBackground: '#F5F5F7',
   tagText: '#1D1D1F',
-  up: '#30D158',
-  down: '#FF453A',
+  up: '#2FBE57',
+  down: '#F2473D',
+  upText: '#30D158',
+  downText: '#FF6961',
+  volume: 'rgba(235, 235, 245, 0.18)',
   line: '#0A84FF',
   focusRing: '#0A84FF',
 };

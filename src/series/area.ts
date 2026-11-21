@@ -123,8 +123,12 @@ function drawArea(s: SeriesDrawScope<AreaData, AreaOptions>): void {
   let top = bottom;
   for (let k = 0; k < n; k++) if (ys[k] < top) top = ys[k];
   const grad = ctx.createLinearGradient(0, top, 0, bottom);
-  grad.addColorStop(0, o.topColor ?? withAlpha(line, 0.28));
-  grad.addColorStop(1, o.bottomColor ?? withAlpha(line, 0));
+  // An eased fade (a middle stop below the straight line) reads smoother than a two-stop ramp on dark backgrounds.
+  const top0 = o.topColor ?? withAlpha(line, 0.24);
+  const bottom0 = o.bottomColor ?? withAlpha(line, 0);
+  grad.addColorStop(0, top0);
+  if (o.topColor === undefined && o.bottomColor === undefined) grad.addColorStop(0.55, withAlpha(line, 0.08));
+  grad.addColorStop(1, bottom0);
 
   // Fill: one polygon per run, closed along the pane bottom.
   ctx.beginPath();

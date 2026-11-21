@@ -11,7 +11,6 @@
     font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
   h1 { font-size: 16px; font-weight: 600; margin: 0; }
-  #legend { color: var(--muted); font-variant-numeric: tabular-nums; min-height: 20px; }
   button { font: inherit; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge);
     background: var(--card); color: var(--ink); cursor: pointer; }
   button:focus-visible { outline: 2px solid #0066CC; outline-offset: 2px; }
@@ -26,7 +25,6 @@
     <button id="tick" type="button">Live tick</button>
   </div>
 </header>
-<div id="legend"></div>
 <div id="chart"></div>
 <script src="../dist/chartist-lite.iife.min.js"></script>
 <script>
@@ -71,11 +69,7 @@
   candles.setData(bars);
   avg.setData(sma(bars, 20));
 
-  const legend = document.getElementById('legend');
-  chart.subscribeCrosshairMove(p => {
-    const row = p.seriesData.get(candles);
-    legend.textContent = row ? `${row.time}  O ${formatPrice(row.open, 2)}  H ${formatPrice(row.high, 2)}  L ${formatPrice(row.low, 2)}  C ${formatPrice(row.close, 2)}` : '';
-  });
+  // The built-in legend (top-left of the pane) names the titled series and reads the hovered bar.
 
   const themeBtn = document.getElementById('theme');
   themeBtn.addEventListener('click', () => {

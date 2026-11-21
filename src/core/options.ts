@@ -23,6 +23,8 @@ export interface LocalizationOptions {
   hours12: boolean;
   /** "29 Sep" ('day-month', default) or "Sep 29" ('month-day'). */
   dateOrder: DateOrder;
+  /** Text shown centred in a chart that has no data yet. Default 'No data'; '' shows nothing. */
+  noDataText: string;
 }
 
 export interface CrosshairOptions {
@@ -91,6 +93,11 @@ export interface ChartOptions {
   localization: LocalizationOptions;
   interaction: InteractionOptions;
   attribution: AttributionOptions;
+  /**
+   * The built-in legend at the top-left of each pane: each titled series' name and the hovered bar's values (the last
+   * bar when nothing is hovered). Shown for panes that have a series with a `title`. `legend: false` hides it.
+   */
+  legend: { visible: boolean };
   /** Accessible name of the chart. */
   ariaLabel: string;
   /** Spoken help for keyboard users (the chart's accessible description). */
@@ -109,14 +116,15 @@ export function defaultChartOptions(): ChartOptions {
     colors: {},
     fontFamily: SYSTEM_FONT,
     fontSize: 12,
-    grid: { vertLines: true, horzLines: true },
+    grid: { vertLines: false, horzLines: true },
     crosshair: { mode: 'normal', labels: true },
     timeScale: { barSpacing: 8, minBarSpacing: 0.5, maxBarSpacing: 64, rightOffset: 2, visible: true, timeZone: 'UTC' },
     rightPriceScale: { mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true },
     leftPriceScale: { mode: 'linear', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 }, visible: true },
-    localization: { hours12: false, dateOrder: 'day-month' },
+    localization: { hours12: false, dateOrder: 'day-month', noDataText: 'No data' },
     interaction: { wheelZoom: 'auto', dragPan: true, pinchZoom: true, kinetic: true, keyboard: true, doubleClickReset: true },
     attribution: { visible: true, position: 'axis-corner' },
+    legend: { visible: true },
     ariaLabel: 'Price chart',
     ariaDescription: 'Left and right arrows pan, plus and minus zoom, Home and End jump to the first and last bar. '
       + 'Press Enter to inspect bars one at a time with the arrow keys; Escape stops.',

@@ -2,6 +2,22 @@
 // blockquotes, rules, links, images, inline code, bold and italic. Raw HTML in the source is escaped, never passed on.
 // Pure: no file or network access. `options.resolveLink(href)` may rewrite a link target; `options.imageSize(src)`
 // may return { width, height } for an image.
+//
+// Site conventions on top of plain Markdown:
+//   ```js live height=360 controls=zone      a live example: `options.live({ lang, code, attrs })` returns its HTML
+//   > [!NOTE] / [!TIP] / [!WARNING] / [!VERIFY]   a callout (VERIFY reads "Needs verification")
+//   options.entries = true                     each h3 and what follows it is wrapped in <section class="entry">
+// Code is highlighted at build time (highlight.mjs) and framed with a language label and a copy button.
+import { highlight, LANG_LABELS } from './highlight.mjs';
+
+const CALLOUTS = { NOTE: 'Note', TIP: 'Tip', WARNING: 'Warning', VERIFY: 'Needs verification' };
+
+/** A framed, highlighted code block. */
+export function codeBlock(code, lang, extraClass = '') {
+  const label = LANG_LABELS[(lang || '').toLowerCase()] || (lang ? lang.toUpperCase() : 'Code');
+  const cls = lang ? ` class="language-${esc(lang)}"` : '';
+  return `<div class="code${extraClass ? ` ${extraClass}` : ''}"><div class="code-head"><span class="code-lang">${esc(label)}</span><button class="copy" type="button" hidden>Copy</button></div><pre tabindex="0"><code${cls}>${highlight(code, lang)}</code></pre></div>`;
+}
 
 export const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -83,6 +99,7 @@ export function renderMarkdown(src, options = {}) {
   let title = '';
   let firstParagraph = '';
   let lastHeading = '';
+  let entryOpen = false;
   let i = 0;
 
   const uniqueId = (text) => {
@@ -127,15 +144,18 @@ export function renderMarkdown(src, options = {}) {
     const line = lines[i];
     if (line.trim() === '') { i++; continue; }
 
-    const fence = /^(\s*)(```+|~~~+)\s*([\w+-]*)\s*$/.exec(line);
+    const fence = /^(\s*)(```+|~~~+)\s*([\w+-]*)((?:\s+[\w-]+(?:=\S+)?)*)\s*$/.exec(line);
     if (fence) {
       const close = fence[2];
       const body = [];
       i++;
       while (i < lines.length && !lines[i].trim().startsWith(close)) { body.push(lines[i].slice(Math.min(fence[1].length, lines[i].length - lines[i].trimStart().length))); i++; }
       i++;
-      const lang = fence[3] ? ` class="language-${esc(fence[3])}"` : '';
-      out.push(`<pre tabindex="0"><code${lang}>${esc(body.join('\n'))}</code></pre>`);
+      const attrs = {};
+      for (const m of (fence[4] || '').trim().split(/\s+/).filter(Boolean)) { const [k, v] = m.split('='); attrs[k] = v === undefined ? true : v; }
+      const code = body.join('\n');
+      if (attrs.live && options.live) out.push(options.live({ lang: fence[3], code, attrs, heading: lastHeading }));
+      else out.push(codeBlock(code, fence[3]));
       continue;
     }
 
@@ -146,9 +166,11 @@ export function renderMarkdown(src, options = {}) {
       const plain = raw.replace(/`/g, '').replace(/\*\*/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
       const id = uniqueId(plain);
       lastHeading = plain;
+      if (options.entries && entryOpen && level <= 3) { out.push('</section>'); entryOpen = false; }
       if (level === 1 && !title) { title = plain; out.push(`<h1 id="${id}">${inline(raw, options)}</h1>`); }
       else {
-        headings.push({ level, text: plain, id });
+        if (options.entries && level === 3) { out.push(`<section class="entry" data-entry="${esc(plain.toLowerCase())}">`); entryOpen = true; }
+        headings.push({ level, text: plain, id, lead: '' });
         out.push(`<h${level} id="${id}">${inline(raw, options)}<a class="anchor" href="#${id}" aria-label="Link to the section ${esc(plain)}">#</a></h${level}>`);
       }
       i++;
@@ -163,15 +185,20 @@ export function renderMarkdown(src, options = {}) {
       const rows = [];
       while (i < lines.length && lines[i].trim() !== '' && lines[i].includes('|')) { rows.push(splitRow(lines[i])); i++; }
       const th = head.map((c) => `<th scope="col">${inline(c, options)}</th>`).join('');
-      const tr = rows.map((r) => `<tr>${head.map((_c, k) => `<td>${inline(r[k] ?? '', options)}</td>`).join('')}</tr>`).join('');
-      out.push(`<div class="table-wrap" role="region" tabindex="0" aria-label="Table: ${esc(lastHeading || title)}"><table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`);
+      const tr = rows.map((r) => `<tr>${head.map((_c, k) => `<td${k === 0 ? ' class="key"' : ''}>${inline(r[k] ?? '', options)}</td>`).join('')}</tr>`).join('');
+      const kind = head.length >= 3 && head.some((h) => /^default$/i.test(h.trim())) ? ' table--options' : '';
+      out.push(`<div class="table-wrap${kind}" role="region" tabindex="0" aria-label="Table: ${esc(lastHeading || title)}"><table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`);
       continue;
     }
 
     if (/^\s*>/.test(line)) {
       const body = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) { body.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
-      out.push(`<blockquote>${renderMarkdown(body.join('\n'), options).html}</blockquote>`);
+      const kind = /^\[!(NOTE|TIP|WARNING|VERIFY)\]\s*$/.exec(body[0] || '');
+      if (kind) {
+        const inner = renderMarkdown(body.slice(1).join('\n'), { ...options, entries: false }).html;
+        out.push(`<aside class="callout callout--${kind[1].toLowerCase()}" aria-label="${CALLOUTS[kind[1]]}"><p class="callout-title">${CALLOUTS[kind[1]]}</p>${inner}</aside>`);
+      } else out.push(`<blockquote>${renderMarkdown(body.join('\n'), { ...options, entries: false }).html}</blockquote>`);
       continue;
     }
 
@@ -186,8 +213,12 @@ export function renderMarkdown(src, options = {}) {
       i++;
     }
     const text = para.join(' ');
-    if (!firstParagraph && title) firstParagraph = text.replace(/[`*]/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    const plainText = text.replace(/[`*]/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    if (!firstParagraph && title) firstParagraph = plainText;
+    const lastH = headings[headings.length - 1];
+    if (lastH && !lastH.lead) lastH.lead = plainText;
     out.push(`<p>${inline(text, options)}</p>`);
   }
+  if (entryOpen) out.push('</section>');
   return { html: out.join('\n'), headings, title, firstParagraph };
 }

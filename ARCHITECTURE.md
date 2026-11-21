@@ -47,6 +47,7 @@ src/
   chart/
     chart.ts          the chart: DOM, panes, state, scheduler, painters, public API implementation
     pane-layout.ts    stacked pane heights, separator moves, pane hit test (pure)
+    legend.ts         the built-in legend: pure text builders (`describeRow`) and one DOM box per pane
     input.ts          pointer / wheel / touch / keyboard -> view operations
   indicators/         `./indicators` entry: pure indicator functions and incremental forms (no chart import)
   element/            `./element` entry: `<chartist-chart>` (`defineChartistElement`; `auto.ts` registers on load for the IIFE)
@@ -216,3 +217,24 @@ Space or Escape ends it; a mouse move ends it too. Pane separators are separate 
 - **Ids** are `chartist-lite-<counter>-<random>`, unique when two copies of the library load.
 - **Checks.** Pure parts in `src/__tests__/review-fixes.test.ts`; DOM parts in `scripts/screenshots-review.cjs` with the
   page `examples/hostile/` (strict CSP, RTL, hostile CSS).
+
+## Default look (polish of 2026-11-21)
+
+Restrained, after iOS / macOS Stocks: calm ink, colour only where it carries direction.
+
+- **Theme tokens** (`core/theme.ts`): `up` / `down` are mark colours tuned per theme (light `#26A148` / `#E0262F`, dark
+  `#2FBE57` / `#F2463B`); `upText` / `downText` are the text variants (at least 4.5:1, tested); `volume` is a quiet ink
+  (16% light, 18% dark) that histograms use by default; grid 7% ink.
+- **Axes**: price labels and minor time labels in `mutedText`, major time labels (year, month, session date) in `text`
+  at weight 600; figures are centred on their own ink (`TextPainter.baselineShift`), so tag text sits in the middle at
+  any DPR. Vertical grid lines are off by default (`grid.vertLines`), horizontal on.
+- **Candles**: about 30% of the spacing is gap, never under one device pixel; wick and body share the colour.
+- **Area**: an eased three-stop fade to transparent (only when no custom colours are given).
+- **Crosshair**: fades in over 120 ms (overlay `globalAlpha`, a few overlay frames; at once under reduced motion).
+- **Legend** (`chart/legend.ts`): one DOM box per pane at the top-left of the plot, in an open shadow root with
+  important CSSOM resets (CSP-safe, page CSS cannot reach it). Line 1: the first titled series (OHLC with the change
+  from the previous close, sign, arrow and direction colour; or its value); line 2: the other titled series. Hovered bar,
+  else each series' last bar. Written only when its text changes (`syncLegends`, after each frame). `legend: false` hides it;
+  a press on it selects text instead of panning (`isLink`).
+- **Empty chart**: `localization.noDataText` (default 'No data') centred in the top pane.
+- **Pane separator**: a 1 px hairline on the canvas, an 11 px invisible DOM hit area.

@@ -57,7 +57,7 @@ const url = 'file://' + path.join(root, 'examples', 'basic.html');
       // Crosshair over the plot, and the event payload.
       await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.4);
       await page.waitForTimeout(100);
-      const legend = await page.textContent('#legend');
+      const legend = await page.evaluate(() => { const h = document.querySelector('#chart [data-chartist-legend]'); return h && h.shadowRoot ? h.shadowRoot.textContent : null; });
       await page.screenshot({ path: path.join(out, 'basic-light-crosshair.png') });
       const shot = await page.evaluate(() => { const c = window.__demo.chart.takeScreenshot(); return [c.width, c.height]; });
       report.interaction = { before, zoomed, panned, ended, upd, legend, shot };

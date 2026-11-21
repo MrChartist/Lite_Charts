@@ -1,0 +1,36 @@
+/* The three faces of the Mr. Chartist type system, self-hosted (SIL Open Font License 1.1; see fonts/NOTICE.txt and
+   each folder's OFL.txt). Added by assets/boot.js over http(s) only: browsers refuse fonts over file://, and the
+   size-matched fallbacks in site.css then carry the page. Nothing is heavier than 600. */
+@font-face {
+  font-family: 'Chartist Sans Flex';
+  src: url('fonts/chartist-sans-flex/chartist-sans-flex.woff2') format('woff2');
+  font-weight: 300 600;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 107%;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+20B9,
+    U+2122, U+2212;
+}
+@font-face {
+  font-family: 'Chartist Sans Flex';
+  src: url('fonts/chartist-sans-flex-symbols/chartist-sans-flex-symbols.woff2') format('woff2');
+  font-weight: 300 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0394, U+2020, U+2032-2033, U+2190-2199, U+21B5, U+21BA, U+2211, U+221E, U+2303, U+2325, U+23CE,
+    U+25A0, U+25B2, U+25BC, U+25C6, U+25CB, U+25CF, U+2605, U+26A0, U+2713, U+2717;
+}
+@font-face {
+  font-family: 'Chartist Sans';
+  src: url('fonts/chartist-sans/chartist-sans.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Chartist Serif';
+  src: url('fonts/chartist-serif/chartist-serif-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}

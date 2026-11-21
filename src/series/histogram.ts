@@ -5,7 +5,6 @@ import type { Time } from '../core/time';
 import { copyTime } from '../core/time';
 import { candleLayout } from '../render/pixel';
 import type { RowBase, SeriesDefinition, SeriesDrawScope } from './definition';
-import { withAlpha } from './area';
 
 export interface HistogramData extends RowBase {
   time: Time;
@@ -15,7 +14,7 @@ export interface HistogramData extends RowBase {
 }
 
 export interface HistogramOptions {
-  /** Series colour. Defaults to the theme's line colour at 50% opacity. */
+  /** Series colour. Defaults to the theme's quiet `volume` ink, so volume sits behind price. */
   color?: string;
   /** The value columns grow from. Default 0. */
   base: number;
@@ -34,7 +33,7 @@ function drawHistogram(s: SeriesDrawScope<HistogramData, HistogramOptions>): voi
   const { ctx, rows, from, to, x, y, options: o, colors } = s;
   const baseY = Math.round(y(o.base));
   if (!Number.isFinite(baseY)) return;
-  const fallback = o.color ?? withAlpha(colors.line, 0.5);
+  const fallback = o.color ?? colors.volume;
   const { width, columns } = histogramColumn(s.barSpacing, s.pixelRatio);
 
   // Distinct override colours (small, reused array; no per-bar allocation).
@@ -108,6 +107,7 @@ export const HistogramSeries: SeriesDefinition<HistogramData, HistogramOptions> 
   // Columns grow from `base`, so autoscale includes it (the chart passes the options).
   low: (r, o) => Math.min(r.value, o?.base ?? 0),
   high: (r, o) => Math.max(r.value, o?.base ?? 0),
-  lastValueColor: (r, o, c) => r.color ?? o.color ?? c.line,
+  // The quiet default fill is too faint for a tag or a legend dot: those take the muted ink instead.
+  lastValueColor: (r, o, c) => r.color ?? o.color ?? c.mutedText,
   draw: drawHistogram,
 };

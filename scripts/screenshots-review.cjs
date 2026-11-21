@@ -202,6 +202,40 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   check(api.font === 12 && api.spacing === 8, 'NaN / Infinity options are ignored', [api.font, api.spacing]);
   check(api.shrink && api.shrink.to >= 39 && api.shrink.from <= 39, 'fewer rows while scrolled back returns to the live edge', api.shrink);
 
+  // Polish of 2026-11-21: built-in legend, no-data text.
+  const polish = await page.evaluate(() => {
+    const L = window.ChartistLite;
+    const box = document.createElement('div');
+    box.className = 'box';
+    document.body.appendChild(box);
+    const chart = L.createChart(box);
+    chart.paint();
+    // No data: a quiet centred text instead of an empty box (some ink near the centre of the canvas).
+    const main = box.firstElementChild.querySelector('canvas');
+    const ctx = main.getContext('2d');
+    const w = main.width, h = main.height;
+    const img = ctx.getImageData(Math.floor(w / 2) - 60, Math.floor(h / 2) - 12, 120, 24).data;
+    let ink = 0;
+    for (let i = 0; i < img.length; i += 4) if (img[i] < 200) ink++;
+    const s = chart.addSeries(L.CandlestickSeries, { title: 'TEST' });
+    s.setData(window.__hostile.bars(50));
+    chart.paint();
+    const host = box.firstElementChild.querySelector('[data-chartist-legend]');
+    const text = host && host.shadowRoot ? host.shadowRoot.textContent : '';
+    const width = host ? host.getBoundingClientRect().width : 0;
+    const plotW = chart.timeScale().width();
+    chart.applyOptions({ legend: false });
+    chart.paint();
+    const hidden = getComputedStyle(host).display;
+    chart.remove();
+    box.remove();
+    return { ink, text, width, plotW, hidden };
+  });
+  check(polish.ink > 20, 'a chart with no data shows the no-data text', polish.ink);
+  check(/TEST/.test(polish.text) && /O \d/.test(polish.text) && /C \d/.test(polish.text), 'built-in legend names the series and shows O H L C', polish.text);
+  check(polish.width > 0 && polish.width <= polish.plotW, 'legend stays inside the plot (no overlap with the price axis)', [polish.width, polish.plotW]);
+  check(polish.hidden === 'none', 'legend: false hides the legend', polish.hidden);
+
   // 7: the focus ring inside <chartist-chart> (the document sees only the host as focused).
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.evaluate(() => document.getElementById('el').scrollIntoView());
