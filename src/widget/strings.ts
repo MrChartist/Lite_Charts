@@ -44,6 +44,7 @@ export const DEFAULT_STRINGS = {
   draw: 'Drawing tools',
   drawingsUnavailable: 'Drawings could not be loaded',
   alerts: 'Price alert',
+  alertsUnavailable: 'Price alerts could not be loaded',
   replay: 'Replay',
   close: 'Close',
   ranges: 'Range',

@@ -28,9 +28,9 @@ import { DEFAULT_STRINGS, fill, type WidgetStrings } from './strings';
 import { WIDGET_CSS, widgetSheet } from './styles';
 import type {
   ChartTypeInfo, IndicatorHandle, IndicatorState, OutputStyle, SymbolInfo, Widget, WidgetBar, WidgetEvent, WidgetModules,
-  WidgetOptions, WidgetRowInput, WidgetSettings, WorkspaceJSON,
+  WidgetAlert, WidgetAlertEvent, WidgetOptions, WidgetRowInput, WidgetSettings, WorkspaceAlerts, WorkspaceJSON,
 } from './types';
-import { defaultSettings, readWorkspace, validateParams, WORKSPACE_FORMAT, WORKSPACE_VERSION } from './workspace';
+import { ALERT_LIMITS, defaultSettings, normalizeAlert, readWorkspace, validateParams, WORKSPACE_FORMAT, WORKSPACE_VERSION } from './workspace';
 
 type AnySeries = SeriesApi<AnySeriesDefinition>;
 type PriceLine = { remove(): void };
@@ -321,6 +321,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       else if (rangeKey === 'All') chart.timeScale().fitContent();
       else chart.timeScale().resetTimeScale();
     }
+    alertsHandle?.rebase?.();
     if (!ready && rows.length) { ready = true; emit('ready', { chart }); }
   }
 
@@ -336,6 +337,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       try { main.update(d as never); } catch { buildMain(); }
       if (volume) volume.update({ time: b.time, value: rows[rows.length - 1].volume ?? 0 } as never);
     }
+    checkAlerts();
     scheduleRecompute();
   }
   let recomputeId = 0;
@@ -847,31 +849,108 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   }
 
   // ── price alerts (extras): the bell in the top bar adds one at the last price; the axis "+" adds one where you point ──
-  type AlertsLike = { add(p: number): unknown; alerts(): unknown[]; exportJSON(): string; importJSON(j: string): unknown; destroy(): void };
+  // `alertStore` holds every symbol's alerts and is what the workspace saves; the extras' handle shows the current
+  // symbol's. The handle does not watch the series (`watch: false`): the widget feeds it the true last price of the
+  // source bars (on Renko too, never a brick boundary) and re-bases it when the history is replaced, so nothing fires
+  // from history: alerts watch only while the page is open.
+  type AlertsLike = {
+    add(p: number): WidgetAlert; remove(id: string): boolean; clear(): void; alerts(): WidgetAlert[]; check(v: number, t?: number): unknown[];
+    rebase?(): void; importJSON(j: string | object): unknown; applyOptions(o: object): void; destroy(): void;
+  };
   let alertsHandle: AlertsLike | null = null;
-  let alertsJSON: string | null = null;
+  let alertsLoading: Promise<AlertsLike | null> | null = null;
+  let alertStore: Record<string, WidgetAlert[]> = {};
+  /** > 0 while the handle is given a list (import): its change is not a user change. */
+  let alertsImporting = 0;
+  /** True while a price is checked: a trigger is saved, but it is not an undo step. */
+  let alertsFiring = false;
   const hasExtras = (): boolean => !!(modules.extras || options.load?.extras);
-  async function ensureAlerts(): Promise<AlertsLike | null> {
-    if (alertsHandle) return alertsHandle;
-    const x = await getModule('extras');
-    if (destroyed || !x || typeof x.createPriceAlerts !== 'function' || !main) return null;
-    alertsHandle = (x.createPriceAlerts as (c: ChartApi, s: AnySeries, o: unknown) => AlertsLike)(chart, main, {
-      addButton: true,
-      onTrigger: (t: { price: number; direction: string }) => { live.textContent = `${S.alerts}: ${formatValue(t.price)}`; showTip(`${S.alerts} ${formatValue(t.price)}`); later(() => showTip(null), 4000); emit('status', { alert: t }); },
-      onChange: () => { alertsJSON = alertsHandle?.exportJSON() ?? null; schedulePersist(); },
-    });
-    if (alertsJSON) { try { alertsHandle.importJSON(alertsJSON); } catch { /* ignore */ } }
-    return alertsHandle;
+  const curAlerts = (): WidgetAlert[] => alertStore[symbol.symbol] ?? [];
+  const copyAlert = (a: WidgetAlert): WidgetAlert => ({ ...a });
+  /** How many alerts the current symbol may hold (per-symbol and total limits). */
+  const alertRoom = (): number => {
+    let others = 0;
+    for (const [k, l] of Object.entries(alertStore)) if (k !== symbol.symbol) others += l.length;
+    return Math.max(0, Math.min(ALERT_LIMITS.perSymbol, ALERT_LIMITS.total - others));
+  };
+  function alertsWorkspace(): WorkspaceAlerts | null {
+    const bySymbol: Record<string, WidgetAlert[]> = {};
+    for (const [k, l] of Object.entries(alertStore)) if (l.length) bySymbol[k] = l.map(copyAlert);
+    return Object.keys(bySymbol).length ? { version: 1, bySymbol } : null;
+  }
+  /** The current symbol's alerts changed: stored (validated), an undo step when `history`, saved through the debounce. */
+  function storeAlerts(list: readonly WidgetAlert[], history: boolean): void {
+    const before = history && !applyingHistory ? snapshot() : null;
+    const next = list.map(normalizeAlert).filter((a): a is WidgetAlert => !!a).slice(0, alertRoom());
+    const rest = { ...alertStore };
+    delete rest[symbol.symbol];
+    alertStore = next.length ? { ...rest, [symbol.symbol]: next } : rest;
+    if (before) pushHistory({ kind: 'ws', before, after: snapshot() });
+    alertsHandle?.applyOptions({ maxAlerts: alertRoom() });
+    emitChange();
+  }
+  /** Give the handle the current symbol's stored alerts. */
+  function importAlerts(): void {
+    const h = alertsHandle;
+    if (!h) return;
+    alertsImporting++;
+    try { h.applyOptions({ maxAlerts: alertRoom() }); h.importJSON({ format: 'chartist-lite-alerts', version: 1, alerts: curAlerts() }); } catch { /* validated already */ } finally { alertsImporting--; }
+  }
+  function alertsUnavailable(): void {
+    // Quiet: a tip and the live region; the chart keeps working and the stored alerts stay in the workspace.
+    showTip(S.alertsUnavailable);
+    later(() => showTip(null), 4000);
+  }
+  function ensureAlerts(): Promise<AlertsLike | null> {
+    if (alertsHandle) return Promise.resolve(alertsHandle);
+    if (alertsLoading) return alertsLoading;
+    const p = (async (): Promise<AlertsLike | null> => {
+      const x = await getModule('extras');
+      if (destroyed || !main) return null;
+      if (!x || typeof x.createPriceAlerts !== 'function') { alertsUnavailable(); return null; }
+      if (alertsHandle) return alertsHandle;
+      alertsHandle = (x.createPriceAlerts as (c: ChartApi, s: AnySeries, o: unknown) => AlertsLike)(chart, main, {
+        addButton: true,
+        watch: false,
+        lastPrice: () => (rows.length ? rows[rows.length - 1].close : null),
+        maxAlerts: alertRoom(),
+        onTrigger: (t: { id: string; price: number; direction: 'up' | 'down'; value: number; time?: unknown }) => {
+          live.textContent = `${S.alerts}: ${formatValue(t.price)}`;
+          showTip(`${S.alerts} ${formatValue(t.price)}`);
+          later(() => showTip(null), 4000);
+          emit('status', { alert: t });
+          emit('alert', { id: t.id, symbol: symbol.symbol, price: t.price, direction: t.direction, value: t.value, ...(typeof t.time === 'number' ? { time: t.time } : {}) } satisfies WidgetAlertEvent);
+        },
+        onChange: (list: WidgetAlert[]) => { if (!alertsImporting) storeAlerts(list, !alertsFiring); },
+      });
+      importAlerts();
+      return alertsHandle;
+    })();
+    alertsLoading = p;
+    void p.finally(() => { if (alertsLoading === p) alertsLoading = null; });
+    return p;
+  }
+  /** The symbol (or the whole store) changed: show that symbol's alerts, loading the code only when it has some. */
+  function syncAlertsToSymbol(): void {
+    if (alertsHandle) importAlerts();
+    else if (curAlerts().length && hasExtras()) void ensureAlerts();
+  }
+  /** A new price of the source bars (the true last price, whatever the chart type draws). */
+  function checkAlerts(): void {
+    const h = alertsHandle;
+    const last = rows[rows.length - 1];
+    if (!h || !last) return;
+    alertsFiring = true;
+    try { h.check(last.close, last.time); } finally { alertsFiring = false; }
   }
   async function addAlert(): Promise<void> {
-    const a = await ensureAlerts();
     const last = rows[rows.length - 1];
-    if (a && last) { a.add(last.close); live.textContent = `${S.alerts}: ${formatValue(last.close)}`; }
+    if (!last) return;
+    try { await api.addAlert(last.close); } catch (e) { if (e instanceof RangeError) { showTip(e.message.replace(/^Chartist Lite: /, '')); later(() => showTip(null), 4000); } }
   }
-  /** The main series was rebuilt (chart type): alerts move to the new one. */
+  /** The main series was rebuilt (chart type): alerts move to the new one (from the store). */
   function rehomeAlerts(): void {
     if (!alertsHandle) return;
-    alertsJSON = alertsHandle.exportJSON();
     alertsHandle.destroy();
     alertsHandle = null;
     void ensureAlerts();
@@ -1023,6 +1102,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       drawings: tools ? tools.exportJSON() : drawingsJSON,
       drawingsOpen: drawingsOn,
       drawingsHidden: tools ? tools.hidden() : drawingsHidden,
+      ...((al => (al ? { alerts: al } : {}))(alertsWorkspace())),
     };
   }
   async function applyWorkspace(ws: WorkspaceJSON, reload: boolean): Promise<void> {
@@ -1046,6 +1126,16 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const t = tools as ToolsLike | null;
       if (t && ws.drawings) { try { t.importJSON(ws.drawings); } catch { /* ignore */ } }
     }
+    // Alerts: the saved ones (none in an older save). Undo / redo keep a trigger that happened since (never re-armed).
+    const prevAlerts = alertStore;
+    alertStore = {};
+    for (const [k, l] of Object.entries(ws.alerts?.bySymbol ?? {})) {
+      alertStore[k] = l.map(a => {
+        const cur = reload ? null : prevAlerts[k]?.find(x => x.id === a.id && x.price === a.price);
+        return cur && cur.triggered && !a.triggered ? copyAlert(cur) : copyAlert(a);
+      });
+    }
+    syncAlertsToSymbol();
     if (reload && typeof ws.drawingsHidden === 'boolean') { drawingsHidden = ws.drawingsHidden; if (tools && tools.hidden() !== drawingsHidden) tools.setHidden(drawingsHidden); }
     if (reload && (symbolChanged || intervalChanged) && (feed || liveOpt)) await loadData();
     else buildMain();
@@ -1882,6 +1972,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const next: SymbolInfo = typeof s === 'string' ? { symbol: s, description: CRYPTO_SYMBOLS.find(c => c.symbol === s)?.description } : { ...s };
       if (!next.symbol || next.symbol === symbol.symbol) return;
       record(() => { symbol = next; });
+      syncAlertsToSymbol();
       chart.applyOptions({ ariaLabel: fill(S.chartLabel, symbol.symbol) } as never);
       for (const c of [...compareSyms]) if (c.symbol === symbol.symbol) removeCompare(c.symbol);
       syncTop();
@@ -1977,6 +2068,26 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       if (event === 'ready' && ready) { try { fn({ chart }); } catch { /* host */ } }
       return () => { set?.delete(fn); };
     },
+    alerts: () => curAlerts().map(copyAlert),
+    async addAlert(price) {
+      if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) throw new RangeError('Chartist Lite: an alert needs a finite price above zero');
+      if (curAlerts().length >= alertRoom()) throw new RangeError(`Chartist Lite: at most ${ALERT_LIMITS.perSymbol} alerts per symbol and ${ALERT_LIMITS.total} in all`);
+      const h = await ensureAlerts();
+      if (!h) throw new Error('Chartist Lite: price alerts need the extras module');
+      const a = h.add(price);
+      live.textContent = `${S.alerts}: ${formatValue(price)}`;
+      return copyAlert(a);
+    },
+    removeAlert(id) {
+      if (!curAlerts().some(a => a.id === id)) return false;
+      if (alertsHandle) return alertsHandle.remove(id);
+      storeAlerts(curAlerts().filter(a => a.id !== id), true);
+      return true;
+    },
+    clearAlerts() {
+      if (!curAlerts().length) return;
+      if (alertsHandle) alertsHandle.clear(); else storeAlerts([], true);
+    },
     screenshot: (download = true) => screenshot(download),
     destroy() {
       if (destroyed) return;
@@ -2018,6 +2129,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if (restored.drawings) drawingsJSON = restored.drawings;
     drawingsOn = restored.drawingsOpen ?? !!restored.drawings;
     drawingsHidden = restored.drawingsHidden ?? false;
+    if (restored.alerts) for (const [k, l] of Object.entries(restored.alerts.bySymbol)) alertStore[k] = l.map(copyAlert);
     chart.applyOptions({ theme, timeScale: { timeZone: tz } } as never);
     applyTheme();
     for (const st of restored.indicators) { const spec = catalog.find(s => s.id === st.id); if (spec) addIndicatorRaw(spec, st); }
@@ -2041,6 +2153,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     await loadData();
     if (destroyed) return;
     if (restored) for (const s of restored.compare) addCompare(s);
+    // Saved alerts of this symbol: the alert code loads to show them (only then).
+    syncAlertsToSymbol();
     // The rail open, or saved drawings to show with it closed: the drawing module loads (else it never does).
     if ((drawingsOn || hasDrawingsToShow()) && (modules.drawings || options.load?.drawings)) await ensureTools();
     relayout();

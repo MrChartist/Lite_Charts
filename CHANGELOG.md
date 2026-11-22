@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Widget: price alerts are saved with the workspace (`save()`, `load(json)`, `persist`), per symbol for every interval,
+  in an optional `alerts: { version: 1, bySymbol }` field (older saves load unchanged). A triggered alert is saved and
+  restored as triggered, with its direction, price and bar time, and never fires again; alerts watch only while the
+  page is open (no firing from history on load). Switching symbol shows that symbol's alerts and keeps the others. New
+  API: `alerts()`, `addAlert(price)`, `removeAlert(id)`, `clearAlerts()`, an `'alert'` event; `'change'` fires for
+  alert changes and undo / redo covers adding and removing them. Alerts fire on the true last price on Renko and the
+  other brick types and survive chart type switches. Limits 100 per symbol, 1000 in all; bad saved alerts are left
+  out. The extras load at start only for saved alerts of the current symbol; if they fail, a tip, and the alerts stay
+  saved.
+- Extras, price alerts: a triggered alert keeps `direction`, `value` and `time` (also in `exportJSON`); options
+  `watch: false` with `lastPrice` (the host feeds prices with `check` and calls the new `rebase()`), `maxAlerts`.
+
 - Brick time axis (ordinal mode) for Renko, line break, Kagi, point and figure and range bars. A series whose
   definition carries `ordinal` (set by `applyChartType` for these types, or `ordinalSeries(def)` from the transforms
   entry) puts the chart's time axis in ordinal mode: one slot per row, every brick on the TRUE date of the bar that made

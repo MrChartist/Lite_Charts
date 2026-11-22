@@ -482,6 +482,22 @@ letters. Interval and range keys are radio groups (one tab stop, arrows).
 localStorage under `chartist-lite-workspace:<key>`, written 300 ms after a change; read at start and wins over the
 options. `save()` / `load(json)` do the same by hand.
 
+**Price alerts in the workspace.** Optional field `alerts: { version: 1, bySymbol: { [symbol]: [{ id, price,
+triggered, direction?, value?, time? }] } }`, per symbol only (a level means nothing for another symbol; the same for
+every interval). `normalizeAlerts` (pure, `workspace.ts`) keeps what checks out: ids `[A-Za-z0-9_-]{1,32}` unique per
+symbol, finite prices above zero, trigger details only on a triggered alert; `ALERT_LIMITS` 100 per symbol, 1000 in
+all, 200 symbols; junk is dropped, never thrown. The widget's `alertStore` (every symbol) is the truth `save()` writes;
+the extras' handle shows the current symbol's (imported on a symbol change, an undo / redo or a load) and reports
+changes back (`onChange`: an undo step for an add, move or removal; a trigger is saved but is not an undo step, and an
+undo / redo never re-arms a trigger that happened since). The handle runs with `watch: false`: the widget calls
+`check(close, time)` with the source bar's true last price in `updateRow` (Renko and the other brick types fire on the
+real price, not a brick edge) and `rebase()` after new history, so nothing fires from history: alerts watch only while
+the page is open (an armed level crossed while the page was closed stays armed). Writes go through the 300 ms
+debounce on changes only; a tick that crosses nothing writes nothing. Lazy: the extras load at start only when the
+current symbol has saved alerts; if they fail, a tip says so and the store (hence the next save) keeps the alerts.
+Events: `'alert'` once per firing (`{ id, symbol, price, direction, value, time }`) and `'change'`. Replay in the
+widget feeds the series, not the source bars, so it fires no alerts.
+
 **Performance.** No widget work per frame beyond the legend text of the hovered bar and one comparison of pane heights.
 Bench scenario `widget` (10k bars, SMA + Bollinger + RSI, volume): see `docs/PERFORMANCE.md` (script cost only,
 rasterisation not included).

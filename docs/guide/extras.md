@@ -88,7 +88,7 @@ every(1000, () => {
 });
 ```
 
-An alert is a line with a bell on the price; it fires once when the price crosses it, in either direction, through `update()`, and then stays, muted, unless `removeOnTrigger` is set. A **+** beside the crosshair price, near the axis, adds one; drag a line to move it; its close control or Delete removes it. No notification API is used: you decide what happens in `onTrigger`. `exportJSON()` and `importJSON()` save them. `every(ms, fn)` above is a helper of this site that stops when the example goes away; use `setInterval` in your own page.
+An alert is a line with a bell on the price; it fires once when the price crosses it, in either direction, through `update()`, and then stays, muted, unless `removeOnTrigger` is set. A **+** beside the crosshair price, near the axis, adds one; drag a line to move it; its close control or Delete removes it. No notification API is used: you decide what happens in `onTrigger`. `exportJSON()` and `importJSON()` save them, a triggered alert with its `direction`, `value` and `time`. Alerts watch only while the page is open: an imported alert is checked from the current price on, never against history. For a series whose rows are not the prices to watch (Renko bricks), pass `watch: false` and `lastPrice`, feed each new price with `check(value, time)` and call `rebase()` after replacing the history; `maxAlerts` caps how many there can be. `every(ms, fn)` above is a helper of this site that stops when the example goes away; use `setInterval` in your own page.
 
 ## Bar replay
 

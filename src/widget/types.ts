@@ -129,7 +129,27 @@ export interface WidgetOptions {
   chartOptions?: Record<string, unknown>;
 }
 
-export type WidgetEvent = 'symbol' | 'interval' | 'chartType' | 'indicators' | 'theme' | 'ready' | 'error' | 'status' | 'change';
+export type WidgetEvent = 'symbol' | 'interval' | 'chartType' | 'indicators' | 'theme' | 'ready' | 'error' | 'status' | 'change' | 'alert';
+
+/**
+ * A price alert as the widget keeps it (per symbol). Armed until the price crosses it while the page is open; then
+ * `triggered`, with the direction, the price that crossed it and that bar's time (UNIX seconds). A triggered alert never
+ * fires again; moving it re-arms it.
+ */
+export interface WidgetAlert {
+  id: string;
+  price: number;
+  triggered: boolean;
+  direction?: 'up' | 'down';
+  value?: number;
+  time?: number;
+}
+
+/** What the `'alert'` event carries: the alert that fired, and its symbol. */
+export interface WidgetAlertEvent { id: string; symbol: string; price: number; direction: 'up' | 'down'; value: number; time?: number }
+
+/** Alerts in the workspace: per symbol (a price level means something only for its symbol), every interval alike. */
+export interface WorkspaceAlerts { version: 1; bySymbol: Record<string, WidgetAlert[]> }
 
 export interface Widget {
   readonly chart: ChartApi;
@@ -146,6 +166,14 @@ export interface Widget {
   save(): WorkspaceJSON;
   load(json: WorkspaceJSON | string): Promise<void>;
   on(event: WidgetEvent, fn: (detail: unknown) => void): () => void;
+  /** The price alerts of the current symbol (copies). Works before the alert code has loaded. */
+  alerts(): WidgetAlert[];
+  /** Add an alert at `price` for the current symbol (loads the extras when needed). RangeError past the limits. */
+  addAlert(price: number): Promise<WidgetAlert>;
+  /** Remove one alert of the current symbol; false when there is none with that id. */
+  removeAlert(id: string): boolean;
+  /** Remove every alert of the current symbol. */
+  clearAlerts(): void;
   /** Download a PNG of the chart with its legend; resolves to the blob. */
   screenshot(download?: boolean): Promise<Blob | null>;
   destroy(): void;
@@ -167,4 +195,6 @@ export interface WorkspaceJSON {
   drawingsOpen?: boolean;
   /** "Hide drawings" (the eye on the rail) is on. Absent in older saves (off). */
   drawingsHidden?: boolean;
+  /** Price alerts per symbol. Absent in older saves and when there are none. */
+  alerts?: WorkspaceAlerts;
 }

@@ -1297,10 +1297,10 @@ createRangeSwitcher(chart, { position: 'top-right' }).select('1Y');
 ### `createPriceAlerts`
 
 ```sig
-createPriceAlerts(chart, series, { onTrigger?, onChange?, removeOnTrigger?, addButton? }?): PriceAlertsHandle
+createPriceAlerts(chart, series, { onTrigger?, onChange?, removeOnTrigger?, addButton?, watch?, lastPrice?, maxAlerts? }?): PriceAlertsHandle
 ```
 
-Alert lines that fire once when the price crosses them on `update()`. Handle: `add(price)`, `remove(id)`, `clear()`, `alerts()`, `check(value)`, `exportJSON()`, `importJSON()`, `destroy()`.
+Alert lines that fire once when the price crosses them on `update()`. A triggered alert keeps `direction`, `value` and `time`. `watch: false` with `lastPrice` lets the host feed prices with `check(value, time)` and `rebase()` after new history. Handle: `add(price)`, `remove(id)`, `clear()`, `alerts()`, `check(value, time?)`, `rebase()`, `exportJSON()`, `importJSON()`, `applyOptions()`, `destroy()`.
 
 ```js
 const alerts = createPriceAlerts(chart, candles, { onTrigger: t => notify(t.price) });
@@ -1367,7 +1367,7 @@ From `lite-charts/widget`. Options, the feed contract, keys and events: [The rea
 createWidget(container, { symbol?, interval?, intervals?, chartType?, theme?, timeZone?, data?, feed?, live?, indicators?, drawings?, toolbar?, persist?, strings?, modules?, load?, catalog?, settings?, watermark?, height?, chartOptions? }?): Widget
 ```
 
-A complete chart workspace in one call. The handle: `chart`, `element`, `setSymbol`, `setInterval`, `setChartType`, `addIndicator`, `removeIndicator`, `indicators()`, `setTheme`, `setRange`, `setData`, `save()`, `load(json)`, `on(event, fn)`, `screenshot(download?)`, `destroy()`.
+A complete chart workspace in one call. The handle: `chart`, `element`, `setSymbol`, `setInterval`, `setChartType`, `addIndicator`, `removeIndicator`, `indicators()`, `setTheme`, `setRange`, `setData`, `save()`, `load(json)`, `alerts()`, `addAlert(price)`, `removeAlert(id)`, `clearAlerts()`, `on(event, fn)` (events include `'alert'`), `screenshot(download?)`, `destroy()`.
 
 ```js
 const w = createWidget(el, { data: rows, symbol: 'ACME', indicators: ['ema', 'rsi'] });

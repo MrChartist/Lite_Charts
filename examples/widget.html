@@ -40,9 +40,12 @@
       return bars;
     },
     subscribeBars({ symbol, interval }, onBar) {
+      // For the browser check: __push(close) moves the forming bar to a price (as a tick would); __noTicks stills them.
+      window.__push = close => { const last = lastBar.get(symbol + interval); if (!last) return; Object.assign(last, { close, high: Math.max(last.high, close), low: Math.min(last.low, close) }); onBar({ ...last }); };
+      window.__last = () => ({ ...lastBar.get(symbol + interval) });
       const id = setInterval(() => {
         const last = lastBar.get(symbol + interval);
-        if (!last) return;
+        if (!last || window.__noTicks) return;
         const c = +(last.close * (1 + (Math.random() - 0.5) * 0.0012)).toFixed(last.close < 10 ? 4 : 2);
         Object.assign(last, { close: c, high: Math.max(last.high, c), low: Math.min(last.low, c) });
         onBar({ ...last });

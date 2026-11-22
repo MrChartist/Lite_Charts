@@ -13,12 +13,12 @@ export { DEFAULT_STRINGS } from './strings';
 export type { WidgetStrings } from './strings';
 export { collapseBar, useSheets } from './layout';
 export type { BarItem } from './layout';
-export { readWorkspace, migrateWorkspace, validateParams, defaultSettings, WORKSPACE_FORMAT, WORKSPACE_VERSION } from './workspace';
+export { readWorkspace, migrateWorkspace, validateParams, defaultSettings, normalizeAlerts, ALERT_LIMITS, WORKSPACE_FORMAT, WORKSPACE_VERSION } from './workspace';
 export { normalizeInterval, intervalSeconds, intervalForSpan, barsForSpan, intervalFromDigits, nearestInterval } from './intervals';
 export { CORE_CHART_TYPES, chartTypeList } from './chart-types';
 export { CRYPTO_SYMBOLS, demoBars } from './demo';
 export { WIDGET_ICONS } from './icons';
 export type {
   Widget, WidgetOptions, WidgetEvent, WidgetFeed, WidgetModules, WidgetSettings, WidgetBar, WidgetRowInput, SymbolInfo,
-  BarsRequest, ChartTypeInfo, IndicatorHandle, IndicatorState, OutputStyle, ToolbarPart, WorkspaceJSON, WidgetDrawingsOptions,
+  BarsRequest, ChartTypeInfo, IndicatorHandle, IndicatorState, OutputStyle, ToolbarPart, WorkspaceJSON, WidgetDrawingsOptions, WidgetAlert, WidgetAlertEvent, WorkspaceAlerts,
 } from './types';

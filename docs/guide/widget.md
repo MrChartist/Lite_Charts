@@ -125,7 +125,7 @@ Top bar: `symbol`, `status`, `intervals`, `chartType`, `indicators`, `compare`, 
 
 ## Persistence, save and load
 
-Nothing is stored unless you ask. With `persist: { key: 'my-chart' }` the workspace (symbol, interval, chart type, theme, zone, indicators with their settings, compare symbols, settings, drawings, whether the drawing rail is open and whether drawings are hidden) is written to `localStorage` under `chartist-lite-workspace:my-chart`, 300 ms after a change, and read back at start, where it wins over the options.
+Nothing is stored unless you ask. With `persist: { key: 'my-chart' }` the workspace (symbol, interval, chart type, theme, zone, indicators with their settings, compare symbols, settings, drawings, whether the drawing rail is open and whether drawings are hidden, and the price alerts) is written to `localStorage` under `chartist-lite-workspace:my-chart`, 300 ms after a change, and read back at start, where it wins over the options.
 
 ```js
 const json = widget.save();            // { format: 'chartist-lite-workspace', version: 2, ... }
@@ -133,6 +133,8 @@ await widget.load(json);               // or the JSON text
 ```
 
 The format is versioned; version 1 workspaces are migrated, and fields that do not check out are dropped rather than trusted.
+
+**Price alerts** (the bell adds one at the last price, the "+" beside the price axis one where you point) are saved per symbol, the same for every interval: `alerts: { version: 1, bySymbol: { 'BTC-USD': [{ id, price, triggered, direction?, value?, time? }] } }`. Switching symbol shows that symbol's alerts and keeps the others. A triggered alert is saved as triggered, with the direction, the price that crossed it and that bar's time, and never fires again (moving it re-arms it). Alerts watch only while the page is open: an alert whose price was crossed while the page was closed is not fired from history on load; it stays armed and fires on the next live crossing. They fire on the true last price of the data, on Renko and the other brick types too. At most 100 per symbol and 1000 in all; saved alerts that do not check out are left out. A saved workspace with alerts for the current symbol loads the extras to show them; one without never does. `widget.alerts()`, `addAlert(price)`, `removeAlert(id)` and `clearAlerts()` work on the current symbol, and adding or removing one is an undo step.
 
 ## Words, keys and events
 
@@ -151,9 +153,9 @@ The format is versioned; version 1 workspaces are migrated, and fields that do n
 
 None of these clash with the chart's own keys (arrows, plus and minus, Home, End, Enter, Space, Escape) or the drawing tools' letters. Interval and range keys are radio groups: one Tab stop, then arrows.
 
-**Events.** `widget.on(event, fn)` returns a function that removes the handler. Events: `'ready'`, `'symbol'`, `'interval'`, `'chartType'`, `'indicators'`, `'theme'`, `'status'` (`{ status, provider, demo }`), `'error'` and `'change'` (any change to the workspace).
+**Events.** `widget.on(event, fn)` returns a function that removes the handler. Events: `'ready'`, `'symbol'`, `'interval'`, `'chartType'`, `'indicators'`, `'theme'`, `'status'` (`{ status, provider, demo }`), `'alert'` (`{ id, symbol, price, direction, value, time }`, once per alert that fires, to notify the user), `'error'` and `'change'` (any change to the workspace, alerts included).
 
-**Methods.** `setSymbol`, `setInterval`, `setChartType`, `addIndicator(id, params?, state?)` (returns a handle with `setParams`, `setVisible`, `setPlacement`, `setOutputStyle`, `remove`), `removeIndicator`, `indicators()`, `setTheme`, `setRange('1Y')`, `setData(rows)`, `save()`, `load(json)`, `screenshot(download?)` and `destroy()`, which leaves no node or listener behind. `widget.chart` is the chart inside, with the whole chart API.
+**Methods.** `setSymbol`, `setInterval`, `setChartType`, `addIndicator(id, params?, state?)` (returns a handle with `setParams`, `setVisible`, `setPlacement`, `setOutputStyle`, `remove`), `removeIndicator`, `indicators()`, `setTheme`, `setRange('1Y')`, `setData(rows)`, `save()`, `load(json)`, `alerts()`, `addAlert(price)`, `removeAlert(id)`, `clearAlerts()`, `screenshot(download?)` and `destroy()`, which leaves no node or listener behind. `widget.chart` is the chart inside, with the whole chart API.
 
 ## With no code: the tags
 

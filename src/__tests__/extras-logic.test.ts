@@ -67,6 +67,67 @@ describe('alert helpers', () => {
     expect(() => alertsFromJSON({ format: 'chartist-lite-alerts', version: 1, alerts: [{ id: 'a', price: 1 }, { id: 'a', price: 2 }] })).toThrow(/twice/);
     expect(() => alertsFromJSON({ format: 'chartist-lite-alerts', version: 1, alerts: [{ price: 1 }] })).toThrow(/id/);
   });
+  it('keeps the trigger details of a triggered alert; drops them on an armed one or when malformed', () => {
+    const fired: PriceAlert = { id: 'a3', price: 50, triggered: true, direction: 'down', value: 49.8, time: 1700000000 };
+    expect(alertsFromJSON(alertsToJSON([fired]))).toEqual([fired]);
+    expect(alertsFromJSON({ format: 'chartist-lite-alerts', version: 1, alerts: [{ id: 'a', price: 1, direction: 'up', value: 2 }] })).toEqual([{ id: 'a', price: 1, triggered: false }]);
+    expect(alertsFromJSON({ format: 'chartist-lite-alerts', version: 1, alerts: [{ id: 'a', price: 1, triggered: true, direction: 'sideways', value: 'x', time: null }] })).toEqual([{ id: 'a', price: 1, triggered: true }]);
+  });
+});
+
+describe('price alerts fed by the host (watch: false)', () => {
+  function fake(closes: number[]) {
+    const subs: ((k: 'set' | 'update', row?: unknown) => void)[] = [];
+    let rows = closes.map((c, i) => ({ time: 1000 + i * 60, open: c, high: c, low: c, close: c }));
+    const series = {
+      data: () => rows, options: () => ({ priceFormat: { type: 'price', precision: 2, minMove: 0.01 }, visible: true }), paneIndex: () => 0,
+      subscribeDataChanged: (f: (k: 'set' | 'update', row?: unknown) => void) => subs.push(f), unsubscribeDataChanged() {},
+      attachPrimitive() {}, detachPrimitive() {}, priceToCoordinate: () => 0, coordinateToPrice: () => 0,
+      update(row: { time: number; close: number }) { rows = [...rows, { ...row, open: row.close, high: row.close, low: row.close }]; for (const f of subs) f('update', row); },
+    };
+    const el = { addEventListener() {}, removeEventListener() {} };
+    const chart = { addPointerHandler: () => () => {}, element: () => el, setCursor() {} };
+    return { chart, series };
+  }
+  it('fires on the price the host feeds (the true last price), never on the drawn rows (Renko bricks)', async () => {
+    const { createPriceAlerts } = await import('../plugins/extras/alerts');
+    const { chart, series } = fake([10, 12]); // brick closes
+    let last = 11.3; // the true price of the source bar
+    const fired: number[] = [];
+    const h = createPriceAlerts(chart as never, series as never, { watch: false, lastPrice: () => last, onTrigger: t => fired.push(t.value) });
+    h.add(11.5);
+    series.update({ time: 1120, close: 14 }); // a new brick past the level: not watched
+    expect(fired).toEqual([]);
+    last = 11.4; h.check(11.4, 1180);
+    expect(fired).toEqual([]);
+    h.check(11.6, 1240);
+    expect(fired).toEqual([11.6]);
+    expect(h.alerts()[0]).toEqual({ id: 'a1', price: 11.5, triggered: true, direction: 'up', value: 11.6, time: 1240 });
+    h.check(11.2, 1300); h.check(11.7, 1360);
+    expect(fired).toHaveLength(1); // a triggered alert never fires again
+  });
+  it('an import starts from the current price: a level already crossed in history does not fire; rebase does not fire', async () => {
+    const { createPriceAlerts } = await import('../plugins/extras/alerts');
+    const { chart, series } = fake([100]);
+    let last = 120;
+    const fired: string[] = [];
+    const h = createPriceAlerts(chart as never, series as never, { watch: false, lastPrice: () => last, onTrigger: t => fired.push(t.id) });
+    h.importJSON({ format: 'chartist-lite-alerts', version: 1, alerts: [{ id: 'a7', price: 110, triggered: false }, { id: 'a8', price: 90, triggered: true, direction: 'down', value: 89, time: 5 }] });
+    last = 80; h.rebase();
+    expect(fired).toEqual([]);
+    h.check(115);
+    expect(fired).toEqual(['a7']);
+    expect(h.add(130).id).toBe('a9'); // ids continue after the imported ones
+  });
+  it('maxAlerts: add throws a RangeError past it', async () => {
+    const { createPriceAlerts } = await import('../plugins/extras/alerts');
+    const { chart, series } = fake([1]);
+    const h = createPriceAlerts(chart as never, series as never, { maxAlerts: 2 });
+    h.add(1); h.add(2);
+    expect(() => h.add(3)).toThrow(RangeError);
+    h.applyOptions({ maxAlerts: 3 });
+    expect(h.add(3).price).toBe(3);
+  });
 });
 
 describe('compare maths', () => {

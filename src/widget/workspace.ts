@@ -2,7 +2,7 @@
 // anything malformed is dropped field by field (a bad saved state never breaks a page). Pure.
 
 import type { IndicatorSpec } from '../indicators/catalog';
-import type { IndicatorState, OutputStyle, SymbolInfo, WidgetSettings, WorkspaceJSON } from './types';
+import type { IndicatorState, OutputStyle, SymbolInfo, WidgetAlert, WidgetSettings, WorkspaceAlerts, WorkspaceJSON } from './types';
 import { normalizeInterval } from './intervals';
 
 export const WORKSPACE_FORMAT = 'chartist-lite-workspace';
@@ -70,6 +70,49 @@ export function normalizeIndicator(v: unknown, catalog: readonly IndicatorSpec[]
   };
 }
 
+/** Limits of stored price alerts: per symbol, in all, and how many symbols keep alerts. */
+export const ALERT_LIMITS = { perSymbol: 100, total: 1000, symbols: 200 } as const;
+
+const ALERT_ID = /^[A-Za-z0-9_-]{1,32}$/;
+
+/** One stored alert, or null when it is not one (bad id, a price that is not finite and positive). */
+export function normalizeAlert(v: unknown): WidgetAlert | null {
+  if (!isObj(v) || typeof v.id !== 'string' || !ALERT_ID.test(v.id)) return null;
+  if (typeof v.price !== 'number' || !Number.isFinite(v.price) || v.price <= 0) return null;
+  const a: WidgetAlert = { id: v.id, price: v.price, triggered: v.triggered === true };
+  if (a.triggered) {
+    if (v.direction === 'up' || v.direction === 'down') a.direction = v.direction;
+    if (typeof v.value === 'number' && Number.isFinite(v.value)) a.value = v.value;
+    if (typeof v.time === 'number' && Number.isFinite(v.time)) a.time = v.time;
+  }
+  return a;
+}
+
+/**
+ * Stored alerts (`{ version: 1, bySymbol: { [symbol]: alerts } }`) checked field by field: junk is left out, never
+ * thrown; ids unique per symbol; at most `ALERT_LIMITS` (first ones kept). Null when there is nothing to keep.
+ */
+export function normalizeAlerts(raw: unknown): WorkspaceAlerts | null {
+  if (!isObj(raw) || raw.version !== 1 || !isObj(raw.bySymbol)) return null;
+  const bySymbol: Record<string, WidgetAlert[]> = {};
+  let total = 0, symbols = 0;
+  for (const [sym, list] of Object.entries(raw.bySymbol)) {
+    if (!sym || sym.length > 64 || !Array.isArray(list) || symbols >= ALERT_LIMITS.symbols) continue;
+    const seen = new Set<string>();
+    const out: WidgetAlert[] = [];
+    for (const item of list) {
+      if (out.length >= ALERT_LIMITS.perSymbol || total >= ALERT_LIMITS.total) break;
+      const a = normalizeAlert(item);
+      if (!a || seen.has(a.id)) continue;
+      seen.add(a.id);
+      out.push(a);
+      total++;
+    }
+    if (out.length) { bySymbol[sym] = out; symbols++; }
+  }
+  return symbols ? { version: 1, bySymbol } : null;
+}
+
 /**
  * Version 1 (the first preview) kept `studies: [{ name, inputs }]`, `type` for the chart type, `dark: boolean` and a
  * plain symbol string. Bring it to version 2.
@@ -126,5 +169,6 @@ export function readWorkspace(input: unknown, catalog: readonly IndicatorSpec[],
     drawings: typeof m.drawings === 'string' ? m.drawings : null,
     ...(typeof m.drawingsOpen === 'boolean' ? { drawingsOpen: m.drawingsOpen } : {}),
     ...(typeof m.drawingsHidden === 'boolean' ? { drawingsHidden: m.drawingsHidden } : {}),
+    ...((al => (al ? { alerts: al } : {}))(normalizeAlerts(m.alerts))),
   };
 }

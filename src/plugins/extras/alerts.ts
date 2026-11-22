@@ -16,6 +16,12 @@ export interface PriceAlert {
   price: number;
   /** True once it has fired (it stays drawn, muted, until removed or moved). */
   triggered: boolean;
+  /** Once triggered: which way the price crossed it. */
+  direction?: 'up' | 'down';
+  /** Once triggered: the price that crossed it. */
+  value?: number;
+  /** Once triggered: the time of the bar that crossed it, when it is a number (UNIX seconds). */
+  time?: number;
 }
 
 export interface AlertTrigger {
@@ -36,6 +42,16 @@ export interface PriceAlertsOptions {
   removeOnTrigger: boolean;
   /** Show the "+" beside the crosshair price. Default true. */
   addButton: boolean;
+  /**
+   * Watch the series' `update` and `setData` (default true). False: the host feeds every new price with `check()` and
+   * calls `rebase()` after replacing the history (for a series whose rows are not the prices to watch, such as Renko
+   * bricks built from source bars).
+   */
+  watch: boolean;
+  /** The current price to start from (and after `rebase()`, `importJSON()` or a move). Default: the series' last value. */
+  lastPrice?: () => number | null;
+  /** At most this many alerts: `add` throws a RangeError and the "+" does nothing past it. Default no limit. */
+  maxAlerts?: number;
 }
 
 export interface PriceAlertsHandle {
@@ -48,6 +64,8 @@ export interface PriceAlertsHandle {
   clear(): void;
   /** Feed a price by hand (`update()` does this for you). Returns what fired. */
   check(value: number, time?: Time): AlertTrigger[];
+  /** Start again from the current price (`lastPrice`) without firing: after the history was replaced. */
+  rebase(): void;
   exportJSON(): string;
   /** Replace all alerts from `exportJSON()` text or its parsed object. Throws a TypeError naming the problem. */
   importJSON(json: string | object): void;
@@ -88,8 +106,19 @@ export function nearestLine(lines: readonly { id: string; y: number }[], y: numb
 
 export const ALERTS_FORMAT = 'chartist-lite-alerts';
 
+/** A copy with only the known fields (the trigger details only on a triggered alert). */
+function cleanAlert(a: PriceAlert): PriceAlert {
+  const out: PriceAlert = { id: a.id, price: a.price, triggered: a.triggered };
+  if (a.triggered) {
+    if (a.direction === 'up' || a.direction === 'down') out.direction = a.direction;
+    if (typeof a.value === 'number' && Number.isFinite(a.value)) out.value = a.value;
+    if (typeof a.time === 'number' && Number.isFinite(a.time)) out.time = a.time;
+  }
+  return out;
+}
+
 export function alertsToJSON(alerts: readonly PriceAlert[]): string {
-  return JSON.stringify({ format: ALERTS_FORMAT, version: 1, alerts: alerts.map(a => ({ id: a.id, price: a.price, triggered: a.triggered })) });
+  return JSON.stringify({ format: ALERTS_FORMAT, version: 1, alerts: alerts.map(cleanAlert) });
 }
 
 /** Parse and validate exported alerts. Throws a TypeError naming the bad field. */
@@ -110,7 +139,8 @@ export function alertsFromJSON(json: string | object): PriceAlert[] {
     if (seen.has(r.id)) throw new TypeError(`Chartist Lite: alert id "${r.id}" appears twice`);
     seen.add(r.id);
     if (typeof r.price !== 'number' || !Number.isFinite(r.price)) throw new TypeError(`Chartist Lite: alert "${r.id}" needs a finite "price"`);
-    return { id: r.id, price: r.price, triggered: r.triggered === true };
+    // Trigger details are optional (older exports have none); anything malformed in them is left out.
+    return cleanAlert({ ...(r as object), id: r.id, price: r.price, triggered: r.triggered === true } as PriceAlert);
   });
 }
 
@@ -123,7 +153,7 @@ const PLUS_R = 11;
 const LINE_HIT = 5;
 
 export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: Partial<PriceAlertsOptions> = {}): PriceAlertsHandle {
-  let opts: PriceAlertsOptions = { removeOnTrigger: false, addButton: true, ...options };
+  let opts: PriceAlertsOptions = { removeOnTrigger: false, addButton: true, watch: true, ...options };
   let list: PriceAlert[] = [];
   let counter = 0;
   let selected: string | null = null;
@@ -138,13 +168,15 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
   let plotW = 0;
 
   const lastValue = (): number | null => {
+    if (opts.lastPrice) { try { const v = opts.lastPrice(); return typeof v === 'number' && Number.isFinite(v) ? v : null; } catch { return null; } }
     const rows = series.data();
     for (let i = rows.length - 1; i >= 0; i--) { const v = numberOf(rows[i]); if (Number.isFinite(v)) return v; }
     return null;
   };
   prev = lastValue();
 
-  const changed = (): void => { host?.requestUpdate(); try { opts.onChange?.(list.map(a => ({ ...a }))); } catch { /* host callback */ } };
+  const changed = (): void => { host?.requestUpdate(); try { opts.onChange?.(list.map(cleanAlert)); } catch { /* host callback */ } };
+  const full = (): boolean => typeof opts.maxAlerts === 'number' && list.length >= opts.maxAlerts;
   const fmtSeries = (): { minMove: number; precision: number } => resolvePriceFormat(series.options().priceFormat);
   const snap = (p: number): number => { const f = fmtSeries(); return snapPrice(p, f.minMove, f.precision); };
 
@@ -157,6 +189,9 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
       const a = list.find(x => x.id === h.id);
       if (!a) continue;
       a.triggered = true;
+      a.direction = h.direction;
+      a.value = value;
+      if (typeof time === 'number' && Number.isFinite(time)) a.time = time; else delete a.time;
       out.push({ id: a.id, price: a.price, direction: h.direction, value, time });
     }
     if (out.length) {
@@ -170,7 +205,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
   // Watch the series through the core's data hook (no method wrapping, so several plugins can watch one series):
   // `update` is checked after it is applied, `setData` only re-bases the previous price.
   const onData = (kind: 'set' | 'update', row?: unknown): void => {
-    if (destroyed) return;
+    if (destroyed || !opts.watch) return;
     if (kind === 'set') { prev = lastValue(); return; }
     const v = numberOf(row as never);
     if (Number.isFinite(v)) fire(v, (row as { time: Time }).time);
@@ -208,6 +243,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
   };
   const addAlert = (price: number): PriceAlert => {
     if (typeof price !== 'number' || !Number.isFinite(price)) throw new TypeError('Chartist Lite: an alert needs a finite price');
+    if (full()) throw new RangeError(`Chartist Lite: at most ${opts.maxAlerts} price alerts`);
     const a: PriceAlert = { id: `a${++counter}`, price, triggered: false };
     list.push(a);
     changed();
@@ -229,7 +265,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
       const chip = chipAt(e);
       if (chip?.close) { removeAlert(chip.id); return true; }
       if (!chip && plusHit(e)) {
-        const p = priceAt(hover ? hover.y : e.point.y);
+        const p = full() ? null : priceAt(hover ? hover.y : e.point.y);
         if (p !== null) { const a = addAlert(p); selected = a.id; host?.requestUpdate(); }
         return true;
       }
@@ -258,6 +294,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
         if (cancelled) return;
         // Moving an alert re-arms it, and the price already beyond it must not fire it at once.
         a.triggered = false;
+        delete a.direction; delete a.value; delete a.time;
         prev = lastValue();
         changed();
       }
@@ -379,11 +416,12 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
 
   let gone = false;
   return {
-    alerts: () => list.map(a => ({ ...a })),
+    alerts: () => list.map(cleanAlert),
     add: addAlert,
     remove: removeAlert,
     clear() { if (list.length) { list = []; chips.clear(); selected = null; changed(); } },
     check: (value: number, time?: Time) => fire(value, time),
+    rebase() { prev = lastValue(); },
     exportJSON: () => alertsToJSON(list),
     importJSON(json: string | object) {
       const next = alertsFromJSON(json);

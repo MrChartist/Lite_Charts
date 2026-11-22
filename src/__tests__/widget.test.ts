@@ -3,7 +3,7 @@ import { localMidnight, parseSpan, spanFirstIndex, spanStart, spanStartDay } fro
 import { daysFromCivil } from '../core/zone';
 import { collapseBar, KEEP, useSheets } from '../widget/layout';
 import { barsForSpan, intervalForSpan, intervalFromDigits, intervalSeconds, nearestInterval, normalizeInterval, sortIntervals, toLiveInterval } from '../widget/intervals';
-import { defaultSettings, migrateWorkspace, readWorkspace, validateParams, WORKSPACE_FORMAT, WORKSPACE_VERSION } from '../widget/workspace';
+import { ALERT_LIMITS, defaultSettings, migrateWorkspace, normalizeAlerts, readWorkspace, validateParams, WORKSPACE_FORMAT, WORKSPACE_VERSION } from '../widget/workspace';
 import { formatValue, offsetLabel, toBars } from '../widget/widget';
 import { terminalOptions } from '../widget/element';
 import { demoBars } from '../widget/demo';
@@ -178,6 +178,47 @@ describe('workspace', () => {
     expect('drawingsOpen' in readWorkspace({ ...base, drawingsOpen: 'yes' }, INDICATORS, base)!).toBe(false);
     expect(readWorkspace({ ...base, drawingsHidden: true }, INDICATORS, base)!.drawingsHidden).toBe(true);
     expect('drawingsHidden' in readWorkspace({ ...base, drawingsHidden: 1 }, INDICATORS, base)!).toBe(false);
+  });
+  it('alerts: per symbol, round trip with trigger details, an older save without them loads unchanged', () => {
+    const alerts = { version: 1 as const, bySymbol: {
+      'BTC-USD': [{ id: 'a1', price: 65000, triggered: false }, { id: 'a2', price: 60000, triggered: true, direction: 'down' as const, value: 59990, time: 1763700000 }],
+      'ETH-USD': [{ id: 'a1', price: 3000, triggered: false }],
+    } };
+    const back = readWorkspace(JSON.stringify({ ...base, alerts }), INDICATORS, base)!;
+    expect(back.alerts).toEqual(alerts);
+    expect(readWorkspace(back, INDICATORS, base)).toEqual(back);
+    // An older save (no alerts field) loads as before, with no alerts.
+    const old = readWorkspace(JSON.stringify(base), INDICATORS, base)!;
+    expect('alerts' in old).toBe(false);
+    expect(old).toEqual(readWorkspace(base, INDICATORS, base));
+    // Version 1 workspaces migrate with no alerts.
+    expect('alerts' in readWorkspace({ version: 1, symbol: 'ETH-USD', studies: [] }, INDICATORS, base)!).toBe(false);
+  });
+  it('alerts: junk is left out without throwing; ids unique per symbol; limits', () => {
+    expect(normalizeAlerts(null)).toBeNull();
+    expect(normalizeAlerts({ version: 2, bySymbol: {} })).toBeNull();
+    expect(normalizeAlerts({ version: 1, bySymbol: [] })).toBeNull();
+    expect(normalizeAlerts({ version: 1, bySymbol: { X: 'nope' } })).toBeNull();
+    const n = normalizeAlerts({ version: 1, bySymbol: {
+      X: [
+        { id: 'ok', price: 10 }, { id: 'ok', price: 11 }, { id: '', price: 1 }, { id: 'bad id!', price: 1 }, { id: 'x'.repeat(40), price: 1 },
+        { id: 'n1', price: -5 }, { id: 'n2', price: 0 }, { id: 'n3', price: Infinity }, { id: 'n4', price: '12' }, null, 7,
+        { id: 't', price: 3, triggered: true, direction: 'left', value: NaN, time: 'x' },
+        { id: 'arm', price: 4, triggered: 'yes', direction: 'up', value: 4.1 },
+      ],
+      '': [{ id: 'e', price: 1 }],
+      [`${'L'.repeat(65)}`]: [{ id: 'l', price: 1 }],
+      Empty: [],
+    } })!;
+    expect(n.bySymbol).toEqual({ X: [{ id: 'ok', price: 10, triggered: false }, { id: 't', price: 3, triggered: true }, { id: 'arm', price: 4, triggered: false }] });
+    const many = (k: number, p = 'a') => Array.from({ length: k }, (_, i) => ({ id: `${p}${i}`, price: 1 + i }));
+    expect(normalizeAlerts({ version: 1, bySymbol: { X: many(150) } })!.bySymbol.X).toHaveLength(ALERT_LIMITS.perSymbol);
+    const big = normalizeAlerts({ version: 1, bySymbol: Object.fromEntries(Array.from({ length: 15 }, (_, i) => [`S${i}`, many(100)])) })!;
+    expect(Object.values(big.bySymbol).reduce((a, l) => a + l.length, 0)).toBe(ALERT_LIMITS.total);
+    // In a workspace, bad alerts never break the rest of it.
+    const ws = readWorkspace({ ...base, interval: '15m', alerts: { version: 1, bySymbol: { X: [{ id: '?', price: 'x' }] } } }, INDICATORS, base)!;
+    expect(ws.interval).toBe('15m');
+    expect('alerts' in ws).toBe(false);
   });
   it('migrates version 1 (studies, type, dark, plain symbol)', () => {
     const v1 = { version: 1, symbol: 'ETH-USD', type: 'line', dark: true, interval: '1d', studies: [{ name: 'RSI', inputs: { period: 9 } }, { name: 'gone' }] };

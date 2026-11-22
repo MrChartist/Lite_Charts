@@ -7,6 +7,8 @@
 // open state saved with the workspace, no per-frame layout, no overlap at 1280 / 1024 / 768 / 390 and 420 px tall.
 // The rail closed: drawings stay painted, selectable, draggable and deletable; T reaches the widget; undo order; the
 // eye saved; reload with drawings loads the module once, without none; a failing module; touch not blocked; cost.
+// Price alerts in the workspace: bell and axis "+", reload, one trigger saved and never repeated, per symbol, undo
+// order, removal, Renko (true last price), an older save, lazy extras, a failing extras module, no write per tick.
 // Writes docs/screenshots/widget-*.png. Needs Playwright and `npm run build`.
 const { chromium } = require('playwright');
 const path = require('node:path');
@@ -231,7 +233,10 @@ const COUNT_LISTENERS = () => {
   await page.keyboard.press('1'); await page.keyboard.press('5'); await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   check(await page.evaluate(() => window.__widget.save().interval) === '15m', 'keyboard: digits then Enter set the interval');
-  const [dl2] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }).catch(() => null), page.keyboard.press('Alt+KeyS')]);
+  // After the interval change has loaded, with the chart focused (a download event can be slow to arrive headless).
+  await ready(page);
+  await page.evaluate(() => window.__widget.chart.element().focus());
+  const [dl2] = await Promise.all([page.waitForEvent('download', { timeout: 10000 }).catch(() => null), page.keyboard.press('Alt+KeyS')]);
   check(!!dl2, 'keyboard: Alt+S downloads a screenshot');
   // Tab reaches the bars' controls.
   await page.evaluate(() => document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.top button').focus());
@@ -660,6 +665,159 @@ const COUNT_LISTENERS = () => {
     check(closedTouch === plainTouch && closedTouch !== 'none' && vr0 && vr1 && Math.abs(vr1.from - vr0.from) > 1, 'phone, rail closed: touch-action as without drawings, a swipe pans the chart', { plainTouch, closedTouch, moved: vr0 && vr1 ? +(vr1.from - vr0.from).toFixed(1) : null });
     check(selTouch === 'none', 'phone, rail closed: a tap selects the drawing and touch belongs to it', selTouch);
     await cdpT.detach();
+    await page.evaluate(() => localStorage.clear());
+    await page.context().close();
+  }
+
+  // ── price alerts saved with the workspace: bell and axis "+", reload, trigger once, symbols, remove, undo, Renko ──
+  {
+    page = await newPage(1280, 800);
+    await page.addInitScript(() => {
+      window.__noTicks = true;
+      window.__writes = 0;
+      const set = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k, v) { if (/chartist-lite-workspace/.test(k)) window.__writes++; return set.call(this, k, v); };
+    });
+    const xreq = [];
+    page.on('request', r => { if (/chartist-lite-extras/.test(r.url())) xreq.push(r.url()); });
+    await page.goto(url('widget.html', '?persist'));
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await ready(page);
+    await page.waitForTimeout(400);
+    check(xreq.length === 0, 'alerts lazy: no extras requested at start without saved alerts', xreq.length);
+    const A = () => page.evaluate(() => window.__widget.alerts());
+    const last = () => page.evaluate(() => window.__last().close);
+    // The bell adds one at the last price; the axis "+" (hover near the price axis, click) adds one where you point.
+    let changes = 0;
+    await page.exposeFunction('__changed', () => { changes++; });
+    await page.evaluate(() => window.__widget.on('change', () => window.__changed()));
+    await page.locator(`${W} .top button[aria-label="Price alert"]`).click();
+    await page.waitForFunction(() => window.__widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+    const plus = await page.evaluate(() => { const c = window.__widget.chart, r = c.element().getBoundingClientRect(); return { x: r.left + c.timeScale().width() - 24, y: r.top + 70 }; });
+    await page.mouse.move(plus.x - 40, plus.y); await page.mouse.move(plus.x, plus.y, { steps: 4 });
+    await page.waitForTimeout(100);
+    await page.mouse.click(plus.x, plus.y);
+    await page.mouse.move(2, 2);
+    await page.waitForTimeout(150);
+    const two = await A();
+    const c0 = await last();
+    check(two.length === 2 && Math.abs(two[0].price - c0) < 1e-9 && two[1].price > c0 && changes >= 2, 'alerts: the bell and the axis "+" add one each; change fires', { prices: two.map(a => a.price), last: c0, changes });
+    // No storage write per tick: 20 ticks that cross nothing.
+    await page.waitForTimeout(500);
+    const w0 = await page.evaluate(() => window.__writes);
+    for (let i = 1; i <= 20; i++) await page.evaluate(p => window.__push(p), c0 * (1 + i * 0.00005));
+    await page.waitForTimeout(500);
+    check((await page.evaluate(() => window.__writes)) === w0, 'alerts: ticks that cross nothing write nothing to storage', { before: w0, after: await page.evaluate(() => window.__writes) });
+    // Reload: both back at the same prices; the extras requested once to show them.
+    xreq.length = 0;
+    await page.reload();
+    await ready(page);
+    await page.waitForFunction(() => window.__widget.alerts().length === 2, null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const back = await A();
+    check(JSON.stringify(back.map(a => a.price)) === JSON.stringify(two.map(a => a.price)) && back.every(a => !a.triggered) && xreq.length === 1, 'alerts: reload with persist brings both back; extras requested once for them', { back: back.map(a => a.price), requests: xreq.length });
+    // Trigger the upper one with a data update: one 'alert' event, the state saved.
+    let fired = [];
+    await page.exposeFunction('__alert', d => { fired.push(d); });
+    await page.evaluate(() => window.__widget.on('alert', d => window.__alert(d)));
+    const up = back[1];
+    await page.evaluate(p => window.__push(p), up.price * 1.001);
+    await page.evaluate(p => window.__push(p), up.price * 1.002);
+    await page.waitForTimeout(700);
+    const afterFire = await A();
+    const savedFire = await page.evaluate(() => JSON.parse(localStorage.getItem('chartist-lite-workspace:widget-demo')).alerts.bySymbol.NOVA);
+    check(fired.length === 1 && fired[0].id === up.id && fired[0].direction === 'up' && fired[0].symbol === 'NOVA' && afterFire[1].triggered && savedFire[1].triggered && savedFire[1].direction === 'up' && typeof savedFire[1].value === 'number', 'alerts: a crossing fires the alert event once; triggered state saved', { fired: fired.length, saved: savedFire[1] });
+    // Reload: shown as triggered and never fires again.
+    await page.reload();
+    await ready(page);
+    await page.waitForFunction(() => window.__widget.alerts().length === 2, null, { timeout: 8000 }).catch(() => {});
+    fired = [];
+    await page.evaluate(() => window.__widget.on('alert', d => window.__alert(d)));
+    const reTrig = await A();
+    for (const f of [0.99, 1.01, 0.99, 1.01]) await page.evaluate(p => window.__push(p), up.price * f);
+    await page.waitForTimeout(200);
+    check(reTrig[1].triggered && reTrig[1].direction === 'up' && fired.filter(f => f.id === up.id).length === 0, 'alerts: after reload the triggered alert stays triggered and does not fire again', { state: reTrig[1], fired: fired.length });
+    // Switch symbol and back: the other symbol has none; NOVA's come back; both stay stored.
+    await page.evaluate(() => window.__widget.setSymbol('ORBT'));
+    await ready(page);
+    const orbt = await A();
+    const storedWhileAway = await page.evaluate(() => Object.keys(window.__widget.save().alerts.bySymbol));
+    await page.evaluate(() => window.__widget.addAlert(1234.5));
+    await page.evaluate(() => window.__widget.setSymbol('NOVA'));
+    await ready(page);
+    await page.waitForTimeout(200);
+    const nova = await A();
+    check(orbt.length === 0 && storedWhileAway.join() === 'NOVA' && nova.length === 2 && (await page.evaluate(() => window.__widget.save().alerts.bySymbol.ORBT.length)) === 1, 'alerts: per symbol; switching away and back restores them, the others stay stored', { orbt: orbt.length, nova: nova.length });
+    // Undo and redo, in order with other changes: add an indicator, add an alert, undo twice, redo twice.
+    const nInd = await page.evaluate(() => window.__widget.indicators().length);
+    await page.evaluate(() => window.__widget.addIndicator('sma'));
+    await page.evaluate(() => window.__widget.addAlert(window.__last().close * 0.9));
+    await page.evaluate(() => window.__widget.chart.element().focus());
+    await page.keyboard.press('Control+z'); await page.waitForTimeout(100);
+    const u1 = { a: (await A()).length, i: await page.evaluate(() => window.__widget.indicators().length) };
+    await page.keyboard.press('Control+z'); await page.waitForTimeout(100);
+    const u2 = { a: (await A()).length, i: await page.evaluate(() => window.__widget.indicators().length) };
+    await page.keyboard.press('Control+Shift+z'); await page.waitForTimeout(100);
+    await page.keyboard.press('Control+Shift+z'); await page.waitForTimeout(100);
+    const r2 = { a: (await A()).length, i: await page.evaluate(() => window.__widget.indicators().length), trig: (await A())[1].triggered };
+    check(u1.a === 2 && u1.i === nInd + 1 && u2.a === 2 && u2.i === nInd && r2.a === 3 && r2.i === nInd + 1 && r2.trig, 'alerts: undo and redo cover adding an alert, in order with an indicator; a trigger is not undone', { u1, u2, r2 });
+    // Remove one, reload: gone.
+    await page.evaluate(id => window.__widget.removeAlert(id), up.id);
+    await page.waitForTimeout(600);
+    await page.reload();
+    await ready(page);
+    await page.waitForFunction(() => window.__widget.alerts().length > 0, null, { timeout: 8000 }).catch(() => {});
+    const afterRemove = await A();
+    check(afterRemove.length === 2 && !afterRemove.some(a => a.id === up.id), 'alerts: a removed alert stays removed after reload', afterRemove.map(a => a.id));
+    // Renko: the alerts stay through the chart type switch; triggering uses the true last price, not a brick edge.
+    const before = (await A()).length;
+    await page.locator(`${W} button[aria-label^="Chart type"]`).click();
+    await page.locator(`${W} .menu [role="menuitemradio"]`, { hasText: /^Renko/ }).click();
+    await page.waitForTimeout(400);
+    const isRenko = await page.evaluate(() => window.__widget.save().chartType);
+    const c1 = await last();
+    const lvl = +(c1 * 1.0021).toFixed(2);
+    await page.evaluate(p => window.__widget.addAlert(p), lvl);
+    fired = [];
+    await page.evaluate(() => window.__widget.on('alert', d => window.__alert(d)));
+    const hit = +(c1 * 1.0026).toFixed(4);
+    await page.evaluate(p => window.__push(p), hit);
+    await page.waitForTimeout(200);
+    check(/renko/i.test(isRenko) && (await A()).length === before + 1 && fired.length === 1 && fired[0].value === hit && fired[0].price === lvl, 'alerts on Renko: kept through the switch; fired with the true last price', { type: isRenko, fired: fired.map(f => [f.price, f.value]), hit });
+    await page.locator(`${W} button[aria-label^="Chart type"]`).click();
+    await page.locator(`${W} .menu [role="menuitemradio"]`, { hasText: /^Candles$/ }).click();
+    await page.waitForTimeout(300);
+    check((await A()).length === before + 1, 'alerts: switching back to candles keeps them');
+    // load(json) of an older save (no alerts field): loads, with no alerts.
+    const older = await page.evaluate(() => { const s = window.__widget.save(); delete s.alerts; delete s.drawingsOpen; delete s.drawingsHidden; return JSON.stringify(s); });
+    const loadErr = await page.evaluate(async j => { try { await window.__widget.load(j); return null; } catch (e) { return String(e); } }, older);
+    check(loadErr === null && (await A()).length === 0, 'alerts: load(json) of an older save without alerts works (no alerts)', loadErr);
+    await page.evaluate(() => localStorage.clear());
+    await page.context().close();
+  }
+
+  // ── alerts saved, extras failing to load: a quiet tip, the chart works, the alerts stay in the workspace ──
+  {
+    page = await newPage(1280, 800);
+    await page.addInitScript(() => { window.__noTicks = true; });
+    await page.goto(url('widget.html', '?persist'));
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await ready(page);
+    await page.evaluate(() => window.__widget.addAlert(window.__last().close * 1.05));
+    await page.waitForTimeout(600);
+    await page.route(/chartist-lite-extras\.iife\.min\.js/, r => r.abort());
+    const errs0 = errors.length;
+    await page.reload();
+    await ready(page);
+    await page.waitForTimeout(500);
+    const tip = await page.evaluate(() => document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.tip')?.textContent ?? null);
+    await page.evaluate(() => window.__widget.setTheme('dark'));
+    await page.waitForTimeout(600);
+    const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('chartist-lite-workspace:widget-demo')).alerts?.bySymbol?.NOVA?.length ?? 0);
+    check(tip === 'Price alerts could not be loaded' && kept === 1 && (await page.evaluate(() => window.__widget.alerts().length)) === 1, 'alerts: extras fail to load: a quiet tip, the stored alerts are kept on the next save', { tip, kept });
+    errors.length = errs0;
     await page.evaluate(() => localStorage.clear());
     await page.context().close();
   }
