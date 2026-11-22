@@ -1,6 +1,7 @@
 // Catalog entries: trend studies (moving averages, VWAP family, trend followers, channels around price).
 import { define, flt, int, period, select, source, line, upper, lower, dots, ZONES } from './catalog-kit';
 import type { IndicatorSpec } from './catalog-kit';
+import type { IndicatorPoint, IndicatorRow, SourceOptions } from './shared';
 import { MA_TYPES } from './series';
 import { sma } from './sma';
 import { ema } from './ema';
@@ -24,7 +25,7 @@ import { linRegChannel } from './lin-reg-channel';
 import { envelope } from './envelope';
 
 /** A plain moving average of one period over a price source. */
-const average = (id: string, name: string, shortName: string, def: number, f: (rows: Parameters<typeof sma>[0], p: number, o: { source: never }) => ReturnType<typeof sma>): IndicatorSpec =>
+const average = (id: string, name: string, shortName: string, def: number, f: (rows: readonly IndicatorRow[], p: number, o: SourceOptions) => IndicatorPoint[]): IndicatorSpec =>
   define({
     id, name, shortName, category: 'trend', overlay: true,
     inputs: [period(def), source()], outputs: [line('value', shortName)],

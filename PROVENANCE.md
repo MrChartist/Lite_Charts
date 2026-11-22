@@ -82,3 +82,23 @@ Where same-named things behave differently is listed for users in `docs/guide/co
 API naming similarity: owner / counsel decision, Needs verification. Whether reusing these public names (and the
 bar-spacing model) is acceptable, and how the docs should refer to Lightweight Charts and TradingView, is for the owner
 and counsel to confirm before the package is published. Nothing has been renamed.
+
+## Transforms entry (`src/transforms/`) and chart-type series
+
+Written for this package from the host's own chart-type maths, by the same owner; the numeric behaviour is kept
+identical (exact equality on 5 deterministic series: `tests/chartist-lite/transforms.parity.test.ts` in the host
+repository, which imports both). No third-party code, nothing taken from another charting library.
+
+| File in this package | Source in the host | What changed |
+|---|---|---|
+| `src/transforms/renko.ts` | `packages/chartist-core/src/kernel/indicators/classic.ts` (`calcRenko`: grid anchored at the floored first close with the 1e-9 epsilon, the floor-is-zero start brick, two-brick reversal) and `src/domains/charting/services/renkoChart.ts` (`autoRenkoBrickSize`: ATR(14) at the last completed bar to two significant figures, else `autoBoxSize`) | Never throws (the host's 'precision' and 'limit' errors stop the transform at 100000 rows); price source option; `{ atr }` and `{ percent }` brick sizes; volume credited once (to the first brick a bar makes) instead of repeated on every brick; incremental form with mark / rollback. |
+| `src/transforms/line-break.ts` | `chartTypeReversalRenderers.ts` (`computeLineBreak`: continuation opens at the last close, reversal at the last open) | Window scan without per-bar allocation; bad rows skipped; volume credited once; incremental form. |
+| `src/transforms/range-bars.ts` | `chartTypeReversalRenderers.ts` (`computeRangeBars`) | Row limit instead of unbounded loops; `{ atr }` / `{ percent }` range; incremental form. Volume rule unchanged (first bar of a batch takes it). |
+| `src/transforms/kagi.ts` | `chartTypeReversalRenderers.ts` (`computeKagi`, `kagiYangYin`) | The reversal is a percentage, a price amount, `{ atr }`; thickness (`startYang`, `endYang`, `flipAt`) is written on each row so a series can draw any slice; volume credited to the segment the bar belongs to. |
+| `src/transforms/point-figure.ts` | `chartTypeReversalRenderers.ts` (`computePointFigure`, `pointFigureBoxCount` rule: marks = round((high - low) / box) + 1) | Box as price, `{ atr }`, `{ percent }`; `up` flag on the row; the bar that reverses a column belongs to the new column. |
+| `src/transforms/shared.ts` | `chartTypeReversalRenderers.ts` (`autoBoxSize`: about 60 boxes across the range, 1-2-5) | Reads rows with a price source; ATR from the package's own `indicators/atr.ts`. |
+| `src/transforms/index.ts` (`heikinAshi`) | Re-export of `src/indicators/heikin-ashi.ts` (see above) | None. |
+| `src/series/column.ts`, `high-low.ts`, `hlc-area.ts`, `step-line.ts`, `hollow-candlestick.ts` | Row shapes and meaning from `chartTypeTransforms.ts` (`toColumnSeries`, `toHighLowSeries`, `toHLCAreaSeries`, `toStepLineSeries`, `toHollowCandleSeries` colour/hollow rule) | New drawing code on the package's series contract; step line holds a value (no duplicated times); hollow colour follows the change from the previous close. |
+| `src/series/kagi.ts` | `chartTypeReversalRenderers.ts` (`drawKagi`: yang 3 px / yin 1.25 px, colour with thickness, the horizontal turn carries the thickness at the turn) | New drawing code: two continuous strokes on whole device pixels, dense fold. |
+| `src/series/point-figure.ts` | `chartTypeReversalRenderers.ts` (`drawPointFigure`: X for up, O for down, one mark per box level) | New drawing code with three looks (glyphs, bars, fold). |
+| `src/transforms/chart-types.ts`, `incremental.ts`, `time-spread.ts` | New code for this package | |

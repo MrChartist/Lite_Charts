@@ -6,7 +6,7 @@
 // momentum line. `on` has a value of 0 on bars where the squeeze is ON (both bands inside the channel: volatility is
 // compressed), `off` on bars where it is released (both outside); a bar in neither state has neither. `momentum` is the end of
 // the least-squares line through the last `kcPeriod` values of close - ((highest high + lowest low) / 2 + SMA(close)) / 2.
-// First value on bar `max(bbPeriod, kcPeriod) - 1`. Causal. Needs candlestick rows. Draw `momentum` as a histogram and the
+// The on / off states start on bar `max(bbPeriod, kcPeriod) - 1`, the momentum on bar `2 * kcPeriod - 2`. Causal. Needs candlestick rows. Draw `momentum` as a histogram and the
 // states as dots on the zero line.
 
 import { rawCol } from './cols';

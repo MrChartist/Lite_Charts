@@ -48,7 +48,7 @@ interface Layer { el: HTMLElement; scrim: HTMLElement | null; opts: LayerOptions
 /** The open menus and dialogs of one widget, topmost last. */
 export class Layers {
   private stack: Layer[] = [];
-  constructor(private host: HTMLElement, private root: ShadowRoot | HTMLElement) {}
+  constructor(private host: HTMLElement, private root: ShadowRoot) {}
 
   get open(): boolean { return this.stack.length > 0; }
   top(): HTMLElement | null { return this.stack.length ? this.stack[this.stack.length - 1].el : null; }
@@ -102,7 +102,7 @@ export class Layers {
     const items = Array.from(l.el.querySelectorAll<HTMLElement>(l.opts.kind === 'menu' ? '[role^="menuitem"]:not([aria-disabled="true"])' : FOCUSABLE))
       .filter(e => e.offsetParent !== null || e === this.root.activeElement);
     if (!items.length) return;
-    const active = (this.root as ShadowRoot).activeElement as HTMLElement | null;
+    const active = this.root.activeElement as HTMLElement | null;
     const i = active ? items.indexOf(active) : -1;
     if (ev.key === 'Tab') {
       if (l.opts.kind === 'menu') { l.close(false); return; }

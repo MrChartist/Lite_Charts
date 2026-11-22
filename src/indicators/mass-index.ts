@@ -3,7 +3,7 @@
 //   massIndex(rows, { emaPeriod = 9, sumPeriod = 25 }?) -> IndicatorPoint[]
 //
 // The sum over `sumPeriod` bars of EMA(high - low, emaPeriod) / EMA(EMA(high - low, emaPeriod), emaPeriod): the widening of
-// the bar range, read for "reversal bulges" (above 27, then below 26.5). First value on bar `2 * emaPeriod + sumPeriod - 4`.
+// the bar range, read for "reversal bulges" (above 27, then below 26.5). First value on bar `2 * emaPeriod + sumPeriod - 3`.
 // Needs candlestick rows. Guides: 26.5 and 27.
 
 import { hl } from './cols';

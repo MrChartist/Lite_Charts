@@ -77,12 +77,7 @@ export function accentFor(colors: Readonly<ThemeColors>): string {
   return isDarkColor(colors.background) ? '#FFB340' : '#A84A00';
 }
 
-/** A palette of distinct series colours per theme, none purple, each readable against the background. */
-export function seriesPalette(colors: Readonly<ThemeColors>): string[] {
-  return isDarkColor(colors.background)
-    ? ['#FFB340', '#40C8E0', '#FF6482', '#63E6BE', '#E5E54C', '#FF8A5C']
-    : ['#B25000', '#007A99', '#C41E3A', '#00785A', '#8A7A00', '#C24100'];
-}
+export { seriesPalette } from './series/palette';
 
 // ── chart geometry and theme through a hidden primitive ──
 
@@ -310,10 +305,10 @@ export function allSeries(chart: ChartApi): AnySeries[] {
 }
 
 /** Make a handle with `remove` and the `destroy` alias. */
-export function removable<T extends object>(h: T, remove: () => void): T & Removable {
+export function removable<T extends Removable>(h: Omit<T, keyof Removable>, remove: () => void): T {
   let done = false;
   const once = (): void => { if (done) return; done = true; remove(); };
-  return Object.assign(h, { remove: once, destroy: once });
+  return Object.assign(h, { remove: once, destroy: once }) as unknown as T;
 }
 
 /** Per-frame throttle: `fn` runs at most once per animation frame, at the end. Returns `{ run, cancel }`. */

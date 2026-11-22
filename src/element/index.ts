@@ -364,7 +364,14 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
         this.liveHandle = liveConnect(this.mainSeries, {
           symbol, interval: this.getAttribute('interval') || '1m', provider: this.getAttribute('provider') || 'coinbase',
           volumeSeries, chart,
-          onStatus: (s: string) => { if (token === this.token) this.showStatus(s); },
+          onStatus: (s: string, info?: { pair?: string; providerLabel?: string | null; quote?: string | null }) => {
+            if (token !== this.token) return;
+            // The title follows the pair really streamed (a symbol change, a fallback to a USDT market); a new start
+            // (the live handle has cleared the old bars) shows the loading state until history arrives.
+            if (info?.pair) try { this.mainSeries?.applyOptions({ title: info.pair } as never); } catch { /* ignore */ }
+            if (s === 'connecting') this.wrap.classList.remove('ready');
+            this.showStatus(s, [info?.providerLabel, info?.quote].filter(Boolean).join(' · '));
+          },
           onError: (e: Error) => { if (token === this.token) this.dispatchEvent(new CustomEvent<ChartistErrorDetail>('chartist-error', { bubbles: true, composed: true, detail: { message: e.message, error: e } })); },
           onBars: (kind: string) => {
             if (token !== this.token || kind !== 'history') return;
@@ -376,7 +383,7 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       } catch (e) { this.fail(e); }
     }
 
-    private showStatus(s: string): void {
+    private showStatus(s: string, detail = ''): void {
       const el = this.statusEl;
       const chart = this.chartApi;
       if (!el || !chart) return;
@@ -388,7 +395,7 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       d.className = 'dot';
       d.style.setProperty('background', dot);
       const t = this.ownerDocument.createElement('span');
-      t.textContent = LIVE_TEXT[s] ?? s;
+      t.textContent = (LIVE_TEXT[s] ?? s) + (detail ? ` · ${detail}` : '');
       el.append(d, t);
       el.style.setProperty('color', ink);
       el.style.setProperty('background', c ? 'rgba(20,20,20,0.86)' : 'rgba(255,255,255,0.86)');
