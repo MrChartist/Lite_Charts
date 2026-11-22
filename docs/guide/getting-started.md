@@ -15,11 +15,12 @@ Chartist Lite draws a financial chart on one canvas. This page gets a chart on s
 ## Install
 
 > [!WARNING]
-> Version 0.1.0 is **not yet published to npm**, so `npm install @mrchartist/chartist-lite` does not work today. Build it from source and host the files yourself.
+> Not on npm yet. Build it from the GitHub repository and host the files yourself, or add the built clone to a bundler project with `npm i lite-charts@file:../Lite_Charts`, so the `lite-charts` imports below resolve.
 
 ```bash
-cd packages/chartist-lite
-npm install
+git clone https://github.com/MrChartist/Lite_Charts
+cd Lite_Charts
+npm ci
 npm run build
 ```
 
@@ -32,7 +33,7 @@ npm run build
 | `chartist-lite-indicators.iife.min.js` | The global `ChartistLiteIndicators` |
 | `index.js`, `indicators.js`, `element.js`, `react.js` | ES modules for each entry |
 
-Copy the file you need next to your page or serve it from your own site. Once the package is published, the same entries are `@mrchartist/chartist-lite`, `@mrchartist/chartist-lite/indicators`, `@mrchartist/chartist-lite/element` and `@mrchartist/chartist-lite/react`. The package has no runtime dependencies; React is an optional peer dependency, used only by the `react` entry.
+Copy the file you need next to your page or serve it from your own site. Once the package is published, the same entries are `lite-charts`, `lite-charts/indicators`, `lite-charts/element` and `lite-charts/react`. The package has no runtime dependencies; React is an optional peer dependency, used only by the `react` entry.
 
 ## A script tag and one element
 
@@ -52,8 +53,8 @@ Loading the script registers the tag `chartist-chart`. The data comes from a `sr
 With a bundler or `<script type="module">`, import what you need and create the chart yourself. This example runs on this page:
 
 ```js live height=420
-import { createChart, CandlestickSeries, LineSeries } from '@mrchartist/chartist-lite';
-import { sma } from '@mrchartist/chartist-lite/indicators';
+import { createChart, CandlestickSeries, LineSeries } from 'lite-charts';
+import { sma } from 'lite-charts/indicators';
 
 const chart = createChart('chart', { theme: 'auto', ariaLabel: 'Daily price' });
 const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });
@@ -91,7 +92,7 @@ React is an optional peer dependency (18 or later). The wrapper does not import 
 
 ```jsx
 import * as React from 'react';
-import { createChartistReact } from '@mrchartist/chartist-lite/react';
+import { createChartistReact } from 'lite-charts/react';
 
 export const { ChartistChart, useChartist } = createChartistReact(React);
 

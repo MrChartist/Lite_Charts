@@ -86,6 +86,7 @@ The block above is not a picture: it is the markup itself, running on this page.
 | `src` | URL of JSON or CSV | none |
 | `loading` | `eager` creates the chart at once; otherwise it is created when it scrolls near the viewport | lazy |
 | `aria-label` | the chart's accessible name | "Price chart" |
+| `live`, `symbol`, `interval`, `provider` | live prices from a public exchange feed, with the element-live build (`chartist-lite.element-live.iife.min.js`); see [Live data](live-data.md#the-element-with-no-code) | off |
 
 Changing an attribute on a live element updates the chart in place; changing `src` loads again. The element is `display: block` with the width of its container; a CSS rule on the page (`chartist-chart { height: 480px }`) wins over the `height` attribute.
 
@@ -133,7 +134,7 @@ This content stays in the page source and shows for visitors without JavaScript 
 
 ```html
 <script type="module">
-  import { defineChartistElement } from '@mrchartist/chartist-lite/element';
+  import { defineChartistElement } from 'lite-charts/element';
   defineChartistElement();
 </script>
 
@@ -148,7 +149,7 @@ React is an optional peer dependency (18 or later). The wrapper does not import 
 
 ```jsx
 import * as React from 'react';
-import { createChartistReact } from '@mrchartist/chartist-lite/react';
+import { createChartistReact } from 'lite-charts/react';
 
 export const { ChartistChart, useChartist } = createChartistReact(React);
 ```

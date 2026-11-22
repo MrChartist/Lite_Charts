@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chartist Lite: widget</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { background: #E9E9EE; display: flex; padding: 16px; box-sizing: border-box; }
+  body.dark { background: #050506; }
+  #w { flex: 1; min-width: 0; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,0.08), 0 18px 50px rgba(0,0,0,0.10); }
+  body.dark #w { box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
+  @media (max-width: 600px) { body { padding: 0; } #w { border-radius: 0; box-shadow: none; } }
+</style>
+</head>
+<body>
+<div id="w"></div>
+<!-- The widget build carries the core, the indicator catalog and the chart types. Drawings load on first use. -->
+<script src="../dist/chartist-lite-widget.iife.min.js"></script>
+<script>
+  const W = ChartistLiteWidget;
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+  if (theme === 'dark') document.body.classList.add('dark');
+  const SYMBOLS = [
+    { symbol: 'NOVA', description: 'Nova Industries (demo)', exchange: 'Demo' },
+    { symbol: 'ORBT', description: 'Orbit Systems (demo)', exchange: 'Demo' },
+    { symbol: 'LUMA', description: 'Luma Energy (demo)', exchange: 'Demo' },
+    { symbol: 'BTC-USD', description: 'Bitcoin (demo data)', exchange: 'Demo' },
+    { symbol: 'ETH-USD', description: 'Ethereum (demo data)', exchange: 'Demo' },
+  ];
+  // A feed of our own: demo bars per symbol and interval, a tick every second.
+  const lastBar = new Map();
+  const feed = {
+    intervals: ['1m', '5m', '15m', '1h', '4h', '1D', '1W'],
+    async getBars({ symbol, interval, limit }) {
+      await new Promise(r => setTimeout(r, 120));
+      const bars = W.demoBars(symbol, interval, Math.min(limit || 600, 3000));
+      lastBar.set(symbol + interval, { ...bars[bars.length - 1] });
+      return bars;
+    },
+    subscribeBars({ symbol, interval }, onBar) {
+      const id = setInterval(() => {
+        const last = lastBar.get(symbol + interval);
+        if (!last) return;
+        const c = +(last.close * (1 + (Math.random() - 0.5) * 0.0012)).toFixed(last.close < 10 ? 4 : 2);
+        Object.assign(last, { close: c, high: Math.max(last.high, c), low: Math.min(last.low, c) });
+        onBar({ ...last });
+      }, 1000);
+      return () => clearInterval(id);
+    },
+    async searchSymbols(q) {
+      const s = q.trim().toLowerCase();
+      return SYMBOLS.filter(x => !s || x.symbol.toLowerCase().includes(s) || x.description.toLowerCase().includes(s));
+    },
+  };
+  const loadScript = (src, global) => new Promise((ok, fail) => {
+    if (window[global]) return ok(window[global]);
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => ok(window[global]); s.onerror = fail;
+    document.head.appendChild(s);
+  });
+  const widget = W.createWidget('w', {
+    symbol: SYMBOLS[0], interval: '1D', theme, feed,
+    indicators: params.has('bare') ? [] : ['ema', { id: 'rsi' }],
+    persist: params.has('persist') ? { key: 'widget-demo' } : undefined,
+    load: {
+      drawings: () => loadScript('../dist/chartist-lite-drawings.iife.min.js', 'ChartistLiteDrawings'),
+      extras: () => loadScript('../dist/chartist-lite-extras.iife.min.js', 'ChartistLiteExtras').catch(() => null),
+      transforms: () => loadScript('../dist/chartist-lite-transforms.iife.min.js', 'ChartistLiteTransforms').catch(() => null),
+    },
+  });
+  widget.on('theme', t => document.body.classList.toggle('dark', t === 'dark'));
+  window.__widget = widget;
+</script>
+</body>
+</html>

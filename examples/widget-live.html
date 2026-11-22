@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chartist Lite: live crypto widget</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { background: #E9E9EE; display: flex; padding: 16px; box-sizing: border-box; }
+  body.dark { background: #050506; }
+  #w { flex: 1; min-width: 0; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,0.08), 0 18px 50px rgba(0,0,0,0.10); }
+  body.dark #w { box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
+  @media (max-width: 600px) { body { padding: 0; } #w { border-radius: 0; box-shadow: none; } }
+</style>
+</head>
+<body>
+<div id="w"></div>
+<!-- One script: the widget with live data and drawing tools bundled (also registers <chartist-terminal>). -->
+<script src="../dist/chartist-lite.terminal.iife.min.js"></script>
+<script>
+  const T = ChartistLiteTerminal;
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme') === 'light' ? 'light' : 'dark';
+  if (theme === 'dark') document.body.classList.add('dark');
+  // ?fake: a provider of our own that invents trades (no network), with the same interface as the built-in ones.
+  const fake = {
+    id: 'demo', label: 'Demo', intervals: ['1m', '5m', '15m', '1h', '6h', '1d'], canPageBack: false,
+    async history(symbol, interval, { limit }) { return T.demoBars(symbol, interval === '1d' ? '1D' : interval, limit); },
+    subscribe(symbol, interval, on) {
+      on.open();
+      const step = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '6h': 21600, '1d': 86400 }[interval];
+      let last = T.demoBars(symbol, interval === '1d' ? '1D' : interval, 1)[0].close;
+      const id = setInterval(() => { last *= 1 + (Math.random() - 0.5) * 0.001; on.tick({ kind: 'trade', time: Math.floor(Date.now() / 1000), price: +last.toFixed(2), size: Math.random() }); }, 400);
+      return () => clearInterval(id);
+    },
+  };
+  const widget = T.createWidget('w', {
+    live: params.has('fake') ? { provider: fake } : true,
+    symbol: params.get('symbol') || 'BTC-USD', interval: '1h', theme,
+    indicators: ['ema', 'rsi'], drawings: params.has('draw'), timeZone: 'local',
+  });
+  widget.on('theme', t => document.body.classList.toggle('dark', t === 'dark'));
+  window.__widget = widget;
+</script>
+</body>
+</html>

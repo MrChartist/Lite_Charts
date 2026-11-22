@@ -21,8 +21,10 @@ const FRAMES = 200;
 const WARM = 20;
 const SIZES = quick ? [1000, 100000] : [1000, 10000, 100000];
 const DPRS = quick ? [1] : [1, 2];
-const CHARTS = ['plain', 'indicators', 'drawings', 'live'];
-const SCENARIOS = { plain: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], indicators: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], drawings: ['crosshair', 'pan', 'zoom', 'tick', 'fit', 'drag'], live: ['crosshair', 'trades'] };
+const CHARTS = ['plain', 'indicators', 'drawings', 'live', 'widget'];
+const SCENARIOS = { plain: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], indicators: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], drawings: ['crosshair', 'pan', 'zoom', 'tick', 'fit', 'drag'], live: ['crosshair', 'trades'], widget: ['crosshair', 'pan', 'zoom', 'tick'] };
+/** The widget is measured at 10k bars (its scenario: three indicators, pan and crosshair). */
+const SIZES_FOR = { widget: [10000] };
 
 const stat = xs => {
   const s = [...xs].sort((a, b) => a - b);
@@ -48,9 +50,9 @@ const stat = xs => {
     page.on('console', m => { if (m.type() === 'error' && !/ERR_FILE_NOT_FOUND/.test(m.text())) errors.push(m.text()); });
     await page.goto('file://' + path.join(root, 'scripts', 'bench-page.html'));
     for (const chart of CHARTS) {
-      for (const bars of SIZES) {
+      for (const bars of SIZES_FOR[chart] ?? SIZES) {
         const ok = await page.evaluate(([k, n]) => window.__setup(k, n), [chart, bars]);
-        if (!ok) { results.push({ chart, bars, dpr, skipped: 'drawings entry not built' }); continue; }
+        if (!ok) { results.push({ chart, bars, dpr, skipped: `${chart} entry not built` }); continue; }
         for (const scenario of SCENARIOS[chart]) {
           await page.evaluate(() => window.__raster());
           const costs = await page.evaluate(([s, f, w]) => window.__run(s, f, w), [scenario, FRAMES, WARM]);
@@ -125,7 +127,8 @@ ${doc.summary.over144} over 6.94 ms.
 - **Not measured:** a real 120 Hz or 144 Hz panel (headless Chromium runs \`requestAnimationFrame\` at about 60 Hz), the
   GPU (headless has none), canvas rasterisation and compositing (they run after the frame's script; on real hardware on
   the GPU), and input latency. Treat these numbers as budgets for our own work per frame, measured on one machine.
-- **Charts:** plain (candles), indicators (candles with SMA 20 and two Bollinger lines, an RSI pane and a MACD pane with
+- **Charts:** widget (the whole \`createWidget\` workspace at 10k bars: top bar, range bar, legend rows, volume, SMA and
+  Bollinger with its band fill on price, RSI in a pane), plain (candles), indicators (candles with SMA 20 and two Bollinger lines, an RSI pane and a MACD pane with
   histogram and two lines: three indicators, two extra panes), drawings (candles with 20 drawings of every tool).
 - **Gestures:** crosshair (pointer moves), pan (a held drag), wheel zoom (ctrl + wheel, in and out), live tick
   (\`update()\` of the last bar at the opening zoom), live tick with the whole series in view (\`fitContent()\` first, the

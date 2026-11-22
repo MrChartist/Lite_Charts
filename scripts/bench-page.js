@@ -23,9 +23,24 @@
     return out;
   }
 
+  let widget = null;
   window.__setup = async (kind, n) => {
+    if (widget) { widget.destroy(); widget = null; chart = null; }
     if (chart) { drawings && drawings.destroy(); live && live.disconnect(); chart.remove(); drawings = null; live = null; }
     bars = makeBars(n);
+    if (kind === 'widget') {
+      // The whole widget (top bar, range bar, legend rows) with three indicators: SMA and Bollinger on price, RSI in a pane.
+      const Wd = window.ChartistLiteWidget;
+      if (!Wd) return false;
+      widget = Wd.createWidget('c', { data: bars.map(b => ({ ...b, volume: 100 })), symbol: 'BENCH', indicators: ['sma', 'bollinger', 'rsi'], timeZone: 'America/New_York' });
+      await new Promise(r => setTimeout(r, 0));
+      window.__flush();
+      chart = widget.chart;
+      candles = chart.panes()[0].getSeries().find(x => x.seriesType() === 'candlestick');
+      chart.paint();
+      window.__flush();
+      return candles && candles.data().length === n;
+    }
     chart = L.createChart('c', { timeScale: { timeZone: 'America/New_York' } });
     candles = chart.addSeries(L.CandlestickSeries, { title: 'BENCH' });
     candles.setData(bars);
@@ -88,7 +103,7 @@
     root().dispatchEvent(type === 'wheel' ? new WheelEvent('wheel', init) : new PointerEvent(type, init));
   };
 
-  const canvases = () => [...document.querySelectorAll('#c canvas')];
+  const canvases = () => (chart ? [...chart.element().querySelectorAll('canvas')] : []);
   let rasterMs = [];
 
   function frame(step) {
@@ -129,10 +144,12 @@
       window.__tradesFrom = candles.data().length;
       // 20 trades a frame (a busy BTC burst; Coinbase averages a few a second), a new minute every 60 frames.
       let id = 1;
+      // Prices near the last close: the live entry drops a trade far from the market (a bad print) as a guard.
+      const base = bars[bars.length - 1].close;
       step = () => {
         for (let j = 0; j < 20; j++) {
           liveClock += 0.05;
-          const price = 100 + Math.sin(liveClock) * 2;
+          const price = base * (1 + Math.sin(liveClock) * 0.002);
           liveTick(JSON.stringify({ type: 'match', trade_id: id++, price: String(price), size: '0.01', time: new Date(liveClock * 1000).toISOString() }));
         }
       };

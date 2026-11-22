@@ -103,7 +103,8 @@ export interface SeriesDefinition<R extends RowBase = RowBase, O extends object 
   low(row: R, options?: Readonly<O & SeriesCommonOptions>): number;
   high(row: R, options?: Readonly<O & SeriesCommonOptions>): number;
   /** Colour of the last-value tag and price line for this row. */
-  lastValueColor(row: R, options: Readonly<O & SeriesCommonOptions>, colors: Readonly<ThemeColors>): string;
+  /** `prev` (stage 3, additive): the row before `row`, for a colour from the change (hollow candles). */
+  lastValueColor(row: R, options: Readonly<O & SeriesCommonOptions>, colors: Readonly<ThemeColors>, prev?: R | null): string;
   draw(scope: SeriesDrawScope<R, O>): void;
   /** Optional: a dot the crosshair draws on the hovered row (price and colour), or null for none. */
   crosshairMarker?(row: R, options: Readonly<O & SeriesCommonOptions>, colors: Readonly<ThemeColors>): { price: number; color: string } | null;

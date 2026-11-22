@@ -1,6 +1,6 @@
 ---
 title: API reference
-description: Every public export of Chartist Lite with its signature: createChart, the chart, series, scale and pane interfaces, options, plugins, indicators, element and React.
+description: Every public export of Chartist Lite with its signature: chart, series, scales, options, plugins, indicators, chart types, extras, drawings, live data, widget, element, React.
 order: 10
 related: getting-started, series-types, plugins
 group: reference
@@ -17,11 +17,17 @@ Every public export, with its signature as written in the source (`src/index.ts`
 
 | Import | Contents | Script tag file and global |
 |---|---|---|
-| `@mrchartist/chartist-lite` | `createChart`, the six series, price lines, markers, themes, formatting helpers, types | `chartist-lite.iife.min.js`, `ChartistLite` |
-| `@mrchartist/chartist-lite/indicators` | Indicator functions | `chartist-lite-indicators.iife.min.js`, `ChartistLiteIndicators` |
-| `@mrchartist/chartist-lite/element` | `defineChartistElement` and the element's parsing helpers | `chartist-lite.element.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
-| `@mrchartist/chartist-lite/drawings` | `createDrawingTools`, `TOOLS`, the JSON helpers | `chartist-lite-drawings.iife.min.js`, `ChartistLiteDrawings` |
-| `@mrchartist/chartist-lite/react` | `createChartistReact` and the controller | none |
+| `lite-charts` | `createChart`, the six series, price lines, markers, themes, formatting helpers, types | `chartist-lite.iife.min.js`, `ChartistLite` |
+| `lite-charts/indicators` | Indicator functions and the catalogue (`INDICATORS`, `getIndicator`) | `chartist-lite-indicators.iife.min.js`, `ChartistLiteIndicators` |
+| `lite-charts/transforms` | `CHART_TYPES`, `applyChartType`, the transforms and the extra series looks | `chartist-lite-transforms.iife.min.js`, `ChartistLiteTransforms` |
+| `lite-charts/extras` | Tooltips, watermark, go to latest, range switcher, alerts, compare, replay, bands, custom series | `chartist-lite-extras.iife.min.js`, `ChartistLiteExtras` |
+| `lite-charts/widget` | `createWidget`, `<chartist-terminal>`, the widget's helpers | `chartist-lite-widget.iife.min.js`, `ChartistLiteWidget` |
+| The terminal (widget plus live and drawings) | `createWidget` with live data and drawing tools bundled, both tags registered on load | `chartist-lite.terminal.iife.min.js`, `ChartistLiteTerminal` |
+| `lite-charts/element` | `defineChartistElement` and the element's parsing helpers | `chartist-lite.element.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
+| `lite-charts/drawings` | `createDrawingTools`, `BASIC_TOOLS`, `ALL_TOOLS`, the JSON helpers | `chartist-lite-drawings.iife.min.js`, `ChartistLiteDrawings` |
+| `lite-charts/react` | `createChartistReact` and the controller | none |
+| `lite-charts/live` | `connectLive`, the built-in providers and their parsers | `chartist-lite-live.iife.min.js`, `ChartistLiteLive` |
+| `<chartist-chart live>` (element plus live) | the element with the live entry inside | `chartist-lite.element-live.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
 
 The package is `sideEffects: false`, and importing any entry touches no DOM.
 
@@ -270,6 +276,18 @@ Removes the chart and releases its observers.
 chart.remove();
 ```
 
+### `chart.onRemove`
+
+```sig
+onRemove(fn: () => void): () => void
+```
+
+Calls `fn` once when `remove()` runs, before the chart's own teardown; plugins drop their document listeners there. Returns an unsubscribe function.
+
+```js
+chart.onRemove(() => document.removeEventListener('keydown', onKey));
+```
+
 ## Series
 
 The object `addSeries` returns (`SeriesApi`).
@@ -384,6 +402,19 @@ The type name of the series definition, such as `'candlestick'`.
 
 ```js
 if (s.seriesType() === 'line') s.applyOptions({ lineWidth: 1 });
+```
+
+### `series.subscribeDataChanged`
+
+```sig
+subscribeDataChanged(fn: (kind: 'set' | 'update', row?) => void): void
+unsubscribeDataChanged(fn): void
+```
+
+Called after `setData` (`'set'`) and after `update` (`'update'`, with the row), so several plugins can watch one series without wrapping its methods; the price alerts use it.
+
+```js
+candles.subscribeDataChanged((kind, row) => { if (kind === 'update') check(row); });
 ```
 
 ## Time scale
@@ -517,6 +548,21 @@ Calls `handler` with the new logical range when the view moves. Use it to keep s
 
 ```js
 a.timeScale().subscribeVisibleLogicalRangeChange(r => r && b.timeScale().setVisibleLogicalRange(r));
+```
+
+### `timeScale.setVisibleSpan`
+
+```sig
+setVisibleSpan(span: '1D' | '5D' | '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All' | { days?, weeks?, months?, years? }): void
+isAtRealTime(): boolean
+subscribeRealTimeChange(fn: (atRealTime: boolean) => void): void
+unsubscribeRealTimeChange(fn): void
+```
+
+Shows a span that ends at the last bar, read in the chart's time zone; '1D' and '5D' are the last one and five sessions in the data; at least five bars. `isAtRealTime()` is true while the newest bar is in view; the change event fires once per painted frame when that changes.
+
+```js
+chart.timeScale().setVisibleSpan('3M');
 ```
 
 ## Price scale and panes
@@ -824,7 +870,7 @@ const x = crispCoord(cssX, 1, scope.pixelRatio);
 
 ## Indicators
 
-From `@mrchartist/chartist-lite/indicators`. Each returns rows aligned one to one with the input; warm-up bars are `{ time }`. Defaults and warm-up lengths: [Indicators](indicators.md).
+From `lite-charts/indicators`. Each returns rows aligned one to one with the input; warm-up bars are `{ time }`. Defaults and warm-up lengths: [Indicators](indicators.md).
 
 ### `sma`, `ema`, `wma`
 
@@ -930,6 +976,21 @@ const rsi14 = createIndicator('rsi', { period: 14 });
 rsiSeries.update(rsi14.next(liveRow));
 ```
 
+### `INDICATORS`, `getIndicator`
+
+```sig
+const INDICATORS: IndicatorSpec[]
+getIndicator(id: string): IndicatorSpec | undefined
+legendLabel(spec, params?): string
+resolveParams(spec, params?): Record<string, number | string | boolean>
+```
+
+The catalogue: one spec per indicator, `{ id, name, shortName, category, overlay, inputs, outputs, guides?, compute(rows, params?) }`. `compute` clamps every input to its declared range and never throws; each output has one row per input row. Every entry, with its inputs and defaults: [Indicator catalogue](indicator-catalogue.md).
+
+```js
+const out = getIndicator('rsi').compute(bars, { period: 14 });   // { value: [...] }
+```
+
 ### Indicator types
 
 ```sig
@@ -939,21 +1000,21 @@ PriceSource, IndicatorRow, IndicatorPoint, SourceOptions, PeriodOptions, VwapOpt
 An `IndicatorRow` is `{ time, value?, open?, high?, low?, close?, volume? }`; an `IndicatorPoint` is `{ time, value? }`.
 
 ```js
-/** @type {import('@mrchartist/chartist-lite/indicators').IndicatorPoint[]} */
+/** @type {import('lite-charts/indicators').IndicatorPoint[]} */
 const points = sma(bars, 20);
 ```
 
 ## Drawings
 
-From `@mrchartist/chartist-lite/drawings`. Behaviour, tools and keys: [Drawing tools](drawing-tools.md).
+From `lite-charts/drawings`. Behaviour, tools and keys: [Drawing tools](drawing-tools.md).
 
 ### `createDrawingTools`
 
 ```sig
-createDrawingTools(chart, series, { toolbar?, magnet?, keepDrawing?, defaultStyle?, persist? }?): DrawingToolsController
+createDrawingTools(chart, series, { toolbar?, tools?, magnet?, keepDrawing?, defaultStyle?, volumeSeries?, persist? }?): DrawingToolsController
 ```
 
-Adds drawing tools to a chart, anchored to `series`. `toolbar` is `true` or `{ position: 'left' | 'top' }` (default off); `magnet` snaps to open, high, low or close (default on); `keepDrawing` stays on the tool (default off); `defaultStyle` is `{ color?, width: 1 | 2 | 3, dash: 'solid' | 'dashed' }`; `persist` is `{ key, storage? }`.
+Adds drawing tools to a chart, anchored to `series`. `toolbar` is `true`, `{ position: 'left' | 'top' }`, or `{ container, variant: 'rail' | 'bar', styleContainer }` to mount the rail in your own element (default off); `tools` is `BASIC_TOOLS` (the default), `ALL_TOOLS` or any list of tool definitions; `magnet` snaps to open, high, low or close (default on); `keepDrawing` stays on the tool (default off); `defaultStyle` is `{ color?, width: 1 | 2 | 3, dash: 'solid' | 'dashed' }`; `persist` is `{ key, storage? }`.
 
 ```js
 const tools = createDrawingTools(chart, candles, { toolbar: true });
@@ -1057,21 +1118,291 @@ Switches the magnet, keep drawing and hiding every drawing; `colors()` gives the
 tools.setHidden(true);
 ```
 
-### `TOOLS`
+### `BASIC_TOOLS`, `ALL_TOOLS`
 
 ```sig
-const TOOLS: readonly { id: ToolId; label: string; points: number }[]
+const BASIC_TOOLS: readonly ToolDefinition[]   // the default {{basicTools}}
+const ALL_TOOLS: readonly ToolDefinition[]     // all {{drawingTools}}, also exported as TOOLS
+const GROUP_ORDER: readonly { id: string; label: string }[]
+const LIMITS: { drawings: 2000, freehandPoints: 2000, jsonChars: 4000000 }
 ```
 
-The fifteen tools: `trend`, `ray`, `extended`, `horizontal`, `horizontalRay`, `vertical`, `rectangle`, `channel`, `fib`, `measure`, `long`, `short`, `arrow`, `text`, `brush` (0 points: freehand). Also exported: `ICONS` (the toolbar's icons), `geometry` (pure helpers) and the types `DrawingSpec`, `DrawingToolsController`, `DrawingToolsOptions`, `DrawingEvent`, `Anchor`, `Drawing`, `DrawingStyle`, `ToolId`, `ToolInfo`.
+Tool definitions are `{ id, label, hint?, group, icon, key?, points, ... }`, in {{drawingGroups}} toolbar groups (`GROUP_ORDER`); the [Drawing tools](drawing-tools.md) guide lists them all. `LIMITS` caps drawings per chart, points per freehand stroke and the JSON `importJSON` accepts; past them the rest is left out and an `'error'` event says so. The JSON is format version 2 (`VERSION`); `migrate` reads version 1. Also exported: `TOOL_GROUPS`, `TOOL_KEYS`, `groupsFor`, `ICONS`, `geometry` and the types `DrawingSpec`, `DrawingToolsController`, `DrawingToolsOptions`, `DrawingEvent`, `Anchor`, `Drawing`, `DrawingStyle`, `ToolId`, `ToolInfo`.
 
 ```js
-const twoPointTools = TOOLS.filter(t => t.points === 2).map(t => t.id);
+createDrawingTools(chart, candles, { toolbar: true, tools: ALL_TOOLS });
+```
+
+## Live data
+
+From `lite-charts/live`. Behaviour, statuses, privacy and the exchanges' limits: [Live data](live-data.md). The core never imports this entry; importing it opens nothing.
+
+### `connectLive`
+
+```sig
+connectLive(series, { symbol?, interval?, provider?, volumeSeries?, chart?, history?, guard?, onStatus?, onError?, onBars?, fetch?, WebSocket?, env? }?): LiveHandle
+```
+
+Loads history into `series`, then streams from the exchange and hands the changed bars to `series.update()` once per frame. `symbol` defaults to `'BTC-USD'`, `interval` to `'1m'` (`'1m' | '5m' | '15m' | '1h' | '6h' | '1d'`), `provider` to `'coinbase'` (a name is tried first with the other built-ins after it when its history fails; a provider object is used alone), `history` to 500 (10 to 5000). `volumeSeries` gets each bar's volume; with `chart`, older history loads at the left edge. Never throws into the page.
+
+```js
+const live = connectLive(candles, { symbol: 'BTC-USD', interval: '1m', volumeSeries: volume, chart });
+```
+
+### `live.setInterval`
+
+```sig
+status(): 'connecting' | 'live' | 'reconnecting' | 'offline' | 'error'
+provider(): string | null
+symbol(): string
+interval(): LiveInterval
+setInterval(interval: LiveInterval): void
+setSymbol(symbol: string): void
+info(): { provider, providerLabel, symbol, pair, quote, interval }
+retry(): void
+loadOlder(): Promise<number>
+disconnect(): void
+```
+
+The handle. `setInterval` and `setSymbol` reload and resubscribe (an unknown interval, the current value or an empty symbol is ignored); `loadOlder` resolves to the bars added (0 at the start of the data or without paging); `disconnect` closes the stream, aborts requests and removes every timer and listener.
+
+```js
+live.setInterval('5m');
+```
+
+### `LiveProvider`
+
+```sig
+interface LiveProvider {
+  id: string; intervals: readonly LiveInterval[]; canPageBack: boolean;
+  history(symbol, interval, { limit, before? }, { fetch, WebSocket, signal }): Promise<LiveBar[]>;
+  subscribe(symbol, interval, { tick, open, closed }, { fetch, WebSocket }): () => void;
+}
+```
+
+A source of bars, for any market. `history` returns bars in ascending time (`LiveBar` is `{ time, open, high, low, close, volume }`, `time` the bucket start in UNIX seconds); `subscribe` returns a function that closes the stream and must not call `closed` after it. `tick` takes `{ kind: 'trade', time, price, size, id? }` or `{ kind: 'bar', bar, closed }`.
+
+```js
+connectLive(candles, { provider: myExchange });
+```
+
+### `coinbase`, `binance`, `kraken`
+
+```sig
+const coinbase: LiveProvider; const binance: LiveProvider; const kraken: LiveProvider
+const PROVIDERS: { coinbase, binance, kraken }
+const INTERVAL_SECONDS: { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '6h': 21600, '1d': 86400 }
+binanceSymbol(symbol): string          // 'BTC-USD' -> 'BTCUSDT'
+krakenSymbols(symbol): { rest, ws }    // 'BTC-USD' -> { rest: 'XBTUSD', ws: 'BTC/USD' }
+```
+
+The built-in providers, keyless and public. Kraken has no `'6h'` and cannot page back. Pure parsers of each exchange's messages are exported too: `parseCoinbaseCandles`, `parseCoinbaseMessage`, `parseBinanceKlines`, `parseBinanceMessage`, `parseKrakenOHLC`, `parseKrakenMessage`.
+
+```js
+connectLive(candles, { provider: coinbase });   // Coinbase alone, no fallback
+```
+
+### `BarBuilder`, `backoffMs`
+
+```sig
+new BarBuilder(intervalSeconds, last?)   // apply(tick): LiveBar | null, bucket(time), last
+backoffMs(attempt, rand): number
+```
+
+The pure parts of the stream: folding trades into bars (late trades dropped, a repeated id counted once, whole bars replacing their time) and the reconnect wait (1 s doubling to 30 s, varied by up to 30%). Types: `LiveHandle`, `LiveOptions`, `LiveStatus`, `LiveEnv`, `ProviderName`, `HistoryRange`, `LiveBar`, `LiveInterval`, `LiveProvider`, `LiveTick`, `ProviderDeps`, `StreamHandlers`.
+
+```js
+const b = new BarBuilder(60); b.apply({ kind: 'trade', time: 1700000000, price: 100, size: 1 });
+```
+
+## Chart types
+
+From `lite-charts/transforms`. All {{chartTypes}} types, their inputs and the time-axis caveat of the brick types: [Chart types](chart-types.md).
+
+### `applyChartType`
+
+```sig
+applyChartType(id: ChartTypeId, rows, { brick?, box?, range?, reversal?, lines?, base?, source?, series? }?): { definition, data, options, info? }
+const CHART_TYPES: readonly { id, name, kind: 'series' | 'transform', irregularTime, inputs }[]
+```
+
+Everything `addSeries` needs for one chart type: the series definition, the cleaned (and, for a transform, transformed) rows, and the series options; `info` reports what a transform used (brick, box, range, lines, shifted times). `CHART_TYPES` lists the {{chartTypes}} types with the inputs a settings form needs.
+
+```js
+const { definition, data, options } = applyChartType('renko', bars, { brick: 0 });
+chart.addSeries(definition, options).setData(data);
+```
+
+### Transforms and series looks
+
+```sig
+renko(rows, options), lineBreak(rows, options), kagi(rows, options), pointFigure(rows, options), rangeBars(rows, options), heikinAshi(rows)
+createRenko(options), createLineBreak(options), createRangeBars(options)
+HollowCandlestickSeries, StepLineSeries, HlcAreaSeries, ColumnSeries, HighLowSeries, KagiSeries, PointFigureSeries
+autoBoxSize, measureSize, resolveSize, spreadTimes, cleanRows, chartType
+```
+
+The pure transforms (rows in, rows out), incremental forms for live data, and the series definitions behind the looks that are not transforms. Sizes are a number, `{ atr: period }` or `{ percent }`.
+
+```js
+const { rows, brick } = renko(bars, { brick: { atr: 14 } });
+```
+
+## Extras
+
+From `lite-charts/extras`. Each returns a handle with `applyOptions` and `remove` or `destroy`: [Tooltips, alerts and more](extras.md).
+
+### `createTooltip`
+
+```sig
+createTooltip(chart, { mode: 'floating' | 'tracking' | 'magnifier', series?, format? }): TooltipHandle
+```
+
+The values under the crosshair, in three looks; works with the keyboard inspect mode and a touch long-press. Text only, never HTML.
+
+```js
+const tip = createTooltip(chart, { mode: 'tracking' });
+```
+
+### `createWatermark`, `createGoToRealtimeButton`
+
+```sig
+createWatermark(chart, { text, lines?, position?, opacity?, fontSize?, color? }): WatermarkHandle
+createImageWatermark(chart, { image, position?, opacity?, width? }): ImageWatermarkHandle
+createGoToRealtimeButton(chart, { right?, bottom?, label? }?): GoToRealtimeHandle
+```
+
+A watermark that fits its pane, and a button that appears while the newest bar is scrolled out of view.
+
+```js
+createWatermark(chart, { text: 'ACME', lines: ['Daily'] });
+```
+
+### `createRangeSwitcher`
+
+```sig
+createRangeSwitcher(chart, { ranges?, position?, container?, label?, onChange? }?): RangeSwitcherHandle   // select(key), selected()
+const RANGE_KEYS = ['1D', '5D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All']
+```
+
+Range keys over the plot (or in your own element), a radio group built on `setVisibleSpan`.
+
+```js
+createRangeSwitcher(chart, { position: 'top-right' }).select('1Y');
+```
+
+### `createPriceAlerts`
+
+```sig
+createPriceAlerts(chart, series, { onTrigger?, onChange?, removeOnTrigger?, addButton? }?): PriceAlertsHandle
+```
+
+Alert lines that fire once when the price crosses them on `update()`. Handle: `add(price)`, `remove(id)`, `clear()`, `alerts()`, `check(value)`, `exportJSON()`, `importJSON()`, `destroy()`.
+
+```js
+const alerts = createPriceAlerts(chart, candles, { onTrigger: t => notify(t.price) });
+```
+
+### `createCompare`
+
+```sig
+createCompare(chart, { base, mode: 'percent', legend? }): CompareHandle   // add(rows, { title, color? }), remove(line), lines(), destroy()
+```
+
+Other series as percent change from the first visible bar, re-based as the view moves, with a chip legend.
+
+```js
+createCompare(chart, { base: candles, mode: 'percent' }).add(other, { title: 'GLOBEX' });
+```
+
+### `createReplay`
+
+```sig
+createReplay(chart, series, { data, onStep?, onState?, container?, position? }): ReplayHandle
+```
+
+Bar replay at 1x to 10x. Handle: `start(at)`, `play()`, `pause()`, `step(bars?)`, `setSpeed(speed)`, `pick(on?)`, `exit()`, `info()`.
+
+```js
+createReplay(chart, candles, { data: bars }).start(bars.length - 100);
+```
+
+### `createBands` and lines
+
+```sig
+createBands(series, { upper, lower, chart?, ... }): BandsHandle
+createPartialPriceLine(series, { fromTime, price, title?, color? }): PartialPriceLineHandle
+createSessionBreaks(chart, options?): SessionBreaksHandle
+createVerticalLine(chart, { time, label? }): VerticalLineHandle
+```
+
+A filled band between two rows of values, a price line from a time, day boundaries on intraday data, and a labelled vertical line.
+
+```js
+createBands(candles, { upper: bb.upper, lower: bb.lower, chart });
+```
+
+### Custom series
+
+```sig
+StackedAreaSeries, HeatmapSeries, RoundedCandlesSeries, WhiskerBoxSeries, seriesPalette
+```
+
+Series definitions written on the public series contract: rows `{ time, values }`, `{ time, low, step, cells }`, candles (option `radius`) and `{ time, min, q1, median, q3, max }`.
+
+```js
+chart.addSeries(WhiskerBoxSeries, { title: 'Forecast' }).setData(rows);
+```
+
+## Widget
+
+From `lite-charts/widget`. Options, the feed contract, keys and events: [The ready-made chart](widget.md).
+
+### `createWidget`
+
+```sig
+createWidget(container, { symbol?, interval?, intervals?, chartType?, theme?, timeZone?, data?, feed?, live?, indicators?, drawings?, toolbar?, persist?, strings?, modules?, load?, catalog?, settings?, watermark?, height?, chartOptions? }?): Widget
+```
+
+A complete chart workspace in one call. The handle: `chart`, `element`, `setSymbol`, `setInterval`, `setChartType`, `addIndicator`, `removeIndicator`, `indicators()`, `setTheme`, `setRange`, `setData`, `save()`, `load(json)`, `on(event, fn)`, `screenshot(download?)`, `destroy()`.
+
+```js
+const w = createWidget(el, { data: rows, symbol: 'ACME', indicators: ['ema', 'rsi'] });
+```
+
+### Feed
+
+```sig
+interface WidgetFeed {
+  getBars({ symbol, interval, from?, to?, limit? }): Promise<rows>;
+  subscribeBars?({ symbol, interval }, onBar): () => void;
+  searchSymbols?(query): Promise<{ symbol, description?, exchange? }[]>;
+  intervals?: string[];
+}
+```
+
+A data source of your own; times in UNIX seconds.
+
+```js
+createWidget(el, { feed: { getBars: ({ symbol, interval, limit }) => api.history(symbol, interval, limit) } });
+```
+
+### `defineTerminalElement`
+
+```sig
+defineTerminalElement(tagName = 'chartist-terminal'): CustomElementConstructor | null
+setTerminalModules(modules): void
+```
+
+Registers `<chartist-terminal>` (the terminal build does it on load, with live data and drawings). Also exported: `DEFAULT_STRINGS`, `RANGE_KEYS`, `DEFAULT_INTERVALS`, `CRYPTO_SYMBOLS`, `demoBars`, `readWorkspace`, `migrateWorkspace`, `validateParams`, `defaultSettings`, `WORKSPACE_FORMAT`, `WORKSPACE_VERSION`, the interval helpers, `collapseBar`, `useSheets`, `chartTypeList`, `WIDGET_ICONS` and the types.
+
+```html
+<chartist-terminal live symbol="BTC-USD" interval="1h" indicators="ema,rsi" drawings></chartist-terminal>
 ```
 
 ## Element
 
-From `@mrchartist/chartist-lite/element`. Attributes, events and data formats: [Embedding the chart](embedding.md).
+From `lite-charts/element`. Attributes, events and data formats: [Embedding the chart](embedding.md).
 
 ### `defineChartistElement`
 
@@ -1097,9 +1428,22 @@ Pure helpers the element uses to read its attributes and JSON or CSV data, expor
 const rows = parseRows('time,value\n2024-01-01,100');
 ```
 
+### Live attributes
+
+```sig
+<chartist-chart live symbol="BTC-USD" interval="1m" provider="coinbase" volume>
+```
+
+With the element-live build, `live` streams from a public exchange feed instead of reading `src` or inline data. `symbol` (default `BTC-USD`), `interval` (`1m` default, `5m`, `15m`, `1h`, `6h`, `1d`) and `provider` (`coinbase` default, `binance`, `kraken`) are passed to `connectLive`; `volume` adds a volume histogram. A dot and a word show the status on the plot. Changing `symbol` or `interval` switches the stream; `provider`, `type` or `volume` start again. In the plain element build, `live` shows a line saying the element-live build is needed. `setElementLive(connect)` is how that build plugs the connector in.
+
+```html
+<script src="chartist-lite.element-live.iife.min.js"></script>
+<chartist-chart live symbol="ETH-USD" interval="5m" volume></chartist-chart>
+```
+
 ## React
 
-From `@mrchartist/chartist-lite/react`. Behaviour of updates: [Embedding the chart](embedding.md#3-react).
+From `lite-charts/react`. Behaviour of updates: [Embedding the chart](embedding.md#3-react).
 
 ### `createChartistReact`
 
@@ -1148,7 +1492,7 @@ ChartApi, SeriesApi, TimeScaleApi, PriceScaleApi, PaneApi, MouseEventParams, Mou
 The interfaces and option types of the main entry. `Time` is `number | string | BusinessDay` (UNIX seconds, `'YYYY-MM-DD'`, or `{ year, month, day }` with month 1 to 12). `DeepPartial<T>` is a recursive `Partial` that leaves functions and arrays whole.
 
 ```ts
-import type { ChartApi, Time } from '@mrchartist/chartist-lite';
+import type { ChartApi, Time } from 'lite-charts';
 ```
 
 ---

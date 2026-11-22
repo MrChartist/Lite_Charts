@@ -17,7 +17,7 @@ This page covers three small building blocks for putting your own marks on a cha
 A horizontal line at a fixed price, with a tag on the price axis and an optional title.
 
 ```js
-import { createPriceLine } from '@mrchartist/chartist-lite';
+import { createPriceLine } from 'lite-charts';
 
 const resistance = createPriceLine(candles, {
   price: 152.4, title: 'Resistance', lineStyle: 'dashed',
@@ -61,7 +61,7 @@ createSeriesMarkers(candles, [
 Small shapes with optional short text, placed above, below or inside a bar.
 
 ```js
-import { createSeriesMarkers } from '@mrchartist/chartist-lite';
+import { createSeriesMarkers } from 'lite-charts';
 
 const markers = createSeriesMarkers(candles, [
   { time: '2024-03-04', position: 'belowBar', shape: 'arrowUp', text: 'Buy' },

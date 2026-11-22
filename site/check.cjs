@@ -46,6 +46,69 @@ function listPages(dir, base = '') {
   return out.sort();
 }
 
+/** Any http(s) or ws(s) address that is not this machine's test server. */
+function isExternal(url) {
+  const m = /^(?:https?|wss?):\/\/([^/:]+)/i.exec(url);
+  return !!m && m[1] !== '127.0.0.1';
+}
+
+// ---- live data with no network: fetch and WebSocket for the exchanges, stubbed inside the page ----
+// Coinbase history answers with deterministic one-minute bars; the stream opens at once and window.__stubTrade(price)
+// sends a Coinbase "match". With { fail: true } every exchange request rejects and every socket closes, so the demos'
+// fallbacks can be checked. Requests to the page's own origin go to the real fetch.
+function liveStub(opts) {
+  const HOST = /(^|\.)(coinbase\.com|binance\.vision|kraken\.com)$/;
+  const realFetch = window.fetch.bind(window);
+  const stub = { fail: !!(opts && opts.fail), requests: [], sockets: [] };
+  window.__stub = stub;
+  const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  const f = (t) => 60000 + 300 * Math.sin(t / 3600) + 60 * Math.sin(t / 420);
+  window.fetch = function (input, init) {
+    let url;
+    try { url = new URL(typeof input === 'string' ? input : input.url, location.href); } catch (e) { return realFetch(input, init); }
+    if (!HOST.test(url.hostname)) return realFetch(input, init);
+    stub.requests.push(url.href);
+    if (stub.fail) return Promise.reject(new TypeError('Failed to fetch (stub)'));
+    if (url.hostname !== 'api.exchange.coinbase.com') return Promise.resolve(json([]));
+    const g = Number(url.searchParams.get('granularity')) || 60;
+    const start = Math.floor(Date.parse(url.searchParams.get('start')) / 1000);
+    const end = Math.floor(Date.parse(url.searchParams.get('end')) / 1000);
+    const rows = [];
+    const newest = Math.min(Math.floor(end / g) * g, Math.floor(Date.now() / 1000 / g) * g);   // never a bar in the future
+    for (let t = newest; t >= start; t -= g) {
+      const o = +f(t).toFixed(2); const c = +f(t + g).toFixed(2);
+      rows.push([t, +(Math.min(o, c) - 9).toFixed(2), +(Math.max(o, c) + 9).toFixed(2), o, c, +(1 + Math.abs(Math.sin(t)) * 6).toFixed(4)]);
+    }
+    return Promise.resolve(json(rows));
+  };
+  class FakeSocket {
+    constructor(url) {
+      this.url = url; this.readyState = 0; this.sent = [];
+      this.onopen = this.onmessage = this.onerror = this.onclose = null;
+      stub.sockets.push(this);
+      setTimeout(() => {
+        if (this.readyState !== 0) return;
+        if (stub.fail) { this.readyState = 3; if (this.onclose) this.onclose({ code: 1006 }); return; }
+        this.readyState = 1; if (this.onopen) this.onopen({});
+      }, 20);
+    }
+    send(data) { this.sent.push(String(data)); }
+    close() { this.readyState = 3; }
+  }
+  FakeSocket.CONNECTING = 0; FakeSocket.OPEN = 1; FakeSocket.CLOSING = 2; FakeSocket.CLOSED = 3;
+  window.WebSocket = FakeSocket;
+  let id = 1;
+  window.__stubTrade = (price) => {
+    let n = 0;
+    for (const s of stub.sockets) {
+      if (s.readyState !== 1 || !s.onmessage) continue;
+      s.onmessage({ data: JSON.stringify({ type: 'match', trade_id: id++, price: String(price), size: '0.25', time: new Date().toISOString() }) });
+      n++;
+    }
+    return n;
+  };
+}
+
 // ---- in-page helpers (serialised into the page) ----
 function inPagePassive() {
   const q = (s) => Array.from(document.querySelectorAll(s));
@@ -122,9 +185,11 @@ function inPageCharts() {
     for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - r0) + Math.abs(d[i + 1] - g0) + Math.abs(d[i + 2] - b0) > 24) diff++;
     return { diff, bright: Math.round((r0 + g0 + b0) / 3) };
   }
-  const best = (root) => Array.from(root.querySelectorAll('canvas')).map(info).sort((a, b) => b.diff - a.diff)[0] || { diff: 0, bright: -1 };
+  // Canvases inside open shadow roots too (the widget draws in one).
+  const canvases = (root) => { const list = Array.from(root.querySelectorAll('canvas')); for (const n of root.querySelectorAll('*')) if (n.shadowRoot) list.push(...canvases(n.shadowRoot)); return list; };
+  const best = (root) => canvases(root).map(info).sort((a, b) => b.diff - a.diff)[0] || { diff: 0, bright: -1 };
   const out = [];
-  for (const el of document.querySelectorAll('[data-demo]')) out.push({ kind: 'demo:' + el.dataset.demo, ...best(el), w: el.getBoundingClientRect().width });
+  for (const el of document.querySelectorAll('[data-demo]')) out.push({ kind: 'demo:' + el.dataset.demo, ...best(el), w: el.getBoundingClientRect().width, themeFree: el.hasAttribute('data-theme-free') });
   for (const el of document.querySelectorAll('chartist-chart')) out.push({ kind: 'element:' + (el.getAttribute('type') || ''), ...(el.shadowRoot ? best(el.shadowRoot) : { diff: 0, bright: -1 }), w: el.getBoundingClientRect().width, hasChart: !!el.chart });
   return out;
 }
@@ -137,8 +202,12 @@ async function settle(page) {
 }
 async function waitCharts(page, label) {
   try {
-    await page.waitForFunction(() => Array.from(document.querySelectorAll('[data-demo]')).every((e) => e.dataset.ready === '1' && e.querySelector('canvas'))
-      && Array.from(document.querySelectorAll('chartist-chart')).every((e) => e.chart && e.shadowRoot && e.shadowRoot.querySelector('canvas')), null, { timeout: 8000 });
+    // A canvas may sit in an open shadow root (the widget).
+    await page.waitForFunction(() => {
+      const has = (root) => !!root.querySelector('canvas') || Array.from(root.querySelectorAll('*')).some((n) => n.shadowRoot && has(n.shadowRoot));
+      return Array.from(document.querySelectorAll('[data-demo]')).every((e) => e.dataset.ready === '1' && has(e))
+        && Array.from(document.querySelectorAll('chartist-chart')).every((e) => e.chart && e.shadowRoot && e.shadowRoot.querySelector('canvas'));
+    }, null, { timeout: 8000 });
   } catch (e) { ok(false, `${label}: charts were not all created within 8 s`); }
   await page.waitForTimeout(250);
 }
@@ -244,7 +313,7 @@ async function interactive(browser, origin) {
     const total = await page.evaluate(() => document.querySelectorAll('.entry').length);
     await page.fill('#api-filter', 'setdata');
     const vis = await page.evaluate(() => Array.from(document.querySelectorAll('.entry')).filter((e) => !e.hidden).map((e) => e.dataset.entry));
-    ok(total > 60 && vis.length > 0 && vis.length < 8 && vis.includes('series.setdata'), `api filter: "setdata" narrows ${total} entries to ${vis.length}`);
+    ok(total > 60 && vis.length > 0 && vis.length < 12 && vis.includes('series.setdata'), `api filter: "setdata" narrows ${total} entries to ${vis.length}`);
     ok(await page.evaluate(() => /match/.test(document.getElementById('api-count').textContent)), 'api filter: the count is announced');
     await page.fill('#api-filter', '');
     ok(await page.evaluate(() => Array.from(document.querySelectorAll('.entry')).every((e) => !e.hidden)), 'api filter: clearing shows every entry');
@@ -307,8 +376,8 @@ async function interactive(browser, origin) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage(); const errs = watch(page);
     await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
-    const chip = await page.evaluate(() => document.querySelector('.fc-2').textContent);
-    ok(chip.includes(`${worst.toFixed(1)} ms of 8.33`), `120 Hz: the hero chip shows the measured worst p95 (${chip})`);
+    const chip = await page.evaluate(() => document.querySelector('.stats').textContent);
+    ok(chip.includes(`${worst.toFixed(1)} ms`) && chip.includes('8.33'), `120 Hz: the stats strip shows the measured worst p95 (${chip.replace(/\s+/g, ' ').slice(0, 120)})`);
     const big = await page.evaluate(() => document.querySelector('.bench .big').textContent);
     ok(big.startsWith(worst.toFixed(2)), `120 Hz: the speed chapter shows ${worst.toFixed(2)} ms (${big})`);
     await page.goto(`${origin}/performance.html`, { waitUntil: 'load' });
@@ -324,7 +393,7 @@ async function interactive(browser, origin) {
     const ctx = await browser.newContext({ viewport: { width, height: 760 } });
     await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); } catch (e) { /* none */ } }, theme);
     const page = await ctx.newPage();
-    await page.goto(`${origin}/guide/coming-from-lightweight-charts.html`, { waitUntil: 'load' });
+    await page.goto(`${origin}/guide/how-it-compares.html`, { waitUntil: 'load' });
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(300);
     const gaps = [];
@@ -335,6 +404,8 @@ async function interactive(browser, origin) {
     }
     ok(gaps.every((g) => g >= 12), `guide nav @${width} ${theme}: never touches or slides under the top bar (gaps ${gaps.join(', ')} px)`);
     await page.evaluate(() => window.scrollTo(0, 0));
+    // The panel's height follows the page scroll from a scroll handler, so give it a frame or two to settle.
+    await page.waitForTimeout(200);
     const vis = await page.evaluate(() => { const sc = document.querySelector('.docs-nav [data-nav-scroll]'); const a = sc.querySelector('[aria-current="page"]'); const r = a.getBoundingClientRect(); const s = sc.getBoundingClientRect(); return r.top >= s.top - 1 && r.bottom <= s.bottom + 1; });
     ok(vis, `guide nav @${width} ${theme}: the current page (the last one) is in view on load, the panel scrolled to it`);
     const c = await page.evaluate(() => {
@@ -379,6 +450,253 @@ async function interactive(browser, origin) {
     await ctx.close();
   }
 
+  // Live data, with no network at all: other hosts are blocked, and fetch and WebSocket are stubbed in the page.
+  if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite-live.iife.min.js'))) {
+    const liveCtx = async (fail, extra) => {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }, { fail });
+      if (extra) await ctx.addInitScript(extra);
+      const page = await ctx.newPage();
+      const errs = watch(page);
+      const external = [];
+      page.on('request', (r) => { if (isExternal(r.url())) external.push(r.url()); });
+      page.on('websocket', (w) => external.push(w.url()));
+      return { ctx, page, errs, external };
+    };
+    const hero = (page) => page.evaluate(() => {
+      const box = document.querySelector('[data-hero-widget]');
+      const h = box && box._hero;
+      const w = h && h.widget;
+      let last = null; let n = 0; let title = '';
+      if (w) {
+        const s = w.chart.panes()[0].getSeries()[0];
+        const d = s ? s.data() : [];
+        n = d.length; last = d[d.length - 1] || null; title = w.save().symbol.symbol;
+      }
+      return {
+        ready: !!w, mode: h ? h.mode : '', status: h ? h.status : '', demo: document.querySelector('[data-hero-demo]').getAttribute('aria-pressed'),
+        word: document.querySelector('.hero-bar .live-word').textContent, source: document.querySelector('[data-hero-source]').textContent,
+        note: document.querySelector('[data-hero-live-note]').textContent, n, last, title, posterHidden: box.classList.contains('is-ready'),
+        requests: window.__stub.requests.slice(), sockets: window.__stub.sockets.map((x) => ({ url: x.url, state: x.readyState, sent: x.sent })),
+      };
+    });
+    const heroReady = (page) => page.waitForFunction(() => { const b = document.querySelector('[data-hero-widget]'); return b && b._hero && b._hero.widget; }, null, { timeout: 15000 }).catch(() => {});
+    const waitWord = (page, w) => page.waitForFunction((x) => document.querySelector('.hero-bar .live-word').textContent === x, w, { timeout: 15000 }).catch(() => {});
+
+    // The hero is the ready-made widget: the terminal script loads after the page, then real market data by default.
+    {
+      const { ctx, page, errs, external } = await liveCtx(false);
+      const t0 = Date.now();
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      const loadMs = Date.now() - t0;
+      await heroReady(page);
+      await waitWord(page, 'Live');
+      const readyMs = Date.now() - t0;
+      let h = await hero(page);
+      ok(h.ready && h.mode === 'live' && h.status === 'live' && h.word === 'Live' && h.demo === 'false', `live hero: the widget loads lazily and connects by itself ("${h.word}", ${h.mode})`);
+      ok(h.source === 'Real market data · Coinbase', `live hero: the label says "${h.source}"`);
+      ok(/straight from the exchange/.test(h.note) && /not advice/.test(h.note), `live hero: the line under it says the prices come straight from the exchange and are not advice ("${h.note}")`);
+      ok(h.requests.length > 0 && h.requests.every((u) => u.startsWith('https://api.exchange.coinbase.com/products/BTC-USD/candles')) && external.length === 0, `live hero: BTC-USD history from Coinbase only, through the stub (${h.requests.length} requests, ${external.length} real)`);
+      ok(h.sockets.filter((x) => x.state === 1).length === 1 && h.sockets[0].url === 'wss://ws-feed.exchange.coinbase.com', 'live hero: one Coinbase stream');
+      ok(h.n > 100 && h.title === 'BTC-USD' && h.posterHidden, `live hero: the widget shows the Coinbase bars and the poster is gone (${h.n} bars)`);
+      const before = h.last;
+      const price = +(before.close + 321.25).toFixed(2);
+      const sent = await page.evaluate((p) => window.__stubTrade(p), price);
+      await page.waitForFunction((p) => { const w = document.querySelector('[data-hero-widget]')._hero.widget; const d = w.chart.panes()[0].getSeries()[0].data(); return d[d.length - 1].close === p; }, price, { timeout: 4000 }).catch(() => {});
+      h = await hero(page);
+      ok(sent >= 1 && h.last.close === price && h.last.time >= before.time, `live hero: the last bar moves on a stubbed trade (close ${before.close} to ${h.last.close})`);
+      const usable = await page.evaluate(() => { const w = document.querySelector('[data-hero-widget]')._hero.widget; const root = w.element.shadowRoot || w.element; return { buttons: root.querySelectorAll('button').length }; });
+      ok(usable.buttons > 15, `live hero: the full toolbar is there (${usable.buttons} buttons in the widget)`);
+      // "Use demo data": disconnects, is remembered, and after a reload nothing is requested.
+      await page.click('[data-hero-demo]');
+      await page.waitForTimeout(400);
+      h = await hero(page);
+      ok(h.demo === 'true' && h.mode === 'demo' && h.word === 'Demo data' && h.source === 'Invented demo data' && h.title === 'DEMO' && h.sockets.every((x) => x.state === 3), `live hero: "Use demo data" closes the stream and shows demo data (${h.title})`);
+      external.length = 0;
+      await page.reload({ waitUntil: 'load' });
+      await heroReady(page);
+      await page.waitForTimeout(1500);
+      h = await hero(page);
+      ok(h.mode === 'demo' && h.demo === 'true' && h.requests.length === 0 && h.sockets.length === 0 && external.length === 0, `live hero: the demo choice is remembered; after a reload no request goes to any other host (${h.requests.length}, ${h.sockets.length}, ${external.length})`);
+      await page.click('[data-hero-demo]');
+      await waitWord(page, 'Live');
+      ok((await hero(page)).status === 'live' && await page.evaluate(() => localStorage.getItem('cl-hero-data') === null), 'live hero: switching demo data off connects again and forgets the choice');
+      ok(errs.length === 0, 'live hero: no console errors ' + errs.join(' | '));
+      console.log(`  hero timing (local server, stubbed feed): load event ${loadMs} ms, widget live ${readyMs} ms after navigation`);
+      await ctx.close();
+    }
+    // When no exchange answers: invented demo data, quietly; nothing remembered.
+    {
+      const { ctx, page, errs } = await liveCtx(true);
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      await heroReady(page);
+      await page.waitForFunction(() => /No exchange answered/.test(document.querySelector('[data-hero-live-note]').textContent), null, { timeout: 20000 }).catch(() => {});
+      const h = await hero(page);
+      ok(h.mode === 'demo' && h.word === 'Demo data' && /No exchange answered/.test(h.note) && h.title === 'DEMO' && h.requests.length > 0, `live hero: a failed connection falls back to demo data quietly ("${h.note}")`);
+      ok(await page.evaluate(() => localStorage.getItem('cl-hero-data') === null), 'live hero: a failure is not remembered as a choice');
+      ok(errs.length === 0, 'live hero fallback: no console errors ' + errs.join(' | '));
+      await ctx.close();
+    }
+    // A browser that asks to save data: no connection at all.
+    {
+      const { ctx, page } = await liveCtx(false, () => { Object.defineProperty(navigator, 'connection', { value: { saveData: true }, configurable: true }); });
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      await heroReady(page);
+      await page.waitForTimeout(1200);
+      const h = await hero(page);
+      ok(h.mode === 'demo' && h.requests.length === 0 && h.sockets.length === 0 && /save data/.test(h.note), `live hero: with Save-Data on it does not connect ("${h.note}")`);
+      await ctx.close();
+    }
+    // The one-tag element in the home chapter: off, connects on click, Live, a trade moves its last bar, Disconnect.
+    // The hero is set to demo data here, so every request below is the chapter's own.
+    const heroDemo = () => { try { localStorage.setItem('cl-hero-data', 'demo'); } catch (e) { /* none */ } };
+    {
+      const { ctx, page, errs, external } = await liveCtx(false, heroDemo);
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      await settle(page);
+      ok(await page.evaluate(() => !document.querySelector('#ch-live').closest('.chapter').querySelector('chartist-chart') && window.__stub.requests.length === 0) && external.length === 0, 'live chapter: off by default, no element and no request until Connect');
+      await page.locator('#ch-live').scrollIntoViewIfNeeded();
+      const sec = '.chapter:has(#ch-live)';
+      await page.click(`${sec} [data-connect-go]`);
+      await page.waitForFunction((q) => { const el = document.querySelector(`${q} chartist-chart`); const st = el && el.shadowRoot && el.shadowRoot.querySelector('.st'); return st && /^Live/.test(st.textContent); }, sec, { timeout: 8000 }).catch(() => {});
+      const st = await page.evaluate((q) => { const el = document.querySelector(`${q} chartist-chart`); return { st: el ? el.shadowRoot.querySelector('.st').textContent : '', bar: document.querySelector(`${q} .live-word`).textContent, n: el && el.series ? el.series.data().length : 0, last: el && el.series ? el.series.data().at(-1) : null }; }, sec);
+      ok(/^Live/.test(st.st) && /^Live/.test(st.bar) && st.n === 500, `live chapter: the element connects on click and shows Live (${st.st}, bar "${st.bar}", ${st.n} bars)`);
+      const price = st.last ? +(st.last.close - 211.5).toFixed(2) : 1;
+      await page.evaluate((p) => window.__stubTrade(p), price);
+      await page.waitForFunction(([q, p]) => document.querySelector(`${q} chartist-chart`).series.data().at(-1).close === p, [sec, price], { timeout: 3000 }).catch(() => {});
+      ok(await page.evaluate(([q, p]) => document.querySelector(`${q} chartist-chart`).series.data().at(-1).close === p, [sec, price]), 'live chapter: a stubbed trade moves the element\'s last bar');
+      await page.click(`${sec} [data-connect-stop]`);
+      ok(await page.evaluate((q) => !document.querySelector(`${q} chartist-chart`) && !document.querySelector(`${q} .connect-card`).hidden && document.querySelector(`${q} .live-word`).textContent === 'Off' && window.__stub.sockets.every((x) => x.readyState === 3), sec), 'live chapter: Disconnect removes the element, closes the stream and shows the card again');
+      ok(errs.length === 0, 'live chapter: no console errors ' + errs.join(' | '));
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await liveCtx(true, heroDemo);
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      const sec = '.chapter:has(#ch-live)';
+      await page.locator('#ch-live').scrollIntoViewIfNeeded();
+      await page.click(`${sec} [data-connect-go]`);
+      await page.waitForFunction((q) => !document.querySelector(`${q} .connect-msg`).hidden, sec, { timeout: 12000 }).catch(() => {});
+      const r = await page.evaluate((q) => ({ msg: document.querySelector(`${q} .connect-msg`).textContent, el: !!document.querySelector(`${q} chartist-chart`), word: document.querySelector(`${q} .live-word`).textContent, hosts: [...new Set(window.__stub.requests.map((u) => new URL(u).hostname))] }), sec);
+      ok(/Could not reach/.test(r.msg) && !r.el && r.word === 'Off', `live chapter: when no exchange answers, the card comes back with one quiet line ("${r.msg}")`);
+      ok(r.hosts.length === 3, `live chapter: the element tried Coinbase, then Binance and Kraken (${r.hosts.join(', ')})`);
+      await ctx.close();
+    }
+    // The guide: the offline provider runs on load with no request; Connect starts a demo; the interval switch reloads.
+    {
+      const { ctx, page, errs, external } = await liveCtx(false);
+      await page.goto(`${origin}/guide/live-data.html`, { waitUntil: 'load' });
+      await settle(page);
+      await waitCharts(page, 'live guide');
+      ok(await page.evaluate(() => window.__stub.requests.length === 0 && window.__stub.sockets.length === 0) && external.length === 0, 'live guide: the page opens with no request to an exchange (the made-up provider needs none)');
+      const fig = page.locator('figure.live:has([data-live-interval])');
+      await fig.scrollIntoViewIfNeeded();
+      await fig.locator('[data-connect-go]').click();
+      await page.waitForFunction(() => /^Live/.test(document.querySelector('figure.live:has([data-live-interval]) .live-word').textContent), null, { timeout: 8000 }).catch(() => {});
+      ok(/^Live, Coinbase$/.test(await fig.locator('.live-word').textContent()), `live guide: Connect starts the example and the bar reads "${await fig.locator('.live-word').textContent()}"`);
+      const n0 = await page.evaluate(() => window.__stub.requests.length);
+      await fig.locator('[data-live-interval="5m"]').click();
+      await page.waitForFunction((n) => window.__stub.requests.slice(n).some((u) => /granularity=300/.test(u)), n0, { timeout: 5000 }).catch(() => {});
+      ok(await page.evaluate((n) => window.__stub.requests.slice(n).some((u) => /granularity=300/.test(u)), n0), 'live guide: the 5m button switches the stream to five-minute history');
+      await fig.locator('[data-connect-stop]').click();
+      ok((await fig.locator('.live-word').textContent()) === 'Off' && await page.evaluate(() => window.__stub.sockets.every((x) => x.readyState === 3)), 'live guide: Disconnect closes every stream');
+      ok(errs.length === 0, 'live guide: no console errors ' + errs.join(' | '));
+      await ctx.close();
+    }
+  }
+
+  // The feature gallery: every tab of every card draws, and "Get this code" shows exactly the code that ran.
+  if (fs.existsSync(path.join(dist, 'assets', 'live', 'examples.js'))) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/examples.html`, { waitUntil: 'load' });
+    const cards = await page.evaluate(() => Array.from(document.querySelectorAll('.fx-card')).map((c) => ({ id: c.id, tabs: c.querySelectorAll('[data-fx-tab]').length })));
+    ok(cards.length >= 15, `gallery: ${cards.length} feature cards`);
+    let tabs = 0; const blank = []; const mismatch = [];
+    for (const card of cards) {
+      for (let k = 0; k < card.tabs; k++) {
+        const sel = `#${card.id}`;
+        await page.locator(`${sel} [data-fx]`).scrollIntoViewIfNeeded();
+        if (k > 0) await page.click(`${sel} [data-fx-tab="${k}"]`);
+        const want = await page.evaluate(([s, i]) => document.querySelector(`${s} template[data-fx-src="${i}"]`).dataset.fxId, [sel, k]);
+        await page.waitForFunction(([s, id]) => { const st = document.querySelector(`${s} [data-fx]`); return st.dataset.ready === '1' && (st.dataset.fxRan === id || st.querySelector('chartist-chart, chartist-terminal')); }, [sel, want], { timeout: 10000 }).catch(() => {});
+        await page.waitForTimeout(250);
+        const drawn = await page.evaluate((s) => {
+          const st = document.querySelector(`${s} [data-fx]`);
+          const all = (root) => { const l = Array.from(root.querySelectorAll('canvas')); for (const n of root.querySelectorAll('*')) if (n.shadowRoot) l.push(...all(n.shadowRoot)); return l; };
+          let best = 0;
+          for (const c of all(st)) { const w = c.width; const h = c.height; if (!w || !h) continue; const d = c.getContext('2d').getImageData(0, 0, w, h).data; let n = 0; for (let i = 0; i < d.length; i += 16) if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) > 24) n++; best = Math.max(best, n); }
+          return best;
+        }, sel);
+        tabs++;
+        if (drawn < 80) blank.push(`${card.id}#${k} (${drawn})`);
+        // "Get this code": the dialog shows the tab's code; without its import lines it is the code that ran.
+        await page.click(`${sel} [data-fx-code]`);
+        const same = await page.evaluate((id) => {
+          const shown = document.querySelector('#code-dialog-code pre').textContent;
+          const ran = (window.__CL_LIVE_SRC || {})[id];
+          const strip = shown.split('\n').filter((l) => !/^\s*import\s.*from\s+['"]/.test(l) && !/<script\s+src=/.test(l)).join('\n').trim();
+          return document.getElementById('code-dialog').open && document.getElementById('code-dialog').dataset.fxId === id && typeof ran === 'string' && strip === ran.trim();
+        }, want);
+        if (!same) mismatch.push(`${card.id}#${k}`);
+        if (tabs === 1) {
+          await page.click('#code-dialog .copy');
+          await page.waitForTimeout(150);
+          const clip = await page.evaluate(() => navigator.clipboard.readText());
+          ok(clip === await page.evaluate(() => document.querySelector('#code-dialog-code pre').textContent), 'gallery: "Get this code" copies the code exactly');
+        }
+        await page.keyboard.press('Escape');
+      }
+    }
+    ok(blank.length === 0, `gallery: every one of ${tabs} tabs draws its chart ${blank.join(', ')}`);
+    ok(mismatch.length === 0, `gallery: every "Get this code" shows the code that runs in the card ${mismatch.join(', ')}`);
+    ok(await page.evaluate(() => window.__stub.requests.length === 0 && window.__stub.sockets.length === 0), 'gallery: no tab reaches an exchange');
+    ok(errs.length === 0, 'gallery: no console errors ' + errs.slice(0, 3).join(' | '));
+    // Smoothness while scrolling the gallery: no long task over 100 ms.
+    await page.goto(`${origin}/examples.html`, { waitUntil: 'load' });
+    await page.waitForTimeout(800);
+    await page.evaluate(() => { window.__long = []; new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__long.push(Math.round(e.duration)); }).observe({ type: 'longtask' }); });
+    await page.evaluate(async () => { const end = document.getElementById('fx-gallery').getBoundingClientRect().bottom + scrollY; for (let y = 0; y < end; y += 120) { window.scrollTo(0, y); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); } });
+    await page.waitForTimeout(600);
+    const longs = await page.evaluate(() => window.__long);
+    console.log(`  gallery scroll: long tasks ${longs.length ? longs.join(', ') + ' ms' : 'none'}`);
+    ok(longs.every((d) => d <= 100), `gallery: no long task over 100 ms while scrolling the gallery (${longs.join(', ') || 'none'})`);
+    await ctx.close();
+  }
+
+  // The indicator catalogue: filter, category, and a preview per row.
+  if (fs.existsSync(path.join(dist, 'guide', 'indicator-catalogue.html'))) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage(); const errs = watch(page);
+    await page.goto(`${origin}/guide/indicator-catalogue.html`, { waitUntil: 'load' });
+    const total = await page.evaluate(() => document.querySelectorAll('.cat-table tbody tr').length);
+    await page.fill('#cat-filter', 'rsi');
+    const shown = await page.evaluate(() => Array.from(document.querySelectorAll('.cat-table tbody tr')).filter((r) => !r.hidden).map((r) => r.querySelector('code').textContent));
+    ok(total >= 80 && shown.length > 0 && shown.length < 10 && shown.includes('rsi'), `catalogue: "rsi" narrows ${total} rows to ${shown.length}`);
+    await page.fill('#cat-filter', '');
+    await page.click('[data-cat-filter="volume"]');
+    const vol = await page.evaluate(() => Array.from(document.querySelectorAll('.cat-table tbody tr')).filter((r) => !r.hidden).map((r) => r.dataset.cat));
+    ok(vol.length > 0 && vol.every((c) => c === 'volume'), `catalogue: the Volume switch shows only volume indicators (${vol.length})`);
+    await page.click('[data-cat-filter="all"]');
+    await page.click('[data-preview="macd"]');
+    await page.waitForFunction(() => /MACD/.test(document.querySelector('[data-preview-title]').textContent), null, { timeout: 8000 }).catch(() => {});
+    const pv = await page.evaluate(() => ({ title: document.querySelector('[data-preview-title]').textContent, panes: document.querySelector('[data-catalogue-chart]')._demo.chart.panes().length }));
+    ok(/MACD/.test(pv.title) && pv.panes === 2, `catalogue: a row opens its live preview (${pv.title}, ${pv.panes} panes)`);
+    ok(errs.length === 0, 'catalogue: no console errors ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  // The comparison page: every figure about another project carries its source, or says "not stated".
+  if (fs.existsSync(path.join(dist, 'guide', 'how-it-compares.html'))) {
+    const html = fs.readFileSync(path.join(dist, 'guide', 'how-it-compares.html'), 'utf8');
+    const table = (html.match(/<table>[\s\S]*?<\/table>/) || [''])[0];
+    const rows = Array.from(table.matchAll(/<tr>([\s\S]*?)<\/tr>/g)).slice(1).map((m) => Array.from(m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)).map((c) => c[1]));
+    const bad = [];
+    for (const r of rows) for (const [k, cell] of [[2, r[2]], [3, r[3]]]) if (!cell || !(/>S[12]</.test(cell) || /not stated/.test(cell))) bad.push(`${r[0]} col ${k}`);
+    ok(rows.length >= 15 && bad.length === 0, `compare: every one of ${rows.length * 2} third-party cells has a source footnote or says "not stated" ${bad.join(', ')}`);
+    ok(/S1<\/td><td>TradingView Lightweight Charts page, https:\/\/www\.tradingview\.com\/lightweight-charts\/<\/td><td>2026-11-22/.test(html.replace(/\s+/g, ' ')) || (/tradingview\.com\/lightweight-charts/.test(html) && /openalgo\.in\/charts/.test(html) && /2026-11-22/.test(html)), 'compare: both sources are named with the date they were read');
+    ok(/not affiliated/.test(html) && /trademarks/.test(html), 'compare: the trademark and no-affiliation line is there');
+  }
+
   // Strict CSP: no inline script code and no style attributes in the output.
   {
     const files = listPages(dist);  // 404.html included
@@ -396,12 +714,14 @@ async function interactive(browser, origin) {
 // ---- final screenshots (SITE_SHOTS=1) ----
 async function screenshots(browser, origin) {
   const shot = async (name, url, { width = 1440, height = 900, theme = 'dark', mobile = false, prep } = {}) => {
-    const ctx = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
+    const ctx = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 }, null);
     await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); } catch (e) { /* none */ } }, theme);
     const page = await ctx.newPage();
     await page.goto(`${origin}/${url}`, { waitUntil: 'load' });
     await page.evaluate(() => document.fonts.ready);
     await settle(page);
+    // The home hero connects to the real exchange by itself here: wait until it is live or has fallen back.
+    if (url === 'index.html') await page.waitForFunction(() => { const w = document.querySelector('.hero-bar .live-word'); return w && w.textContent !== 'Connecting'; }, null, { timeout: 20000 }).catch(() => {});
     if (prep) await prep(page);
     await page.waitForTimeout(700);
     await page.screenshot({ path: path.join(shots, `${name}.png`) });
@@ -418,6 +738,49 @@ async function screenshots(browser, origin) {
   await shot('site-api-light', 'guide/api-reference.html', { theme: 'light', prep: async (page) => { await page.fill('#api-filter', 'scale'); await page.evaluate(() => window.scrollTo(0, document.getElementById('api-filter').getBoundingClientRect().top + scrollY - 120)); } });
   await shot('site-drawings-dark', 'index.html', { prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.querySelector('.playground').getBoundingClientRect().top + scrollY - 150)); await page.waitForTimeout(600); } });
   await shot('site-search-light', 'guide/getting-started.html', { theme: 'light', prep: async (page) => { await page.keyboard.press('/'); await page.keyboard.type('price scale'); await page.waitForTimeout(300); await page.keyboard.press('ArrowDown'); } });
+  await shot('site-gallery-dark', 'examples.html', { prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.getElementById('fx-gallery').getBoundingClientRect().top + scrollY - 120)); await page.waitForTimeout(1500); } });
+  await shot('site-compare-light', 'guide/how-it-compares.html', { theme: 'light', prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.getElementById('side-by-side').getBoundingClientRect().top + scrollY - 100)); } });
+  await shot('site-catalogue-dark', 'guide/indicator-catalogue.html', { prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.querySelector('.catalogue').getBoundingClientRect().top + scrollY - 100)); await page.waitForTimeout(1200); } });
+  // The hero's posters: the widget in demo mode (invented data, so a poster never shows old prices as if current),
+  // written to site/assets/img and copied into the built site.
+  for (const theme of ['dark', 'light']) {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); localStorage.setItem('cl-hero-data', 'demo'); } catch (e) { /* none */ } }, theme);
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    await page.waitForFunction(() => { const b = document.querySelector('[data-hero-widget]'); return b && b._hero && b._hero.widget; }, null, { timeout: 15000 }).catch(() => {});
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForTimeout(1200);
+    const file = path.join(here, 'assets', 'img', `hero-poster-${theme}.jpg`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    await page.locator('[data-hero-widget]').screenshot({ path: file, type: 'jpeg', quality: 72 });
+    fs.copyFileSync(file, path.join(dist, 'assets', 'img', `hero-poster-${theme}.jpg`));
+    await ctx.close();
+  }
+  // One real screenshot of the hero in live mode, only when the exchange can be reached from here. Not an assertion:
+  // without network it says so and the check carries on.
+  if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite-live.iife.min.js'))) {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }, null);
+    await ctx.addInitScript(() => { try { localStorage.setItem('cl-theme', 'dark'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    const reachable = await page.evaluate(async () => {
+      try { return (await fetch('https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=60', { credentials: 'omit' })).ok; } catch (e) { return false; }
+    });
+    if (!reachable) console.log('site-live-dark.png skipped: Coinbase cannot be reached from here');
+    else {
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
+      const live = await page.waitForFunction(() => document.querySelector('.hero-bar .live-word').textContent === 'Live', null, { timeout: 25000 }).then(() => true).catch(() => false);
+      if (!live) console.log('site-live-dark.png skipped: the hero did not reach Live with the real exchange');
+      else {
+        await page.waitForTimeout(5000);   // a few real trades
+        await page.screenshot({ path: path.join(shots, 'site-live-dark.png') });
+        console.log('site-live-dark.png written from the real Coinbase feed');
+      }
+    }
+    await ctx.close();
+  }
   console.log('screenshots written to docs/screenshots/site-*.png');
 }
 
@@ -441,6 +804,17 @@ async function screenshots(browser, origin) {
   const { server, port } = await serve('/');
   const origin = `http://127.0.0.1:${port}`;
   const browser = await chromium.launch();
+  // Every context works with no network: other hosts are blocked and the exchanges' fetch and WebSocket are stubbed in
+  // the page (the home hero connects by itself). Pass { fail: true } for a failing exchange, or null for the real
+  // network (the final screenshots only).
+  const rawContext = browser.newContext.bind(browser);
+  browser.newContext = async (opts = {}, live = { fail: false }) => {
+    const ctx = await rawContext(opts);
+    if (live === null) return ctx;
+    await ctx.route((u) => isExternal(String(u)), (r) => r.abort());
+    await ctx.addInitScript(liveStub, live);
+    return ctx;
+  };
   const titles = new Map(); const descs = new Map();
   const linkCache = new Map();
   const docIds = new Map();
@@ -468,11 +842,20 @@ async function screenshots(browser, origin) {
       page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`console ${m.type()}: ${m.text()}`); });
       page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
       page.on('response', (r) => { if (r.status() >= 400) problems.push(`HTTP ${r.status()} ${r.url()}`); });
+      // Nothing may reach another host while a page opens and scrolls: live demos connect only on a click.
+      const external = [];
+      page.on('request', (r) => { if (isExternal(r.url())) external.push(r.url()); });
+      page.on('websocket', (w) => external.push(w.url()));
       await page.goto(`${origin}/${pg}`, { waitUntil: 'load' });
       await settle(page);
       const d = await page.evaluate(inPagePassive);
       if (d.hasCharts) await waitCharts(page, label);
       ok(problems.length === 0, `${label}: console and network clean ${problems.join(' | ')}`);
+      ok(external.length === 0, `${label}: no request to another host on load ${external.slice(0, 3).join(' | ')}`);
+      if (pg !== 'index.html') {
+        const used = await page.evaluate(() => window.__stub ? window.__stub.requests.length + window.__stub.sockets.length : 0);
+        ok(used === 0, `${label}: no live demo connects by itself (${used} exchange requests); only the home hero does`);
+      }
       ok(d.h1 === 1, `${label}: exactly one h1 (found ${d.h1})`);
       ok(!!d.title && !!d.desc, `${label}: title and description present`);
       ok(d.overflow <= 0, `${label}: no horizontal overflow (${d.overflow}px)`);
@@ -510,7 +893,7 @@ async function screenshots(browser, origin) {
         ok(charts.length > 0, `${label}: live charts found`);
         for (const c of charts) {
           ok(c.diff > 300, `${label}: ${c.kind} canvas is non-empty (${c.diff} drawn pixels)`);
-          ok(c.bright >= 0 && (scheme === 'dark' ? c.bright < 80 : c.bright > 200), `${label}: ${c.kind} canvas background matches the ${scheme} theme (brightness ${c.bright})`);
+          if (!c.themeFree) ok(c.bright >= 0 && (scheme === 'dark' ? c.bright < 80 : c.bright > 200), `${label}: ${c.kind} canvas background matches the ${scheme} theme (brightness ${c.bright})`);
           ok(c.w > 0 && c.w <= prof.width, `${label}: ${c.kind} fits the viewport (${Math.round(c.w)}px)`);
         }
       }

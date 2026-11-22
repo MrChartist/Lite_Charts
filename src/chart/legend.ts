@@ -1,7 +1,8 @@
 // The built-in legend: a small block of DOM text at the top-left of each pane naming its series and the values of the
 // hovered bar (the last bar when nothing is hovered). DOM, not canvas, so it can be selected and read by screen
-// readers. It lives in a closed shadow root and every style is a CSSOM write, so page CSS and a strict CSP cannot
-// reach it (the same rules as the attribution link). The text builders are pure and tested.
+// readers. It lives in an OPEN shadow root (deliberately: testing and accessibility tools must be able to read it; the
+// attribution link is the one closed root) and every style is a CSSOM write, so page CSS and a strict CSP cannot
+// reach it. The text builders are pure and tested.
 
 import { formatPercent, MINUS_SIGN } from '../core/format';
 import { cssReset, css } from '../render/dom';

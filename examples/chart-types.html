@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: chart types</title>
+<style>
+  :root { color-scheme: light; --bg: #F8F8F8; --ink: #1D1D1F; --muted: #6E6E73; --card: #FFFFFF; --edge: rgba(0,0,0,0.1); --chip: #EDEDF0; --focus: #0066CC; }
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #0C0C0C; --ink: #F5F5F7; --muted: #98989D; --card: #141414; --edge: rgba(255,255,255,0.12); --chip: #26262A; --focus: #0A84FF; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+    font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  h2 { font-size: 13px; font-weight: 600; margin: 20px 2px 8px; color: var(--muted); }
+  button { font: inherit; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge);
+    background: var(--card); color: var(--ink); cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .switcher { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .switcher button { height: 28px; padding: 0 12px; font-size: 13px; background: var(--chip); border-color: transparent; }
+  .switcher button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 32px; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+  .inputs label { display: inline-flex; align-items: center; gap: 6px; }
+  .inputs input { width: 72px; height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--edge); background: var(--card); color: var(--ink); font: inherit; }
+  .note { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .box { border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
+  #big { height: 420px; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 800px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .grid { grid-template-columns: minmax(0, 1fr); } #big { height: 320px; } }
+  figure { margin: 0; }
+  figcaption { font-weight: 600; font-size: 13px; margin: 0 2px 6px; display: flex; justify-content: space-between; gap: 8px; }
+  figcaption span { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cell { height: 210px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DEMO · every chart type on the same data</h1>
+  <button id="theme" type="button">Dark theme</button>
+</header>
+
+<div class="switcher" id="switcher" role="group" aria-label="Chart type"></div>
+<div class="inputs" id="inputs"></div>
+<div class="box" id="big"></div>
+
+<h2>All chart types, 260 daily bars of demo data</h2>
+<div class="grid" id="grid"></div>
+
+<script src="../dist/chartist-lite.iife.min.js"></script>
+<script src="../dist/chartist-lite-transforms.iife.min.js"></script>
+<script>
+  // Deterministic data: a seeded random walk on business days, volatile enough that the brick types have structure.
+  function makeBars(count, seed) {
+    let s = seed >>> 0;
+    const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const bars = [];
+    let close = 100;
+    let day = Date.UTC(2023, 0, 2) / 1000;
+    while (bars.length < count) {
+      const wd = new Date(day * 1000).getUTCDay();
+      if (wd !== 0 && wd !== 6) {
+        const open = close;
+        // slow drift up and down plus noise, so there are trends and reversals
+        const drift = Math.sin(bars.length / 38) * 0.004;
+        close = Math.max(1, open * (1 + drift + (rand() - 0.5) * 0.05));
+        const high = Math.max(open, close) * (1 + rand() * 0.014);
+        const low = Math.min(open, close) * (1 - rand() * 0.014);
+        bars.push({
+          time: new Date(day * 1000).toISOString().slice(0, 10),
+          open: +open.toFixed(2), high: +high.toFixed(2), low: +low.toFixed(2), close: +close.toFixed(2),
+          volume: Math.round(800 + rand() * 1200),
+        });
+      }
+      day += 86400;
+    }
+    return bars;
+  }
+
+  const L = ChartistLite;
+  const T = ChartistLiteTransforms;
+  const bars = makeBars(260, 17);
+  const params = new URLSearchParams(location.search);
+  let theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+
+  const types = T.CHART_TYPES;
+  const settings = {};                         // id -> { key: value } the big chart's inputs
+  for (const t of types) settings[t.id] = Object.fromEntries(t.inputs.map(i => [i.key, i.default]));
+  // Kagi at the 4% default makes a handful of segments on this data; 1.5% shows the yang / yin change.
+  const demoOpts = { kagi: { reversal: 1.5 } };
+  settings.kagi.reversal = 1.5;
+
+  /** Show chart type `id` on `chart` (replacing what it had); returns the applied result. */
+  function show(state, id, opts) {
+    if (state.series) state.chart.removeSeries(state.series);
+    const t = types.find(x => x.id === id);
+    const a = T.applyChartType(id, bars, Object.assign({ series: { title: t.name } }, opts || {}));
+    state.series = state.chart.addSeries(a.definition, a.options);
+    state.series.setData(a.data);
+    state.chart.timeScale().fitContent();
+    state.id = id;
+    state.applied = a;
+    return a;
+  }
+
+  function infoText(a) {
+    const i = a.info;
+    if (!i) return a.data.length + ' bars';
+    const bits = [];
+    if (i.brick !== undefined) bits.push('brick ' + +i.brick.toPrecision(3));
+    if (i.box !== undefined) bits.push('box ' + +i.box.toPrecision(3) + ', ' + i.reversal + '-box');
+    if (i.range !== undefined) bits.push('range ' + +i.range.toPrecision(3));
+    if (i.lines !== undefined) bits.push(i.lines + ' lines');
+    if (i.reversal !== undefined && i.box === undefined) bits.push(i.reversal + (i.reversalMode === 'price' ? '' : '%') + ' reversal');
+    bits.push(a.data.length + ' rows');
+    return bits.join(' · ');
+  }
+
+  const mkChart = (el, extra) => L.createChart(el, Object.assign({ theme, ariaLabel: 'DEMO chart types' }, extra));
+  const states = [];
+
+  // Grid: one chart per type.
+  const grid = document.getElementById('grid');
+  for (const t of types) {
+    const fig = document.createElement('figure');
+    const cap = document.createElement('figcaption');
+    const name = document.createElement('div'); name.textContent = t.name;
+    const info = document.createElement('span');
+    cap.append(name, info);
+    const cell = document.createElement('div');
+    cell.className = 'box cell';
+    cell.id = 'c-' + t.id;
+    fig.append(cap, cell);
+    grid.append(fig);
+    const state = { chart: mkChart(cell, { legend: { visible: false } }), series: null, id: t.id, cell };
+    const a = show(state, t.id, demoOpts[t.id]);
+    // Time-based looks show the last 80 bars so a candle is a candle at this size; brick types show everything.
+    if (t.kind === 'series' || t.id === 'heikinAshi') state.chart.timeScale().setVisibleLogicalRange({ from: bars.length - 80, to: bars.length + 1 });
+    info.textContent = infoText(a);
+    states.push(state);
+  }
+
+  // The big chart with a switcher and the inputs of the chosen type.
+  const bigState = { chart: mkChart(document.getElementById('big')), series: null, id: 'candles' };
+  states.push(bigState);
+  const switcher = document.getElementById('switcher');
+  const inputsEl = document.getElementById('inputs');
+  const note = document.createElement('span'); note.className = 'note';
+
+  function renderInputs() {
+    inputsEl.textContent = '';
+    const t = types.find(x => x.id === bigState.id);
+    for (const inp of t.inputs) {
+      const label = document.createElement('label');
+      label.append(inp.label);
+      const el = document.createElement('input');
+      el.type = 'number'; el.value = settings[t.id][inp.key];
+      if (inp.min !== undefined) el.min = inp.min;
+      if (inp.max !== undefined) el.max = inp.max;
+      el.step = inp.max !== undefined && inp.max <= 50 ? '1' : 'any';
+      el.addEventListener('change', () => { settings[t.id][inp.key] = Number(el.value); apply(); });
+      label.append(el);
+      inputsEl.append(label);
+    }
+    inputsEl.append(note);
+  }
+  function apply() {
+    const a = show(bigState, bigState.id, settings[bigState.id]);
+    note.textContent = infoText(a);
+  }
+  function selectBig(id) {
+    bigState.id = id;
+    for (const b of switcher.children) b.setAttribute('aria-pressed', String(b.dataset.id === id));
+    renderInputs();
+    apply();
+  }
+  for (const t of types) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = t.name; b.dataset.id = t.id; b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', () => selectBig(t.id));
+    switcher.append(b);
+  }
+  selectBig(params.get('type') || 'candles');
+
+  const themeBtn = document.getElementById('theme');
+  function setTheme(name) {
+    theme = name;
+    document.documentElement.dataset.theme = name;
+    states.forEach(s => s.chart.applyOptions({ theme: name }));
+    themeBtn.textContent = name === 'dark' ? 'Light theme' : 'Dark theme';
+  }
+  themeBtn.textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+  themeBtn.addEventListener('click', () => setTheme(theme === 'dark' ? 'light' : 'dark'));
+
+  /** Pixels in the series' own colours, per chart: a chart that drew nothing has none. */
+  function drawn() {
+    const c = theme === 'dark' ? L.darkTheme : L.lightTheme;
+    const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+    const marks = [c.up, c.down, c.line].map(rgb);
+    return states.map(s => {
+      const cv = s.chart.takeScreenshot();
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        for (const m of marks) {
+          if (Math.abs(d[i] - m[0]) + Math.abs(d[i + 1] - m[1]) + Math.abs(d[i + 2] - m[2]) < 60) { n++; break; }
+        }
+      }
+      return { id: s.id, rows: s.applied.data.length, marked: n };
+    });
+  }
+
+  window.__types = { states, selectBig, setTheme, drawn, bars, ids: types.map(t => t.id), settings, apply: () => { states.forEach(s => s.chart.paint()); } };
+</script>
+</body>
+</html>

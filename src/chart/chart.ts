@@ -17,6 +17,7 @@ import { darkTheme, lightTheme, readableTextOn, type ThemeColors } from '../core
 import { timeToSeconds, type Time } from '../core/time';
 import { TimeIndex } from '../core/time-index';
 import { isValidTimeZone, localTimeZone, weekdayOfDay } from '../core/zone';
+import { parseSpan, spanFirstIndex, type Span, type SpanInput } from '../core/span';
 import type { ChartPrimitive, PrimitiveDrawScope } from '../plugins/primitive';
 import { CanvasLayer } from '../render/canvas';
 import { css, cssReset } from '../render/dom';
@@ -65,7 +66,7 @@ let uid = 0;
 const ext = new Float64Array(2);
 
 /** A view request made before the chart had a width or data; applied by the first layout that can. */
-type PendingView = { kind: 'fit' } | { kind: 'logical'; range: LogicalRange } | { kind: 'time'; range: TimeRange };
+type PendingView = { kind: 'fit' } | { kind: 'logical'; range: LogicalRange } | { kind: 'time'; range: TimeRange } | { kind: 'span'; span: Span };
 
 function commonDefaults(): SeriesCommonOptions {
   return {
@@ -92,8 +93,12 @@ function withPriceFormat(options: object, given: unknown): void {
 class SeriesHandle<D extends AnySeriesDefinition> implements SeriesApi<D> {
   constructor(private chart: Chart, readonly model: AnyModel) {}
   seriesType(): string { return this.model.def.type; }
-  setData(data: readonly unknown[]): void { this.chart.setSeriesData(this.model, data as never); }
-  update(row: unknown): void { this.chart.updateSeries(this.model, row as never); }
+  private subs = new Set<(kind: 'set' | 'update', row?: unknown) => void>();
+  setData(data: readonly unknown[]): void { this.chart.setSeriesData(this.model, data as never); this.emit('set'); }
+  update(row: unknown): void { this.chart.updateSeries(this.model, row as never); this.emit('update', row); }
+  private emit(kind: 'set' | 'update', row?: unknown): void { for (const f of this.subs) { try { f(kind, row); } catch { /* a plugin's handler */ } } }
+  subscribeDataChanged(f: (kind: 'set' | 'update', row?: unknown) => void): void { this.subs.add(f); }
+  unsubscribeDataChanged(f: (kind: 'set' | 'update', row?: unknown) => void): void { this.subs.delete(f); }
   data(): never[] { return this.model.data() as never[]; }
   applyOptions(options: object): void {
     mergeInto(this.model.options, options);
@@ -161,6 +166,9 @@ export class Chart implements ChartApi, InputTarget {
   private crossSubs = new Set<MouseEventHandler>();
   private clickSubs = new Set<MouseEventHandler>();
   private rangeSubs = new Set<LogicalRangeChangeHandler>();
+  private rtSubs = new Set<(atRealTime: boolean) => void>();
+  private removeSubs = new Set<() => void>();
+  private lastRT = true;
   private cleanups: (() => void)[] = [];
   /** Price-scale options a NEW pane starts from: the chart's creation options plus later chart-level patches only. */
   private paneScaleDefaults!: { right: PriceScaleOptions; left: PriceScaleOptions };
@@ -867,7 +875,12 @@ export class Chart implements ChartApi, InputTarget {
       for (const h of this.rangeSubs) h(range ? { ...range } : null);
     }
     this.lastRange = range;
+    const rt = this.atRealTime();
+    if (rt !== this.lastRT) { this.lastRT = rt; for (const h of this.rtSubs) h(rt); }
   }
+
+  /** The newest bar is in view (not scrolled back into history). */
+  atRealTime(): boolean { return this.index.count === 0 || this.ts.rightOffset >= -0.5; }
 
   private drawSeries(s: AnyModel, pane: Pane, pi: number, vis: { from: number; to: number }, rect: { x: number; y: number; width: number; height: number }): void {
     if (!s.options.visible || s.count === 0) return;
@@ -922,7 +935,7 @@ export class Chart implements ChartApi, InputTarget {
       if (!Number.isFinite(y)) continue;
       const yd = Math.floor((pane.top + y) * vpr) + 0.5;
       ctx.save();
-      ctx.strokeStyle = s.def.lastValueColor(row, s.options, this.colors);
+      ctx.strokeStyle = s.def.lastValueColor(row, s.options, this.colors, s.lastRow(1));
       ctx.lineWidth = 1;
       ctx.setLineDash([Math.max(1, Math.round(2 * hpr)), Math.max(1, Math.round(3 * hpr))]);
       ctx.beginPath();
@@ -1016,7 +1029,7 @@ export class Chart implements ChartApi, InputTarget {
       const v = s.def.value(row);
       const y = scale.priceToY(v);
       if (!Number.isFinite(y)) continue;
-      const fill = s.def.lastValueColor(row, s.options, this.colors);
+      const fill = s.def.lastValueColor(row, s.options, this.colors, s.lastRow(1));
       tags.push({ y, text: this.priceText(scale, v, pi), fill, color: readableTextOn(fill), pinned: true });
     }
     this.eachPrimitive(pi, (p, owner) => {
@@ -1532,6 +1545,12 @@ export class Chart implements ChartApi, InputTarget {
     const ts = this.ts;
     if (v.kind === 'fit') ts.fitContent();
     else if (v.kind === 'logical') ts.setVisibleLogicalRange(v.range);
+    else if (v.kind === 'span') {
+      const ix = this.index;
+      // At least five bars, so a 1D span on daily bars does not zoom to a single candle.
+      const first = Math.max(0, Math.min(spanFirstIndex(v.span, ix.times, ix.count, ix.displayZone()), ix.count - 5));
+      ts.setVisibleLogicalRange({ from: first - 0.5, to: ix.count - 1 + ts.options.rightOffset });
+    }
     else {
       const a = this.index.lowerBound(timeToSeconds(v.range.from));
       const toS = timeToSeconds(v.range.to);
@@ -1568,6 +1587,14 @@ export class Chart implements ChartApi, InputTarget {
       setVisibleRange(range: TimeRange) { request({ kind: 'time', range: { from: range.from, to: range.to } }); },
       getVisibleLogicalRange: () => { const r = ts.visibleLogicalRange(); return r ? { ...r } : null; },
       setVisibleLogicalRange(range: LogicalRange) { request({ kind: 'logical', range: { from: range.from, to: range.to } }); },
+      setVisibleSpan(span: SpanInput) {
+        const p = parseSpan(span);
+        if (!p) throw new RangeError(`Chartist Lite: unknown span ${JSON.stringify(span)}; use '1D', '5D', '1M', 'YTD', 'All' or { days }`);
+        request({ kind: 'span', span: p });
+      },
+      isAtRealTime: () => chart.atRealTime(),
+      subscribeRealTimeChange(h: (atRealTime: boolean) => void) { chart.rtSubs.add(h); },
+      unsubscribeRealTimeChange(h: (atRealTime: boolean) => void) { chart.rtSubs.delete(h); },
       scrollPosition: () => ts.rightOffset,
       timeToCoordinate(time: Time) {
         const slot = chart.index.indexOf(timeToSeconds(time));
@@ -1674,9 +1701,18 @@ export class Chart implements ChartApi, InputTarget {
 
   element(): HTMLElement { return this.root; }
 
+  /** Run `fn` once when the chart is removed (plugins drop their own listeners there). Returns an unsubscribe. */
+  onRemove(fn: () => void): () => void {
+    if (this.removed) { try { fn(); } catch { /* a plugin's cleanup must not break the caller */ } return () => {}; }
+    this.removeSubs.add(fn);
+    return () => { this.removeSubs.delete(fn); };
+  }
+
   remove(): void {
     if (this.removed) return;
     this.removed = true;
+    for (const f of [...this.removeSubs]) { try { f(); } catch { /* keep removing */ } }
+    this.removeSubs.clear();
     if (this.raf) this.win.cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.input.destroy();
@@ -1692,6 +1728,7 @@ export class Chart implements ChartApi, InputTarget {
     this.crossSubs.clear();
     this.clickSubs.clear();
     this.rangeSubs.clear();
+    this.rtSubs.clear();
     this.main.destroy();
     this.top.destroy();
     for (const p of this.paneList) p.legend?.remove();

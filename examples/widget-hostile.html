@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Strict policy: no inline styles or scripts. The widget (shadow DOM, one constructable sheet, CSSOM writes) must still work. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; connect-src 'self'">
+<title>Chartist Lite: widget on a hostile page</title>
+<link rel="stylesheet" href="hostile/hostile.css">
+</head>
+<body>
+<h1>Hostile host page: the widget under a strict CSP, right to left, broad CSS rules</h1>
+<div id="w" class="box"></div>
+<script src="../dist/chartist-lite.terminal.iife.min.js"></script>
+<script src="../dist/chartist-lite-extras.iife.min.js"></script>
+<script src="widget-hostile.js"></script>
+</body>
+</html>

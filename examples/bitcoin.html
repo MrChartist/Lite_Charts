@@ -60,7 +60,7 @@
   chart.panes()[1].setStretchFactor(0.9);
   L.createPriceLine(rsi, { price: 70, lineStyle: 'dotted', axisLabelVisible: false });
   L.createPriceLine(rsi, { price: 30, lineStyle: 'dotted', axisLabelVisible: false });
-  const tools = D.createDrawingTools(chart, candles, { toolbar: true });
+  const tools = D.createDrawingTools(chart, candles, { toolbar: true, tools: D.ALL_TOOLS, volumeSeries: volume });
 
   const statusEl = document.getElementById('status');
   const words = { connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
@@ -74,7 +74,9 @@
     symbol: params.get('symbol') || 'BTC-USD', interval, provider, volumeSeries: volume, chart, history: 500,
     onStatus: (s, info) => {
       statusEl.dataset.s = s;
-      document.getElementById('statusText').textContent = `${words[s] || s}${info.provider ? ` · ${info.provider}` : ''}`;
+      // The provider and quote currency really in use (a fallback to Binance quotes in USDT), in the status and the legend.
+      document.getElementById('statusText').textContent = [words[s] || s, info.providerLabel, info.quote].filter(Boolean).join(' · ');
+      candles.applyOptions({ title: info.pair });
     },
     onError: e => console.info('[live]', e.message),
     onBars: () => refreshRsi(),
@@ -95,7 +97,6 @@
   document.getElementById('provider').addEventListener('change', e => {
     live.disconnect();
     live = start(e.target.value, interval);
-    candles.applyOptions({ title: e.target.value === 'binance' ? 'BTC-USDT' : 'BTC-USD' });
   });
   const themeBtn = document.getElementById('theme');
   const setTheme = dark => {

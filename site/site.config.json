@@ -1,9 +1,9 @@
 {
   "name": "Chartist Lite",
-  "baseUrl": "https://example.invalid/chartist-lite/",
-  "baseUrlNote": "PLACEHOLDER. The owner sets the real public address here (with a trailing slash). Canonical links, Open Graph URLs, JSON-LD and sitemap.xml are built from it. Every other link on the site is relative, so the pages work from file:// and under any sub-path.",
-  "repoUrl": "",
-  "repoUrlNote": "Optional. The address of the source repository folder for this package (no trailing slash). When empty, links in the README to files that are not site pages (LICENSE, PROVENANCE.md and so on) are shown as plain text.",
+  "baseUrl": "https://mrchartist.github.io/Lite_Charts/",
+  "baseUrlNote": "The public address of the site, the GitHub Pages address of the repository (with a trailing slash). Canonical links, Open Graph URLs, JSON-LD and sitemap.xml are built from it; SITE_BASE_URL overrides it at build time. Every other link on the site is relative, so the pages work from file:// and under any sub-path.",
+  "repoUrl": "https://github.com/MrChartist/Lite_Charts",
+  "repoUrlNote": "The source repository (no trailing slash): the GitHub link in the header and links to files that are not site pages. SITE_REPO_URL overrides it.",
   "author": { "type": "Person", "name": "Mr. Chartist", "url": "https://mrchartist.com" },
   "license": { "name": "Apache-2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0" },
   "locale": "en",

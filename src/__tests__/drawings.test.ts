@@ -77,7 +77,7 @@ describe('JSON', () => {
     const long = normalizeSpec({ tool: 'long', points: [{ time: 100, price: 100 }, { time: 200, price: 110 }] }, base);
     expect(long.points[2]).toEqual({ time: 200, price: 95 });
     const json = drawingsToJSON([a, long]);
-    expect(JSON.parse(json).version).toBe(1);
+    expect(JSON.parse(json).version).toBe(2);
     const back = drawingsFromJSON(json, base);
     expect(back).toEqual([a, long]);
     const withBad = JSON.stringify({ format: 'chartist-lite-drawings', version: 1, drawings: [{ tool: 'nope', points: [] }, a] });
@@ -211,11 +211,11 @@ describe('controller', () => {
 
 describe('toolbar groups and shortcuts', () => {
   it('every tool is in exactly one group; groups are the rail buttons', async () => {
-    const { TOOL_GROUPS, TOOLS } = await import('../drawings/tools');
+    const { TOOL_GROUPS, TOOLS, groupsFor, BASIC_TOOLS } = await import('../drawings/tools');
     const all = TOOL_GROUPS.flatMap(g => [...g.tools]);
     expect(new Set(all).size).toBe(all.length);
     expect([...all].sort()).toEqual(TOOLS.map(t => t.id).sort());
-    expect(TOOL_GROUPS.map(g => g.label)).toEqual(['Lines', 'Shapes', 'Fibonacci', 'Measure', 'Positions', 'Annotate']);
+    expect(groupsFor(BASIC_TOOLS).map(g => g.label)).toEqual(['Lines', 'Channels and pitchforks', 'Fibonacci and Gann', 'Shapes', 'Measure and analysis', 'Positions', 'Annotate']);
   });
 
   it('single keys are unique letters that the chart does not use', async () => {
