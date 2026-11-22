@@ -79,3 +79,7 @@ Tested in Chromium only (Playwright scripts in `scripts/`): the example pages dr
 
 > [!VERIFY]
 > The roles and the live region are implemented but unverified with assistive technology.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

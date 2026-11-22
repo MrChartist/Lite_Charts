@@ -26,7 +26,17 @@ export type { SeriesTypeName } from './series-map';
 export interface ChartistReadyDetail { chart: ChartApi }
 export interface ChartistErrorDetail { message: string; error: unknown }
 
-const OBSERVED = ['type', 'theme', 'height', 'time-zone', 'volume', 'attribution', 'src', 'aria-label'] as const;
+const OBSERVED = ['type', 'theme', 'height', 'time-zone', 'volume', 'attribution', 'src', 'aria-label', 'live', 'symbol', 'interval', 'provider'] as const;
+
+/** The live connector, registered by the element-live build (`auto-live.ts`); absent in the plain element build. */
+type LiveConnect = (series: SeriesApi<AnySeriesDefinition>, options: Record<string, unknown>) => {
+  disconnect(): void; setInterval(i: string): void; setSymbol(s: string): void; status(): string;
+};
+let liveConnect: LiveConnect | null = null;
+/** Called by the element-live build so `<chartist-chart live>` can stream. */
+export function setElementLive(fn: LiveConnect): void { liveConnect = fn; }
+
+const LIVE_TEXT: Record<string, string> = { connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
 
 // The shadow root's rules. Adopted as a constructable stylesheet (CSSOM), so a strict Content-Security-Policy
 // (`style-src 'self'`, no 'unsafe-inline') does not block them the way it blocks a <style> element.
@@ -40,6 +50,9 @@ const STYLE = `
 .ready .fb{display:none}
 .msg{position:absolute;left:8px;right:8px;bottom:6px;font:12px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;opacity:.75;pointer-events:none}
 .msg[hidden]{display:none}
+.st{position:absolute;top:6px;display:flex;align-items:center;gap:6px;padding:2px 8px;border-radius:10px;font:500 12px/16px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;pointer-events:none;z-index:2}
+.st[hidden]{display:none}
+.dot{width:8px;height:8px;border-radius:4px;flex:none}
 `;
 
 const sheets = new WeakMap<object, CSSStyleSheet>();
@@ -77,6 +90,8 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
     private msg!: HTMLDivElement;
     private chartApi: ChartApi | null = null;
     private mainSeries: SeriesApi<AnySeriesDefinition> | null = null;
+    private liveHandle: ReturnType<LiveConnect> | null = null;
+    private statusEl!: HTMLDivElement;
     private volSeries: SeriesApi<AnySeriesDefinition> | null = null;
     private seriesType: SeriesTypeName | null = null;
     private explicit: Row[] | null = null;
@@ -114,7 +129,14 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       msg.setAttribute('part', 'message');
       msg.hidden = true;
       this.msg = msg;
-      wrap.append(fb, frame, msg);
+      // Live status: a dot and a word (never colour alone), top right of the plot.
+      const st = this.ownerDocument.createElement('div');
+      st.className = 'st';
+      st.setAttribute('role', 'status');
+      st.setAttribute('part', 'status');
+      st.hidden = true;
+      this.statusEl = st;
+      wrap.append(fb, frame, msg, st);
       root.append(wrap);
       this.syncHeight();
     }
@@ -189,6 +211,12 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       if (oldValue === value) return;
       if (name === 'height') { this.syncHeight(); return; }
       if (!this.started) return;
+      if (name === 'live') { this.teardown(); this.start(); return; }
+      if (this.liveHandle) {
+        if (name === 'symbol' && value) { this.liveHandle.setSymbol(value); return; }
+        if (name === 'interval' && value) { this.liveHandle.setInterval(value); return; }
+        if (name === 'provider' || name === 'type' || name === 'volume') { this.teardown(); this.start(); return; }
+      }
       if (name === 'src') { this.explicit = null; void this.load(); return; }
       if (!this.chartApi) return;
       try {
@@ -217,6 +245,7 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
 
     private start(): void {
       this.started = true;
+      if (this.hasAttribute('live')) { this.startLive(); return; }
       const doc = this.ownerDocument;
       if (doc.readyState === 'loading') {
         // The element can be upgraded before its children are parsed: wait so an inline data script is seen.
@@ -236,6 +265,9 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       this.waitDoc = null;
       this.abort?.abort();
       this.abort = null;
+      this.liveHandle?.disconnect();
+      this.liveHandle = null;
+      if (this.statusEl) this.statusEl.hidden = true;
       this.mainSeries = null;
       this.volSeries = null;
       this.seriesType = null;
@@ -303,6 +335,65 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       const firstDraw = !this.ready;
       this.wrap.classList.add('ready');
       if (firstDraw) this.dispatchEvent(new CustomEvent<ChartistReadyDetail>('chartist-ready', { bubbles: true, composed: true, detail: { chart } }));
+    }
+
+    /** `live`: history and a stream from a public exchange API, straight from the visitor's browser. */
+    private startLive(): void {
+      try {
+        if (!liveConnect) throw new Error('Chartist Lite: live charts need the element-live build (chartist-lite.element-live.iife.min.js)');
+        const { config, issues } = this.config();
+        if (issues.length) throw new TypeError(`Chartist Lite: ${issues[0]}`);
+        if (!this.chartApi) this.chartApi = this.makeChart(config);
+        const chart = this.chartApi;
+        const def = resolveSeriesDefinition(config.type);
+        if (!def) throw new Error(`Chartist Lite: type="${config.type}" is not available in this build`);
+        const symbol = this.getAttribute('symbol') || 'BTC-USD';
+        this.mainSeries = chart.addSeries(def, { title: symbol });
+        this.seriesType = config.type;
+        let volumeSeries: SeriesApi<AnySeriesDefinition> | undefined;
+        if (config.volume) {
+          const h = resolveSeriesDefinition('histogram');
+          if (h) {
+            volumeSeries = chart.addSeries(h, { priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false, priceFormat: { precision: 4, minMove: 0.0001 } });
+            chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+            chart.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
+            this.volSeries = volumeSeries;
+          }
+        }
+        const token = this.token;
+        this.liveHandle = liveConnect(this.mainSeries, {
+          symbol, interval: this.getAttribute('interval') || '1m', provider: this.getAttribute('provider') || 'coinbase',
+          volumeSeries, chart,
+          onStatus: (s: string) => { if (token === this.token) this.showStatus(s); },
+          onError: (e: Error) => { if (token === this.token) this.dispatchEvent(new CustomEvent<ChartistErrorDetail>('chartist-error', { bubbles: true, composed: true, detail: { message: e.message, error: e } })); },
+          onBars: (kind: string) => {
+            if (token !== this.token || kind !== 'history') return;
+            const firstDraw = !this.ready;
+            this.wrap.classList.add('ready');
+            if (firstDraw) this.dispatchEvent(new CustomEvent<ChartistReadyDetail>('chartist-ready', { bubbles: true, composed: true, detail: { chart } }));
+          },
+        });
+      } catch (e) { this.fail(e); }
+    }
+
+    private showStatus(s: string): void {
+      const el = this.statusEl;
+      const chart = this.chartApi;
+      if (!el || !chart) return;
+      const c = (chart.options().theme === 'dark' || (chart.options().theme === 'auto' && this.ownerDocument.defaultView?.matchMedia?.('(prefers-color-scheme: dark)').matches));
+      const ink = c ? '#F5F5F7' : '#1D1D1F';
+      const dot = s === 'live' ? (c ? '#30D158' : '#1E7E37') : s === 'error' ? (c ? '#FF6961' : '#C8161F') : s === 'reconnecting' || s === 'connecting' ? (c ? '#FF9F0A' : '#C93400') : (c ? '#98989D' : '#6E6E73');
+      el.textContent = '';
+      const d = this.ownerDocument.createElement('span');
+      d.className = 'dot';
+      d.style.setProperty('background', dot);
+      const t = this.ownerDocument.createElement('span');
+      t.textContent = LIVE_TEXT[s] ?? s;
+      el.append(d, t);
+      el.style.setProperty('color', ink);
+      el.style.setProperty('background', c ? 'rgba(20,20,20,0.86)' : 'rgba(255,255,255,0.86)');
+      el.style.setProperty('right', `${chart.priceScale().width() + 8}px`);
+      el.hidden = false;
     }
 
     private makeChart(config: ElementConfig): ChartApi {

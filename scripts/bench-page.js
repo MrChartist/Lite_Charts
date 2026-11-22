@@ -6,6 +6,9 @@
   let candles = null;
   let bars = [];
   let drawings = null;
+  let live = null;
+  let liveTick = null;
+  let liveClock = 0;
 
   function makeBars(n) {
     const out = [];
@@ -20,8 +23,8 @@
     return out;
   }
 
-  window.__setup = (kind, n) => {
-    if (chart) { drawings && drawings.destroy(); chart.remove(); drawings = null; }
+  window.__setup = async (kind, n) => {
+    if (chart) { drawings && drawings.destroy(); live && live.disconnect(); chart.remove(); drawings = null; live = null; }
     bars = makeBars(n);
     chart = L.createChart('c', { timeScale: { timeZone: 'America/New_York' } });
     candles = chart.addSeries(L.CandlestickSeries, { title: 'BENCH' });
@@ -53,6 +56,25 @@
           : [{ time: t(a), price: p(a) }, { time: t(b), price: p(b) * 1.004 }];
         drawings.add({ tool, points: pts, text: tool === 'text' ? 'Note' : undefined });
       }
+    }
+    if (kind === 'live') {
+      const LV = window.ChartistLiteLive;
+      if (!LV) return false;
+      // The live path end to end except the network: a provider that serves the generated bars as history and
+      // feeds Coinbase "match" messages (as JSON text, parsed by the real parser) into connectLive.
+      const provider = {
+        id: 'bench', intervals: ['1m'], canPageBack: false,
+        history: async (_s, _i, range) => bars.slice(-range.limit).map(b => ({ ...b, volume: 1 })),
+        subscribe: (_s, _i, on) => {
+          liveTick = text => { const t = LV.parseCoinbaseMessage(JSON.parse(text)); if (t) on.tick(t); };
+          on.open();
+          return () => { liveTick = null; };
+        },
+      };
+      live = LV.connectLive(candles, { provider, interval: '1m', history: Math.min(n, 5000), chart });
+      await new Promise(r => setTimeout(r, 0));
+      liveClock = bars[bars.length - 1].time;
+      if (live.status() !== 'live') return false;
     }
     chart.paint();
     window.__flush();
@@ -103,6 +125,18 @@
       step = () => { x += (Math.floor(k / 60) % 2 ? -4 : 4); fire('pointermove', x, H / 2, { buttons: 1 }); };
     } else if (scenario === 'zoom') step = () => fire('wheel', W * 0.7, H / 2, { deltaY: Math.floor(k / 30) % 2 ? 40 : -40, ctrlKey: true });
     else if (scenario === 'tick') step = tick;
+    else if (scenario === 'trades') {
+      window.__tradesFrom = candles.data().length;
+      // 20 trades a frame (a busy BTC burst; Coinbase averages a few a second), a new minute every 60 frames.
+      let id = 1;
+      step = () => {
+        for (let j = 0; j < 20; j++) {
+          liveClock += 0.05;
+          const price = 100 + Math.sin(liveClock) * 2;
+          liveTick(JSON.stringify({ type: 'match', trade_id: id++, price: String(price), size: '0.01', time: new Date(liveClock * 1000).toISOString() }));
+        }
+      };
+    }
     else if (scenario === 'fit') { chart.timeScale().fitContent(); window.__flush(); step = tick; }
     else if (scenario === 'drag') {
       // Drag one drawing (a horizontal line at the middle) up and down.
@@ -119,6 +153,7 @@
       if (k >= warm) costs.push(c);
     }
     if (scenario === 'pan' || scenario === 'drag') fire('pointerup', W / 2, H / 2, { button: 0, buttons: 0 });
+    if (scenario === 'trades') window.__tradesGrew = candles.data().length > window.__tradesFrom;
     if (scenario === 'drag') {
       // The drag must have moved the line, or the scenario measured nothing.
       const d = drawings.drawings().find(x => x.tool === 'horizontal' && x.id === drawings.selected()?.id);

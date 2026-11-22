@@ -1,0 +1,54 @@
+{
+ "capturedAt": "2026-11-21T16:35:35.043Z",
+ "source": "wss://ws-feed.exchange.coinbase.com subscribe matches BTC-USD",
+ "data": [
+  {
+   "type": "subscriptions",
+   "channels": [
+    {
+     "name": "matches",
+     "product_ids": [
+      "BTC-USD"
+     ],
+     "account_ids": null
+    }
+   ]
+  },
+  {
+   "type": "last_match",
+   "trade_id": 1141939984,
+   "maker_order_id": "5633b864-7bce-4a9b-b809-14b06ce343a6",
+   "taker_order_id": "50caa966-cd89-4246-a2a1-02bd0e7cc97c",
+   "side": "sell",
+   "size": "0.00142677",
+   "price": "59897.04",
+   "product_id": "BTC-USD",
+   "sequence": 139978321545,
+   "time": "2026-11-21T16:35:27.959578Z"
+  },
+  {
+   "type": "match",
+   "trade_id": 1141939985,
+   "maker_order_id": "ce8a2870-4d05-45ef-bb76-166f9d64411c",
+   "taker_order_id": "96eb6fde-b8d7-46b7-bd99-3e6a3b4d2dce",
+   "side": "buy",
+   "size": "0.00000002",
+   "price": "59894.05",
+   "product_id": "BTC-USD",
+   "sequence": 139978321627,
+   "time": "2026-11-21T16:35:28.045537Z"
+  },
+  {
+   "type": "match",
+   "trade_id": 1141939986,
+   "maker_order_id": "ce8a2870-4d05-45ef-bb76-166f9d64411c",
+   "taker_order_id": "14f12f37-3e6c-41cc-8506-af1e42a0aff1",
+   "side": "buy",
+   "size": "0.00000002",
+   "price": "59894.05",
+   "product_id": "BTC-USD",
+   "sequence": 139978321832,
+   "time": "2026-11-21T16:35:28.712167Z"
+  }
+ ]
+}

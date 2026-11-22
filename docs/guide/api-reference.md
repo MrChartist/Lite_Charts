@@ -1150,3 +1150,7 @@ The interfaces and option types of the main entry. `Time` is `number | string | 
 ```ts
 import type { ChartApi, Time } from '@mrchartist/chartist-lite';
 ```
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

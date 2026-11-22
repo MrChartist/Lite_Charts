@@ -75,3 +75,7 @@ Chartist Lite side.
 - Only horizontal grid lines by default (`grid.vertLines` is `false`).
 - An empty chart says "No data" (`localization.noDataText`).
 - System font stack, text never below 12 px, Apple-like colours with no purple.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

@@ -132,3 +132,7 @@ candles.update({ time: '2024-06-14', open: 101.2, high: 102.9, low: 100.8, close
 - [Panes and scales](panes-and-scales.md): volume, a second axis, a lower pane for RSI.
 - [Theming](theming.md) and [Accessibility](accessibility.md).
 - [API reference](api-reference.md).
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

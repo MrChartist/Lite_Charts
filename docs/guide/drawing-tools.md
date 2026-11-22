@@ -182,3 +182,7 @@ The frame benchmark includes a drawings chart (candles with 20 drawings of every
 
 > [!VERIFY]
 > Drawing with touch on real phones and tablets, and in browsers other than Chromium, has not been verified.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

@@ -399,6 +399,9 @@ chartist-chart th, chartist-chart td { padding: 2px 16px 2px 0; border: 0; backg
 .tool-group .icon-btn { width: 36px; height: 36px; }
 .tool-group .icon-btn svg { width: 18px; height: 18px; }
 .menu-btn { display: inline-grid; }
+.header-cta { display: none; margin-left: 6px; }
+.gh-link svg { width: 20px; height: 20px; }
+@media (min-width: 600px) { .header-cta { display: inline-flex; } }
 @media (min-width: 880px) {
   .main-nav { display: flex; }
   .search-btn { min-width: 180px; }
@@ -775,6 +778,7 @@ h2:hover .anchor, h3:hover .anchor, h4:hover .anchor, .anchor:focus-visible { op
 .ex-card .demo-bar, .window-bar.demo-bar { border-bottom: 0; }
 .demo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-top: 1px solid var(--hair); background: var(--card); }
 .demo-bar .group-label { font: var(--t-eyebrow); letter-spacing: var(--tk-eyebrow); text-transform: uppercase; color: var(--muted); }
+.demo-bar .keys + .group-label { margin-left: -4px; margin-right: 8px; }
 .live > .demo-bar { border-top: 0; border-bottom: 1px solid var(--hair); }
 .ex-dialog { padding: 0; border: 1px solid var(--hair-2); border-radius: var(--r-card); background: var(--panel); width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 48px); box-shadow: var(--shadow-pop); overflow: hidden; }
 .ex-dialog[open] { animation: rise var(--dur-panel) var(--ease); display: flex; flex-direction: column; }
@@ -827,7 +831,7 @@ h2:hover .anchor, h3:hover .anchor, h4:hover .anchor, .anchor:focus-visible { op
 /* Touch: every target reaches 44 px. */
 @media (pointer: coarse) {
   .btn, .chip, .seg button, .copy, .icon-btn, .search-btn, .main-nav a, .footer-nav a, .nav-list a, .chapters a,
-  .pager a, .skip, .nav-step, .nav-title, .page-toc a, .embed-card a, .standout-item, a.fact-chip, .ex-actions a, .search-results a, .crumb a, .related a, .duo-text a, .apart-item a,
+  .pager a, .skip, .nav-step, .gh-link, .nav-title, .page-toc a, .embed-card a, .standout-item, a.fact-chip, .ex-actions a, .search-results a, .crumb a, .related a, .duo-text a, .apart-item a,
   .task-card .go { min-height: 44px; min-width: 44px; }
   .icon-btn, .tool-group .icon-btn, .search-btn { width: 44px; height: 44px; }
   .chapters .disc { width: 38px; height: 38px; }

@@ -23,7 +23,11 @@ const pkg = path.join(here, '..');
 const out = path.join(here, 'dist');
 const config = JSON.parse(readFileSync(path.join(here, 'site.config.json'), 'utf8'));
 const pkgJson = JSON.parse(readFileSync(path.join(pkg, 'package.json'), 'utf8'));
-const baseUrl = config.baseUrl.endsWith('/') ? config.baseUrl : `${config.baseUrl}/`;
+// SITE_BASE_URL and SITE_REPO_URL override the config, so a CI job (GitHub Pages and the like) can publish with the
+// right canonical links, Open Graph URLs, JSON-LD and sitemap without editing site.config.json.
+const BASE_RAW = (process.env.SITE_BASE_URL || config.baseUrl).trim();
+const baseUrl = BASE_RAW.endsWith('/') ? BASE_RAW : `${BASE_RAW}/`;
+const REPO = (process.env.SITE_REPO_URL ?? config.repoUrl ?? '').trim().replace(/\/$/, '');
 const NAME = config.name;
 const VERSION = pkgJson.version;
 const warnings = [];
@@ -162,7 +166,7 @@ const guides = readdirSync(guideDir).filter((f) => f.endsWith('.md')).map((f) =>
 }).sort((a, b) => a.order - b.order);
 const guideBySlug = (s) => guides.find((g) => g.slug === s);
 
-const mdMap = new Map([['README.md', 'readme.html'], ['docs/PERFORMANCE.md', 'performance.html'], ...guides.map((g) => [g.src, g.out])]);
+const mdMap = new Map([['README.md', 'readme.html'], ['docs/README.md', 'guide/index.html'], ['docs/PERFORMANCE.md', 'performance.html'], ...guides.map((g) => [g.src, g.out])]);
 const assets = new Map(); // dist path -> source file
 
 function renderOptions(page, srcFile, extra = {}) {
@@ -175,7 +179,7 @@ function renderOptions(page, srcFile, extra = {}) {
       const target = path.posix.normalize(path.posix.join(srcDir, file));
       const dest = mdMap.get(target);
       if (dest) return { href: rel(page, dest) + (hash ? `#${hash}` : '') };
-      if (config.repoUrl) return { href: `${config.repoUrl.replace(/\/$/, '')}/${target}` };
+      if (REPO) return { href: `${REPO}/blob/HEAD/${target}` };
       warnings.push(`${srcFile}: link to ${target} is not a site page; shown as plain text (set repoUrl in site.config.json to link it)`);
       return { text: true };
     },
@@ -243,6 +247,7 @@ const ICON = {
   moon: '<svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z"/></svg>',
   menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
+  github: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5a9.5 9.5 0 0 0-3 18.5c.5.1.7-.2.7-.5v-1.7c-2.6.6-3.2-1.2-3.2-1.2-.4-1.1-1-1.4-1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.1-.2-4.3-1-4.3-4.7 0-1 .4-1.9 1-2.6-.1-.2-.4-1.2.1-2.5 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.3.1 2.5.6.7 1 1.6 1 2.6 0 3.7-2.2 4.5-4.3 4.7.3.3.6.8.6 1.6v2.4c0 .3.2.6.7.5A9.5 9.5 0 0 0 12 2.5Z"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
 };
@@ -306,7 +311,7 @@ function layout(page) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(page.title)}</title>
-<meta name="description" content="${esc(page.description)}">
+<meta name="description" content="${esc(page.description)}">${page.noindex ? '\n<meta name="robots" content="noindex">' : ''}
 <link rel="canonical" href="${esc(url)}">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#000000">
@@ -338,6 +343,8 @@ ${ldBlocks}
     <a class="brand" href="${rel(p, 'index.html')}">${MARK}<span>${esc(NAME)}</span><span class="ver">${esc(VERSION)}</span></a>
     <nav class="main-nav" aria-label="Main">${nav}</nav>
     <div class="header-tools">
+      ${REPO ? `<a class="icon-btn gh-link" href="${esc(REPO)}" rel="noopener" aria-label="Source on GitHub">${ICON.github}</a>` : ''}
+      <a class="btn btn--primary btn--sm header-cta" href="${rel(p, 'guide/getting-started.html')}">Get started</a>
       <div class="tool-group js-only"><button class="search-btn" type="button" id="search-open" aria-label="Search the documentation" aria-keyshortcuts="/">${ICON.search}<span class="label">Search</span><kbd>/</kbd></button><button class="icon-btn" id="theme-toggle" type="button" aria-pressed="true" aria-label="Dark theme">${ICON.moon}${ICON.sun}</button></div>
       <button class="icon-btn menu-btn js-only" id="menu-open" type="button" aria-label="Open the menu" aria-haspopup="dialog" aria-controls="drawer">${ICON.menu}</button>
     </div>
@@ -659,7 +666,7 @@ ${chapter('start', 'Start in a <span class="serif-frame">minute.</span>', `Versi
     path: p, title: `${NAME}: a lightweight financial chart library, no dependencies`, demos: true, drawings: DRAWINGS, bodyClass: 'home',
     description: 'A lightweight financial chart library: candlestick and other series, indicators, panes, time zones and a chartist-chart web component. No dependencies.',
     body,
-    ld: [{ '@context': 'https://schema.org', '@type': 'SoftwareSourceCode', name: NAME, description: config.tagline, programmingLanguage: 'TypeScript', license: config.license.url, version: VERSION, url: baseUrl, author: author(), ...(config.repoUrl ? { codeRepository: config.repoUrl } : {}) }],
+    ld: [{ '@context': 'https://schema.org', '@type': 'SoftwareSourceCode', name: NAME, description: config.tagline, programmingLanguage: 'TypeScript', license: config.license.url, version: VERSION, url: baseUrl, author: author(), ...(REPO ? { codeRepository: REPO } : {}) }],
   });
   searchDocs.unshift({ t: NAME, u: p, d: 'Home: what the library is, live demos, install.', s: CH.map(([k, t]) => [t, `ch-${k}`, '']) });
 }
@@ -705,6 +712,17 @@ for (const page of pages) {
 const loc = (p) => baseUrl + (p === 'index.html' ? '' : p);
 writeFileSync(path.join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${esc(loc(p.path))}</loc></url>`).join('\n')}\n</urlset>\n`);
 writeFileSync(path.join(out, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: ${baseUrl}sitemap.xml\n`);
+// Host-agnostic extras: GitHub Pages skips Jekyll with .nojekyll; every static host serves 404.html for a missing path.
+// The 404 page may be served at any depth, so it carries a <base> at the site address and absolute-from-base links.
+writeFileSync(path.join(out, '.nojekyll'), '');
+{
+  const notFound = layout({
+    path: '404.html', title: `Page not found | ${NAME}`, noindex: true,
+    description: `This page of the ${NAME} documentation does not exist. Start from the guide, the examples or the home page.`,
+    body: `<section class="index-panel"><div class="wrap"><p class="eyebrow">404</p><h1 id="top">This page is <span class="serif-frame">not here.</span></h1><p class="lead">The address may be old or mistyped. These will get you back on track.</p><div class="actions"><a class="btn btn--primary btn--lg" href="guide/getting-started.html">Get started</a><a class="btn btn--lg" href="guide/index.html">The guide</a><a class="btn btn--lg" href="index.html">Home</a></div></div></section>`,
+  }).replace('<head>', `<head>\n<base href="${esc(baseUrl)}">`);
+  writeFileSync(path.join(out, '404.html'), notFound);
+}
 
 if (baseUrl.includes('example.invalid')) warnings.push('baseUrl in site/site.config.json is the placeholder; set the real address before publishing (canonical, Open Graph, JSON-LD and sitemap use it)');
 let bytes = 0;

@@ -1,0 +1,64 @@
+# Builds the documentation site and publishes it on GitHub Pages (free for public repositories).
+# Active once this package is its own repository; set Settings, Pages, Source to "GitHub Actions".
+# The public address comes from the Pages settings, so canonical links, Open Graph URLs, JSON-LD and the sitemap are
+# right without editing site/site.config.json.
+name: Documentation site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Read the Pages settings
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the package
+        run: npm run build
+
+      - name: Build the site
+        run: npm run site
+        env:
+          SITE_BASE_URL: ${{ steps.pages.outputs.base_url }}/
+          SITE_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

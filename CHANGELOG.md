@@ -36,6 +36,11 @@ First version (not yet published).
 - Plugin input hooks: `chart.addPointerHandler`, `chart.setCursor`, `timeScale().timeToLogical` / `logicalToTime`.
 - Frame-cost bench (`npm run bench`, `docs/PERFORMANCE.md`): every measured gesture within a 120 Hz and a 144 Hz frame.
 
+- Live entry (`./live`, `chartist-lite-live.iife.min.js`) and the element-live build
+  (`chartist-lite.element-live.iife.min.js`): `connectLive(series, { symbol, interval, provider })` with Coinbase,
+  Binance (data-api.binance.vision) and Kraken, fallback, reconnect with backfill, pause when hidden, older history at the
+  left edge; `<chartist-chart live symbol="BTC-USD">`.
+
 ### Behaviour worth knowing
 
 - The wheel does not trap page scrolling by default (`interaction.wheelZoom: 'auto'`).

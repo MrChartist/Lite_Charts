@@ -1,0 +1,44 @@
+{
+ "capturedAt": "2026-11-21T16:35:35.043Z",
+ "source": "wss://ws.kraken.com/v2 subscribe trade BTC/USD",
+ "data": [
+  {
+   "method": "subscribe",
+   "result": {
+    "channel": "trade",
+    "snapshot": false,
+    "symbol": "BTC/USD"
+   },
+   "success": true,
+   "time_in": "2026-11-21T16:35:34.468943Z",
+   "time_out": "2026-11-21T16:35:34.468978Z"
+  },
+  {
+   "channel": "trade",
+   "type": "update",
+   "data": [
+    {
+     "symbol": "BTC/USD",
+     "side": "buy",
+     "price": 59898,
+     "qty": 0.00033908,
+     "ord_type": "limit",
+     "trade_id": 117294699,
+     "timestamp": "2026-11-21T16:35:34.645511Z"
+    },
+    {
+     "symbol": "BTC/USD",
+     "side": "buy",
+     "price": 59898,
+     "qty": 0.00009992,
+     "ord_type": "limit",
+     "trade_id": 117294700,
+     "timestamp": "2026-11-21T16:35:34.645511Z"
+    }
+   ]
+  },
+  {
+   "channel": "heartbeat"
+  }
+ ]
+}

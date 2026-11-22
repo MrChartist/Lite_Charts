@@ -21,8 +21,8 @@ const FRAMES = 200;
 const WARM = 20;
 const SIZES = quick ? [1000, 100000] : [1000, 10000, 100000];
 const DPRS = quick ? [1] : [1, 2];
-const CHARTS = ['plain', 'indicators', 'drawings'];
-const SCENARIOS = { plain: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], indicators: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], drawings: ['crosshair', 'pan', 'zoom', 'tick', 'fit', 'drag'] };
+const CHARTS = ['plain', 'indicators', 'drawings', 'live'];
+const SCENARIOS = { plain: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], indicators: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], drawings: ['crosshair', 'pan', 'zoom', 'tick', 'fit', 'drag'], live: ['crosshair', 'trades'] };
 
 const stat = xs => {
   const s = [...xs].sort((a, b) => a - b);
@@ -54,6 +54,7 @@ const stat = xs => {
         for (const scenario of SCENARIOS[chart]) {
           await page.evaluate(() => window.__raster());
           const costs = await page.evaluate(([s, f, w]) => window.__run(s, f, w), [scenario, FRAMES, WARM]);
+          if (scenario === 'trades' && !(await page.evaluate(() => window.__tradesGrew))) errors.push(`trades scenario added no bars (${chart}, ${bars}, DPR ${dpr})`);
           if (scenario === 'drag' && !(await page.evaluate(() => window.__dragMoved))) errors.push(`drag scenario did not move the drawing (${chart}, ${bars}, DPR ${dpr})`);
           const raster = stat((await page.evaluate(() => window.__raster())).slice(WARM));
           const st = stat(costs);
@@ -107,6 +108,7 @@ ${doc.summary.over144} over 6.94 ms.
 | Live tick | ${worst(r => r.scenario === 'tick' && r.bars === 1000)} | ${worst(r => r.scenario === 'tick' && r.bars === 10000)} | ${worst(r => r.scenario === 'tick' && r.bars === 100000)} |
 | Live tick, whole series in view | ${worst(r => r.scenario === 'fit' && r.bars === 1000)} | ${worst(r => r.scenario === 'fit' && r.bars === 10000)} | ${worst(r => r.scenario === 'fit' && r.bars === 100000)} |
 | Drag a drawing | ${worst(r => r.scenario === 'drag' && r.bars === 1000)} | ${worst(r => r.scenario === 'drag' && r.bars === 10000)} | ${worst(r => r.scenario === 'drag' && r.bars === 100000)} |
+| Live trades (20 a frame) | ${worst(r => r.scenario === 'trades' && r.bars === 1000)} | ${worst(r => r.scenario === 'trades' && r.bars === 10000)} | ${worst(r => r.scenario === 'trades' && r.bars === 100000)} |
 
 (Worst p95 over the three charts and both pixel ratios.)
 
@@ -127,7 +129,9 @@ ${doc.summary.over144} over 6.94 ms.
   histogram and two lines: three indicators, two extra panes), drawings (candles with 20 drawings of every tool).
 - **Gestures:** crosshair (pointer moves), pan (a held drag), wheel zoom (ctrl + wheel, in and out), live tick
   (\`update()\` of the last bar at the opening zoom), live tick with the whole series in view (\`fitContent()\` first, the
-  most bars a frame can hold), drag a drawing (selected horizontal line).
+  most bars a frame can hold), drag a drawing (selected horizontal line), live trades (the live entry end to end except
+  the network: 20 Coinbase trade messages a frame parsed, folded into bars and painted once per frame; a live chart
+  holds at most 5000 bars of history, so its 10k and 100k rows load 5000).
 - **Data:** ${SIZES.join(' / ')} one-minute bars, time zone America/New_York. Chart 1200 x 600 CSS px.
 
 ## Why the engine can use every refresh

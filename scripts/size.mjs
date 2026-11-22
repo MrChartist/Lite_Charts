@@ -12,6 +12,7 @@ const ENTRIES = {
   element: 'src/element/index.ts',
   react: 'src/react/index.ts',
   drawings: 'src/drawings/index.ts',
+  live: 'src/live/index.ts',
 };
 
 // The one-tag IIFE builds, as shipped (read from dist/; run `npm run build` first).
@@ -20,6 +21,8 @@ const IIFES = {
   'iife indic.': 'dist/chartist-lite-indicators.iife.min.js',
   'iife element': 'dist/chartist-lite.element.iife.min.js',
   'iife draw.': 'dist/chartist-lite-drawings.iife.min.js',
+  'iife live': 'dist/chartist-lite-live.iife.min.js',
+  'iife el+live': 'dist/chartist-lite.element-live.iife.min.js',
 };
 
 let failed = false;

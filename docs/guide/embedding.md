@@ -181,3 +181,7 @@ The repository's `examples/frame.html` is such a page; it reads `src`, `type`, `
 ## What was tested
 
 In Chromium: the four ways as example pages in light and dark; lazy creation; removing and re-adding an element twelve times; attribute changes; a missing `src`; React updates without re-creation; React under `StrictMode` including unmount; React server rendering with `react-dom/server`; a page with `style-src 'self'`, right-to-left text and hostile global CSS (`scripts/screenshots-review.cjs`); the focus ring inside the element; `.data` over a slow `src`; no console errors. Not tested: Firefox, Safari, real touch devices, a page with JavaScript off (the fallback content rule follows from how browsers treat unknown tags), any specific CMS, styling through `::part(frame)`, and React 18 (only React 19 was run).
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

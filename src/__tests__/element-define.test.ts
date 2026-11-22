@@ -25,7 +25,7 @@ describe('defineChartistElement', () => {
     expect(b).toBe(a);
     expect(calls).toEqual(['price-chart']);
     expect((a as unknown as { observedAttributes: string[] }).observedAttributes).toEqual(
-      ['type', 'theme', 'height', 'time-zone', 'volume', 'attribution', 'src', 'aria-label'],
+      ['type', 'theme', 'height', 'time-zone', 'volume', 'attribution', 'src', 'aria-label', 'live', 'symbol', 'interval', 'provider'],
     );
     expect(defineChartistElement()).not.toBe(a);
     expect(calls).toEqual(['price-chart', 'chartist-chart']);

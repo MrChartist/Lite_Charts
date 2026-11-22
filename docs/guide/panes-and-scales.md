@@ -127,3 +127,7 @@ Primitives and custom series renderers receive chart (canvas) coordinates instea
 ## Linking several charts
 
 If you use separate charts instead of panes (for example in different containers), you can keep their views in step with `timeScale().subscribeVisibleLogicalRangeChange` and `setVisibleLogicalRange`. Panes do this for you, and also share the crosshair, so prefer them when the charts belong together.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

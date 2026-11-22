@@ -115,3 +115,7 @@ A series type is one object implementing `SeriesDefinition`: `type`, `defaults`,
 
 > [!VERIFY]
 > Whether the custom series contract is a stable public API in 0.1.0 is not settled. Treat it as subject to change until the package is released.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

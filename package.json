@@ -32,6 +32,10 @@
       "types": "./dist/types/drawings/index.d.ts",
       "import": "./dist/drawings.js"
     },
+    "./live": {
+      "types": "./dist/types/live/index.d.ts",
+      "import": "./dist/live.js"
+    },
     "./iife": "./dist/chartist-lite.iife.min.js",
     "./package.json": "./package.json"
   },

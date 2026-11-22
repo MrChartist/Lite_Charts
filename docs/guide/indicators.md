@@ -116,3 +116,7 @@ Nothing throws, except an unknown `createIndicator` kind, which is a programming
 ## Where the maths comes from
 
 The numeric behaviour is the same as the indicator code of the host application this package was started in; `PROVENANCE.md` lists each file and what changed, and the header comment of each source file states the exact maths. Differences from that code are deliberate and listed in `src/indicators/README.md`: for example `obv` and `heikinAshi` give a `{ time }` row for a bar with a bad close, and `vwap` has no bands.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

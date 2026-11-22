@@ -381,7 +381,7 @@ async function interactive(browser, origin) {
 
   // Strict CSP: no inline script code and no style attributes in the output.
   {
-    const files = listPages(dist);
+    const files = listPages(dist);  // 404.html included
     let inline = 0; let styles = 0;
     for (const f of files) {
       const html = fs.readFileSync(path.join(dist, f), 'utf8');
@@ -424,7 +424,14 @@ async function screenshots(browser, origin) {
 (async () => {
   console.log('building the site');
   execFileSync(process.execPath, [path.join(here, 'build.mjs')], { stdio: 'inherit' });
-  const pages = listPages(dist);
+  // 404.html is checked on its own below: it carries a <base> at the public site address, so it is not visited here.
+  const pages = listPages(dist).filter((p) => p !== '404.html');
+  {
+    const nf = fs.readFileSync(path.join(dist, '404.html'), 'utf8');
+    ok(/<base href="https?:[^"]+\/">/.test(nf) && /<meta name="robots" content="noindex">/.test(nf) && (nf.match(/<h1\b/g) || []).length === 1, '404.html: one h1, noindex, and a <base> at the site address so it works at any depth');
+    ok(!fs.readFileSync(path.join(dist, 'sitemap.xml'), 'utf8').includes('404.html'), '404.html: not in the sitemap');
+    ok(fs.existsSync(path.join(dist, '.nojekyll')), '.nojekyll is written for GitHub Pages');
+  }
   console.log(`${pages.length} pages: ${pages.join(', ')}`);
 
   const sitemap = fs.readFileSync(path.join(dist, 'sitemap.xml'), 'utf8');

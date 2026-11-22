@@ -52,6 +52,7 @@ src/
   indicators/         `./indicators` entry: pure indicator functions and incremental forms (no chart import)
   element/            `./element` entry: `<chartist-chart>` (`defineChartistElement`; `auto.ts` registers on load for the IIFE)
   react/              `./react` entry: `createChartistReact(React)`, React injected, never a dependency
+  live/               `./live` entry: `connectLive`, providers (Coinbase, Binance, Kraken), bar building; the only network code
   drawings/           `./drawings` entry: drawing tools (see "Plugin input hooks and drawing tools")
   render/dom.ts       CSSOM style writes with `!important` resets (CSP-safe, immune to page CSS)
 ```
@@ -284,3 +285,42 @@ the pointer's coordinates; in `draw`, `scope.logicalToX(logical)` and `scope.pri
 something moves, repaint with `host.requestOverlay()` and paint the moving thing in `drawOverlay`, so the main layer is
 not redrawn on every pointer move. Inside this entry, a new tool is one `TOOLS` entry plus a case in `renderDrawing`,
 `hitDrawing` (and `renderLabels` / `handlePoints` when it has labels or special handles).
+
+## Live data (2026-11-21)
+
+Entry `@mrchartist/chartist-lite/live` (`src/live/`, IIFE `ChartistLiteLive`). The core never imports it and makes no
+network requests; the plain element build does not contain it (the element-live build does).
+
+| File | Role |
+|---|---|
+| `providers.ts` | `LiveProvider` interface; built-ins `coinbase`, `binance`, `kraken`; pure parsers (`parse*`) tested on real samples in `__fixtures__/`; symbol maps |
+| `bars.ts` | `BarBuilder` (trades into time buckets; late trades dropped, duplicate ids counted once; streamed bars replace their time) and `backoffMs` |
+| `connect.ts` | `connectLive`: history, stream, reconnect, backfill, pause, older history, status |
+
+`connectLive(series, options)` returns `{ status(), provider(), symbol(), interval(), setInterval(i), setSymbol(s),
+loadOlder(), disconnect() }`. Options: `symbol` ('BTC-USD'), `interval` ('1m' | '5m' | '15m' | '1h' | '6h' | '1d'),
+`provider` (a built-in name, tried first with the others as fallback when its history fails, or your own provider used
+alone), `volumeSeries`, `chart` (older history when the view reaches the left edge), `history` (500), `onStatus`,
+`onError`, `onBars`, and injection points `fetch`, `WebSocket`, `env` (frames, timers, random, clock, document,
+window). Statuses: 'connecting' | 'live' | 'reconnecting' | 'offline' | 'error'.
+
+- **Once per frame.** Ticks update a builder; changed bars wait in a map and one `requestAnimationFrame` hands them to
+  `series.update()` (and the volume series) in time order.
+- **Reconnect.** A stream that closes reconnects after a jittered exponential wait (1 s doubling to 30 s, +/- 30%); the
+  reload of history backfills the gap with `update()` (or `setData` when the gap is longer than the history).
+- **Pause.** A hidden tab or an offline browser closes the stream and aborts requests (status 'offline'); showing the
+  tab or coming online reloads and resubscribes.
+- **Generations.** Every start bumps a generation number; anything from an older one (a late fetch, a closing socket)
+  is ignored. Every fetch has an AbortController. `disconnect()` closes the socket, aborts, clears the timer, cancels
+  the frame and removes every listener.
+- **Never throws into the page.** Errors go to `onError`; host callbacks are wrapped.
+
+A provider of your own: `{ id, intervals, canPageBack, history(symbol, interval, { limit, before? }, { fetch,
+WebSocket, signal }) => Promise<LiveBar[] ascending>, subscribe(symbol, interval, { tick, open, closed }, { fetch,
+WebSocket }) => close }`. `tick` takes `{ kind: 'trade', time, price, size, id? }` or `{ kind: 'bar', bar, closed }`.
+
+Element: `<chartist-chart live symbol="BTC-USD" interval="1m" provider="coinbase" volume>` with
+`chartist-lite.element-live.iife.min.js`; a status dot and word sit at the top right of the plot; `symbol` and
+`interval` changes switch the stream; removal disconnects. React, without a hook of ours: create the chart in an effect
+(or use the React wrapper's `onReady`), call `connectLive(series, options)` there, and return `() => live.disconnect()`
+as the effect's cleanup.

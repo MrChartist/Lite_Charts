@@ -107,3 +107,7 @@ createChart('chart', { attribution: { position: 'bottom-left' } });    // move i
 ## Page theme and the chart together
 
 Charts do not read your page's CSS. If your page has its own theme toggle, call `chart.applyOptions({ theme })` for each chart when it changes, or use `'auto'` if the page follows the system setting. The site you are reading does exactly this: the toggle at the top of the page switches the page and every live chart on it.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

@@ -79,3 +79,7 @@ Pass the exchange's own zone to both, the same one you give the time axis.
 ## Scrolling and live data
 
 The view is anchored to the last bar. When you append a bar the live view moves with it; a view the reader has scrolled back stays where it is. `chart.timeScale().scrollToRealTime()` jumps back to the newest bar. See the [API reference](api-reference.md) for the time scale methods.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).

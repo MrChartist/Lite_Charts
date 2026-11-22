@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: live Bitcoin</title>
+<style>
+  :root { color-scheme: light; --bg: #F8F8F8; --ink: #1D1D1F; --muted: #6E6E73; --card: #FFFFFF; --edge: rgba(0,0,0,0.1); --sel: #1D1D1F; --selInk: #FFFFFF;
+    --live: #1E7E37; --warn: #C93400; --err: #C8161F; }
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #0C0C0C; --ink: #F5F5F7; --muted: #98989D; --card: #141414; --edge: rgba(255,255,255,0.12); --sel: #F5F5F7; --selInk: #1D1D1F;
+    --live: #30D158; --warn: #FF9F0A; --err: #FF6961; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+    font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .seg { display: inline-flex; padding: 2px; border-radius: 999px; border: 1px solid var(--edge); background: var(--card); }
+  .seg button { font: inherit; font-weight: 500; height: 28px; min-width: 40px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: var(--ink); cursor: pointer; }
+  .seg button[aria-checked="true"] { background: var(--sel); color: var(--selInk); }
+  .seg button:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid #0066CC; outline-offset: 2px; }
+  select, .btn { font: inherit; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--edge); background: var(--card); color: var(--ink); cursor: pointer; }
+  .status { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--edge); background: var(--card); font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--muted); }
+  .status[data-s="live"] .dot { background: var(--live); }
+  .status[data-s="reconnecting"] .dot, .status[data-s="connecting"] .dot { background: var(--warn); }
+  .status[data-s="error"] .dot { background: var(--err); }
+  #chart { height: 620px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
+  p.note { color: var(--muted); margin: 10px 2px 0; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bitcoin, live <span id="pair" style="color: var(--muted); font-weight: 400">BTC-USD</span></h1>
+  <div class="row">
+    <div class="seg" role="radiogroup" aria-label="Interval" id="intervals">
+      <button type="button" role="radio" data-i="1m">1m</button><button type="button" role="radio" data-i="5m">5m</button><button type="button" role="radio" data-i="15m">15m</button><button type="button" role="radio" data-i="1h">1h</button><button type="button" role="radio" data-i="1d">1d</button>
+    </div>
+    <label class="row" style="gap:6px"><span style="color:var(--muted)">Source</span>
+      <select id="provider" aria-label="Data source"><option value="coinbase">Coinbase</option><option value="binance">Binance (USDT)</option><option value="kraken">Kraken</option></select>
+    </label>
+    <span class="status" id="status" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Connecting</span></span>
+    <button class="btn" id="theme" type="button">Dark theme</button>
+  </div>
+</header>
+<div id="chart"></div>
+<p class="note">Indicative prices from the exchange's public API, straight from your browser to the exchange; nothing passes through or is stored by this page. Not advice. Keys 1, 5, F (15m), H (1h), D (1d) switch the interval when the chart is not focused.</p>
+<script src="../dist/chartist-lite.iife.min.js"></script>
+<script src="../dist/chartist-lite-indicators.iife.min.js"></script>
+<script src="../dist/chartist-lite-drawings.iife.min.js"></script>
+<script src="../dist/chartist-lite-live.iife.min.js"></script>
+<script>
+  const L = ChartistLite, I = ChartistLiteIndicators, D = ChartistLiteDrawings, LV = ChartistLiteLive;
+  const params = new URLSearchParams(location.search);
+  const chart = L.createChart('chart', { theme: params.get('theme') === 'dark' ? 'dark' : 'light', ariaLabel: 'Bitcoin live price chart', timeScale: { timeZone: 'local' } });
+  const candles = chart.addSeries(L.CandlestickSeries, { title: 'BTC-USD' });
+  const volume = chart.addSeries(L.HistogramSeries, { title: 'Volume', priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false, priceFormat: { precision: 4, minMove: 0.0001 } });
+  chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  chart.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.22 } });
+  const rsi = chart.addSeries(L.LineSeries, { title: 'RSI 14', lineWidth: 2, priceLineVisible: false, color: '#B85C00' }, 1);
+  chart.panes()[1].setStretchFactor(0.9);
+  L.createPriceLine(rsi, { price: 70, lineStyle: 'dotted', axisLabelVisible: false });
+  L.createPriceLine(rsi, { price: 30, lineStyle: 'dotted', axisLabelVisible: false });
+  const tools = D.createDrawingTools(chart, candles, { toolbar: true });
+
+  const statusEl = document.getElementById('status');
+  const words = { connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
+  let rsiPending = false;
+  const refreshRsi = () => {
+    if (rsiPending) return;
+    rsiPending = true;
+    requestAnimationFrame(() => { rsiPending = false; rsi.setData(I.rsi(candles.data(), 14)); });
+  };
+  const start = (provider, interval) => LV.connectLive(candles, {
+    symbol: params.get('symbol') || 'BTC-USD', interval, provider, volumeSeries: volume, chart, history: 500,
+    onStatus: (s, info) => {
+      statusEl.dataset.s = s;
+      document.getElementById('statusText').textContent = `${words[s] || s}${info.provider ? ` · ${info.provider}` : ''}`;
+    },
+    onError: e => console.info('[live]', e.message),
+    onBars: () => refreshRsi(),
+  });
+  let interval = params.get('interval') || '1m';
+  let live = start(params.get('provider') || 'coinbase', interval);
+
+  const segs = [...document.querySelectorAll('#intervals button')];
+  const markInterval = () => segs.forEach(b => b.setAttribute('aria-checked', String(b.dataset.i === interval)));
+  const setInterval_ = i => { interval = i; live.setInterval(i); markInterval(); };
+  segs.forEach(b => b.addEventListener('click', () => setInterval_(b.dataset.i)));
+  markInterval();
+  document.addEventListener('keydown', e => {
+    if (e.target && (e.target.closest?.('#chart') || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = { '1': '1m', '5': '5m', f: '15m', h: '1h', d: '1d' }[e.key.toLowerCase()];
+    if (k) setInterval_(k);
+  });
+  document.getElementById('provider').addEventListener('change', e => {
+    live.disconnect();
+    live = start(e.target.value, interval);
+    candles.applyOptions({ title: e.target.value === 'binance' ? 'BTC-USDT' : 'BTC-USD' });
+  });
+  const themeBtn = document.getElementById('theme');
+  const setTheme = dark => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    chart.applyOptions({ theme: dark ? 'dark' : 'light' });
+    themeBtn.textContent = dark ? 'Light theme' : 'Dark theme';
+  };
+  themeBtn.addEventListener('click', () => setTheme(document.documentElement.dataset.theme !== 'dark'));
+  if (params.get('theme') === 'dark') setTheme(true);
+  window.__demo = { chart, candles, volume, rsi, tools, get live() { return live; } };
+</script>
+</body>
+</html>

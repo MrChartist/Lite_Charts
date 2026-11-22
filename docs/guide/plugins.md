@@ -132,3 +132,7 @@ Price lines and markers are made from exactly this contract, so reading `src/plu
 ## Things this library does not do
 
 No order placement, no pattern detection and no signals: markers and price lines draw what you give them. Interactive drawing is a separate entry, described in [Drawing tools](drawing-tools.md), and the pointer hooks it uses (`chart.addPointerHandler`, `chart.setCursor`) are open to your own tools too. The hover callbacks (`subscribeCrosshairMove`, `subscribeClick`) give you the time, the point and the rows under the pointer.
+
+---
+
+All documents: [docs/README.md](../README.md). The package front door: [README](../../README.md).
