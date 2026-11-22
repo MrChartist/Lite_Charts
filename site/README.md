@@ -48,8 +48,10 @@ The pages need no `'unsafe-inline'`: the only inline `<script>` blocks are JSON-
 are data, not code. A policy such as `default-src 'self'; img-src 'self' data:` works for the whole site; the live
 charts load the package's script files from `assets/`.
 
-The home page's hero chart shows real market data by default: when it comes into view the reader's browser connects to
-Coinbase's public feed for BTC-USD (a pair switch offers ETH and SOL), labelled "Real market data · Coinbase". It stays on
+The home page's hero is the ready-made widget (`chartist-lite.terminal.iife.min.js`, loaded after the page's load event
+behind a static poster, `site/assets/img/hero-poster-*.jpg`, which the check writes in demo mode). It shows real market
+data by default: the reader's browser connects to Coinbase's public feed for BTC-USD (the widget's own symbol search
+offers the other pairs), labelled "Real market data · Coinbase". It stays on
 demo data when the reader chose "Use demo data" (remembered in `localStorage` as `cl-hero-data`), when the browser asks
 to save data (`navigator.connection.saveData` or `prefers-reduced-data`) or is offline, and falls back to it with a quiet
 line when the feed fails. Every other live demo (the home chapter, the examples card and the Live data guide) stays off
@@ -62,9 +64,20 @@ element's fallback to Binance and Kraken. Without them those demos fall back qui
 
 `node site/check.cjs` needs no network. It blocks every other host and asserts that no page requests one while it
 opens. Every context stubs `fetch` and `WebSocket` for the exchanges inside the page (`liveStub` in `check.cjs`), so the
-home hero's automatic connection never leaves the machine either. The check asserts that the hero connects by itself,
-says "Real market data · Coinbase", moves its last bar on a stubbed trade, switches pair, that "Use demo data"
+home hero's automatic connection never leaves the machine either. The check asserts that the hero widget loads lazily,
+connects by itself, says "Real market data · Coinbase", moves its last bar on a stubbed trade, that "Use demo data"
 disconnects and, after a reload, nothing is requested; that it falls back to the demo data when the stub fails, and does
 not connect with Save-Data on; that no other page connects by itself; and, for the click-to-connect demos, the home
 chapter's element (including its fallback to Binance and Kraken) and the guide's interval switch. With `SITE_SHOTS=1` it also tries one real connection for
 `docs/screenshots/site-live-dark.png`, and skips it when the exchange cannot be reached.
+
+## Numbers and generated parts
+
+Every count and size on the site is read at build time, never typed: the indicator catalogue, `CHART_TYPES` and the
+drawing tools are bundled from the source and imported by `build.mjs`; sizes are measured with esbuild and Node's zlib
+(gzip and brotli); the frame figures come from `docs/performance.json`. Guides name them as tokens, such as
+`{{indicators}}`, `{{drawingTools}}` or `{{size.core.gzip}}` (`tokens()` in `build.mjs` lists them); an unknown token
+is a build warning. The indicator catalogue table and the drawing tools table are generated where a guide says
+`@@CATALOGUE@@` or `@@DRAWING_TOOLS@@`. The feature gallery of `examples.html` comes from `src/gallery.js`: each tab's
+code is compiled into the page's live script, and "Get this code" shows the same text (the check compares them).
+

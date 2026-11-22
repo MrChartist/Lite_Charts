@@ -11,7 +11,7 @@ import * as drawings from '../drawings/index';
 import { connectLive } from '../live/connect';
 import { createWidget as baseCreate } from './widget';
 import { defineTerminalElement, setTerminalModules, terminalOptions } from './element';
-import { defineChartistElement, setElementWidget } from '../element/index';
+import { defineChartistElement, setElementLive, setElementWidget } from '../element/index';
 import type { Widget, WidgetOptions } from './types';
 
 const bundled = { drawings, live: { connectLive } } as never;
@@ -30,6 +30,9 @@ function autoDefine(): void {
   defineTerminalElement(script?.getAttribute('data-tag') || 'chartist-terminal');
   // <chartist-chart widget ...> is the same workspace (and plain <chartist-chart> still works).
   setElementWidget((frame, get, has) => createWidget(frame, { ...terminalOptions(get, has), height: undefined }) as never);
+  // This build carries the live connector, so a plain <chartist-chart live> must stream too, whichever build's
+  // copy of the element registers the tag first.
+  setElementLive(connectLive as never);
   defineChartistElement('chartist-chart');
 }
 autoDefine();

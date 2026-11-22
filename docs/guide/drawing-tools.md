@@ -1,16 +1,16 @@
 ---
 title: Drawing tools
-description: Fifteen drawing tools for Chartist Lite (trend lines, channels, Fibonacci, measure, long and short positions, text, brush) with a toolbar, undo and JSON export.
+description: {{drawingTools}} drawing tools for Chartist Lite in {{drawingGroups}} groups (lines, channels and pitchforks, Fibonacci and Gann, shapes, measures, positions, notes) with a toolbar, undo and JSON.
 order: 6.5
 related: plugins, api-reference, accessibility
 group: build
 task: Let readers draw on the chart
-summary: Fifteen drawing tools with a ready toolbar, undo, keyboard editing and JSON export.
+summary: {{drawingTools}} drawing tools with a ready toolbar, undo, keyboard editing and JSON export.
 ---
 
 # Drawing tools
 
-The `drawings` entry adds drawing tools to a chart: a ready toolbar, fifteen tools, selection and editing by pointer and keyboard, undo and redo, events and a versioned JSON format. It is built on the chart's own primitive and pointer hooks, so it needs nothing the core does not already expose.
+The `drawings` entry adds drawing tools to a chart: a ready toolbar, {{drawingTools}} tools in {{drawingGroups}} groups, selection and editing by pointer and keyboard, undo and redo, events and a versioned JSON format. It is built on the chart's own primitive and pointer hooks, so it needs nothing the core does not already expose.
 
 ## Add the toolbar
 
@@ -29,39 +29,39 @@ Pick a tool on the rail, or focus the chart and press its key (T for a trend lin
 
 With a script tag, load `chartist-lite-drawings.iife.min.js` after the core file and use the global `ChartistLiteDrawings`.
 
+### The default tools, or every tool
+
+The toolbar offers the first {{basicTools}} tools by default (`BASIC_TOOLS`): {{size.drawings.gzip}} KB gzip with the toolbar. Pass `tools: ALL_TOOLS` for all {{drawingTools}} ({{size.drawings-all.gzip}} KB gzip), or any list of tool definitions, your own included. A bundler keeps only the tools you import.
+
+```js live height=480
+import { createChart, CandlestickSeries } from 'lite-charts';
+import { createDrawingTools, ALL_TOOLS } from 'lite-charts/drawings';
+
+const chart = createChart('chart');
+const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });
+candles.setData(bars);
+createDrawingTools(chart, candles, { toolbar: true, tools: ALL_TOOLS });
+```
+
 ### Options
 
 | Option | Values | Default |
 |---|---|---|
-| `toolbar` | `true` (a rail on the left) or `{ position: 'left' \| 'top' }` | `false` |
+| `toolbar` | `true` (a rail on the left), `{ position: 'left' \| 'top' }`, or `{ container, variant: 'rail' \| 'bar', styleContainer }` to mount it in your own chrome | `false` |
+| `tools` | `BASIC_TOOLS`, `ALL_TOOLS`, or any list of tool definitions | `BASIC_TOOLS` |
+| `volumeSeries` | Volume for the anchored VWAP and the volume profile when the rows carry none | none |
 | `magnet` | Snap points to the nearest open, high, low or close; holding ctrl or cmd inverts it | `true` |
 | `keepDrawing` | Stay on the tool after a drawing is finished | `false` |
 | `defaultStyle` | `{ color, width: 1 \| 2 \| 3, dash: 'solid' \| 'dashed' }` for new drawings | the theme's line colour, width 2, solid |
 | `persist` | `{ key, storage? }`: save after every change and load at start (`localStorage` unless you pass a storage) | off |
 
-The rail is one column of grouped buttons: the cursor, then Lines, Shapes, Fibonacci, Measure, Positions and Annotate. A group with more than one tool opens a flyout menu that lists each tool with its key; the menu works with the arrow keys, Home, End, Enter and Escape. Below the groups sit keep drawing, magnet and hide all, then undo, redo and delete all. Selecting a drawing shows a small style bar for its colour, width and dash. The toolbar lives in a shadow root and writes its styles through the CSSOM, so page CSS cannot reach it and a strict `style-src 'self'` policy does not block it.
+With `container`, the rail is mounted in an element of your page (a left bar, a bottom sheet) with no card look of its own, as a column (`variant: 'rail'`) or a row (`'bar'`), scrolling inside it; flyouts still open over the chart, and `styleContainer` places the style bar of the selected drawing. The rail is one column of grouped buttons: the cursor, then Lines, Shapes, Fibonacci, Measure, Positions and Annotate. A group with more than one tool opens a flyout menu that lists each tool with its key; the menu works with the arrow keys, Home, End, Enter and Escape. Below the groups sit keep drawing, magnet and hide all, then undo, redo and delete all. Selecting a drawing shows a small style bar for its colour, width and dash. The toolbar lives in a shadow root and writes its styles through the CSSOM, so page CSS cannot reach it and a strict `style-src 'self'` policy does not block it.
 
 ## The tools
 
-| Id | Tool | Rail group | Key | Points |
-|---|---|---|---|---|
-| `trend` | Trend line | Lines | T | 2 |
-| `ray` | Ray | Lines | | 2 |
-| `extended` | Extended line | Lines | | 2 |
-| `horizontal` | Horizontal line | Lines | H | 1 |
-| `horizontalRay` | Horizontal ray | Lines | | 1 |
-| `vertical` | Vertical line | Lines | V | 1 |
-| `rectangle` | Rectangle | Shapes | R | 2 |
-| `channel` | Parallel channel | Shapes | | 3 |
-| `fib` | Fibonacci retracement | Fibonacci | F | 2 |
-| `measure` | Measure | Measure | M | 2 |
-| `long` | Long position | Positions | L | 2 |
-| `short` | Short position | Positions | S | 2 |
-| `arrow` | Arrow | Annotate | A | 2 |
-| `text` | Text note | Annotate | N | 1 |
-| `brush` | Brush | Annotate | B | freehand |
+@@DRAWING_TOOLS@@
 
-The list is exported as `TOOLS` (`{ id, label, points }`, with 0 points for the brush). The Fibonacci tool draws the levels 0, 0.236, 0.382, 0.5, 0.618, 0.786 and 1. A long or short position given two points (entry and target) gets a stop at half that distance on the other side, a reward to risk of 2.00; drag it to change it. Holding Shift while placing a point keeps the line horizontal, vertical or at 45 degrees from the previous point.
+This table is read from the source when the site is built. The lists are exported as `ALL_TOOLS` (also `TOOLS`) and `BASIC_TOOLS`; each tool is `{ id, label, group, key?, points, ... }`, with 0 points for freehand tools. The Fibonacci tool draws the levels 0, 0.236, 0.382, 0.5, 0.618, 0.786 and 1. A long or short position given two points (entry and target) gets a stop at half that distance on the other side, a reward to risk of 2.00; drag it to change it. Holding Shift while placing a point keeps the line horizontal, vertical or at 45 degrees from the previous point.
 
 ## Keys
 
@@ -102,7 +102,9 @@ tools.add({ tool: 'text', points: [{ time: at(100).time, price: at(100).high * 1
 
 ## Save and load
 
-`exportJSON()` returns versioned text; `importJSON(text, mode)` loads it back, replacing (the default) or appending, and returns how many drawings it read. Unknown tools and bad entries are skipped; text that is not an export, or from a newer version, throws.
+`exportJSON()` returns versioned text (format version 2, which adds tool options and the newer tools; version 1 exports load unchanged); `importJSON(text, mode)` loads it back, replacing (the default) or appending, and returns how many drawings it read. Unknown tools and bad entries are skipped; text that is not an export, or from a newer version, throws.
+
+Limits keep a page fast whatever is imported or saved (`LIMITS`): 2000 drawings per chart, 2000 points in one freehand stroke (a longer stroke is thinned evenly) and 4000000 characters of JSON. Past them, the rest is left out and an `'error'` event says so; `add()` past the drawing limit throws a `RangeError`.
 
 ```js live height=360 controls=draw
 const chart = createChart('chart');
@@ -121,7 +123,7 @@ Draw something, then use the buttons: Export JSON shows the text, Clear empties 
 
 ## Events
 
-`on(event, handler)` returns a function that removes the handler. Events are `'created'`, `'changed'`, `'removed'` and `'selected'`; the handler receives a copy of the drawing, or `null` when a selection is cleared.
+`on(event, handler)` returns a function that removes the handler. Events are `'created'`, `'changed'`, `'removed'` and `'selected'`, whose handler receives a copy of the drawing (or `null` when a selection is cleared), and `'error'`, whose handler receives an `Error`, for instance when an import goes past the limits.
 
 ```js live height=360 output
 const chart = createChart('chart');

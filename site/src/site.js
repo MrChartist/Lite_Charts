@@ -29,6 +29,10 @@ function loadScript(src) {
     loaded.set(src, new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = src; s.async = false;
+      // The terminal bundle registers <chartist-chart> too, without the live connector; with data-manual it registers
+      // nothing, so the element-live build keeps the tag on pages that use both. The site registers <chartist-terminal>
+      // itself where it needs it.
+      if (/chartist-lite\.terminal\./.test(src)) s.setAttribute('data-manual', '');
       s.onload = () => resolve(); s.onerror = () => reject(new Error(`could not load ${src}`));
       document.head.appendChild(s);
     }));
@@ -81,7 +85,9 @@ function liveApi(el, charts, tools, timers = [], widgets = []) {
     output(text) { if (!out) return; if (!out.dataset.used) { out.textContent = ''; out.dataset.used = '1'; } out.textContent = `${String(text)}\n${out.textContent}`.slice(0, 4000); },
     // The example's own container is used whatever id the code names, and the site theme is applied.
     createChart(_container, options = {}) {
-      const c = L.createChart(el, { ...options, theme: currentTheme(), ariaLabel: options.ariaLabel || el.dataset.label });
+      // The site theme, except where an example is about themes (data-theme-free) and sets its own.
+      const theme = el.hasAttribute('data-theme-free') && options.theme ? options.theme : currentTheme();
+      const c = L.createChart(el, { ...options, theme, ariaLabel: options.ariaLabel || el.dataset.label });
       charts.push(c);
       return c;
     },
@@ -240,7 +246,7 @@ async function startConnect(box) {
       box._card.hidden = true;
       box.appendChild(node);
       // The element shows its own dot and word on the plot; the bar mirrors it, read from its status line.
-      const read = () => { const st = node.shadowRoot && node.shadowRoot.querySelector('.st'); const t = st && !st.hidden ? st.textContent.trim().toLowerCase() : ''; if (t) onState(t); };
+      const read = () => { const st = node.shadowRoot && node.shadowRoot.querySelector('.st'); const t = st && !st.hidden ? st.textContent.trim() : ''; if (t) { const [word, ...rest] = t.split(' · '); onState(word.toLowerCase(), rest.join(' · ')); } };
       if (node.shadowRoot) { c.observer = new MutationObserver(read); c.observer.observe(node.shadowRoot, { subtree: true, childList: true, characterData: true, attributes: true }); }
       read();
       c.lives.push({ disconnect() { /* removing the element disconnects it */ } });
@@ -253,7 +259,7 @@ async function startConnect(box) {
       const charts = []; const tools = [];
       const api = liveApi(box, charts, tools);
       api.connectLive = (series, options = {}) => {
-        const h = LV.connectLive(series, { ...options, onStatus(s, info) { onState(s, info && info.provider); if (options.onStatus) options.onStatus(s, info); } });
+        const h = LV.connectLive(series, { ...options, onStatus(s, info) { onState(s, info && (info.providerLabel || info.provider)); if (options.onStatus) options.onStatus(s, info); } });
         c.lives.push(h);
         return h;
       };
@@ -320,6 +326,7 @@ function initHero() {
     note.textContent = message || (live ? liveNote : 'Invented prices. Switch off "Use demo data" to load real prices from the exchange, straight to your browser.');
   };
   const entry = { charts: [], tools: [], hero: state, restyle(t) { if (state.widget) state.widget.setTheme(t); } };
+  box._hero = state;
   registry.push(entry);
   function build(mode, message) {
     const T = window.ChartistLiteTerminal;
@@ -360,6 +367,157 @@ function initHero() {
   // After the page itself has loaded, so the poster and the text come first.
   if (document.readyState === 'complete') start(); else window.addEventListener('load', start, { once: true });
   window.addEventListener('pagehide', () => { if (state.widget) state.widget.destroy(); });
+}
+
+// ---------- the feature gallery: tabs, lazy charts, "Get this code" ----------
+// Each card runs the code of its chosen tab (compiled into the page's live script) when it nears the viewport, and
+// disposes of everything that code made (charts, widgets, timers, live connections) before running another tab.
+function initFeatures() {
+  const grid = $('#fx-gallery');
+  if (!grid) return;
+  const cleanup = (stage) => {
+    const c = stage._fx;
+    stage._fx = null;
+    if (!c) return;
+    for (const id of c.timers) clearInterval(id);
+    for (const l of c.lives) { try { l.disconnect(); } catch (e) { /* closed */ } }
+    for (const w of c.widgets) { try { w.destroy(); } catch (e) { /* gone */ } }
+    for (const ch of c.charts) { if (!c.widgets.some((w) => w.chart === ch)) { try { ch.remove(); } catch (e) { /* gone */ } } }
+    const i = registry.indexOf(c); if (i >= 0) registry.splice(i, 1);
+    stage.textContent = '';
+    delete stage.dataset.ready;
+  };
+  async function run(stage, id, lang) {
+    cleanup(stage);
+    const token = (stage._token || 0) + 1;
+    stage._token = token;
+    try {
+      if (lang === 'html') {
+        const markup = (window.__CL_LIVE_SRC || {})[id] || '';
+        if (/<chartist-terminal/.test(markup)) { await loadScript(`${ASSETS}chartist-lite.terminal.iife.min.js`); window.ChartistLiteTerminal.defineTerminalElement(); }
+        else await loadScript(elementScript());
+        // A tag that reads a file cannot run from file:// (browsers refuse fetch there).
+        if (location.protocol === 'file:' && / src="/.test(markup)) { stage.innerHTML = '<p class="chart-fallback">This example reads a JSON file, which browsers do not allow from file://. Serve the folder to see it.</p>'; stage._fx = { charts: [], tools: [], timers: [], lives: [], widgets: [] }; stage.dataset.ready = '1'; return; }
+        if (stage._token !== token) return;
+        stage.innerHTML = markup;
+        for (const t of $$('chartist-chart, chartist-terminal', stage)) t.setAttribute('theme', currentTheme());
+        const c = { charts: [], tools: [], timers: [], lives: [], widgets: [], restyle() { /* the tags follow the page */ } };
+        stage._fx = c;
+        stage.dataset.ready = '1';
+        return;
+      }
+      await chartLibs();
+      if (root.hasAttribute('data-live-lib')) await liveLib();
+      if (stage._token !== token) return;
+      const fn = (window.__CL_LIVE || {})[id];
+      if (!fn) return;
+      stage.textContent = '';
+      const c = { charts: [], tools: [], timers: [], lives: [], widgets: [] };
+      const api = liveApi(stage, c.charts, c.tools, c.timers, c.widgets);
+      if (window.ChartistLiteLive) api.connectLive = (...a) => { const h = window.ChartistLiteLive.connectLive(...a); c.lives.push(h); return h; };
+      fn(api);
+      c.restyle = (t) => { if (!stage.hasAttribute('data-theme-free')) c.charts.forEach((ch) => ch.applyOptions({ theme: t })); };
+      stage._fx = c;
+      stage._demo = c;
+      registry.push(c);
+      stage.dataset.ready = '1';
+      stage.dataset.fxRan = id;
+    } catch (err) {
+      stage.textContent = 'This example could not run in this browser.';
+    }
+  }
+  const tabOf = (card) => { const b = $('[data-fx-tab][aria-pressed="true"]', card); return b ? Number(b.dataset.fxTab) : 0; };
+  const tplOf = (card, k) => $(`template[data-fx-src="${k}"]`, card);
+  const start = (card) => { const tpl = tplOf(card, tabOf(card)); run($('[data-fx]', card), tpl.dataset.fxId, tpl.dataset.fxLang); };
+  const cards = $$('.fx-card', grid);
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) { io.unobserve(e.target); start(e.target.closest('.fx-card')); } }, { rootMargin: '200px' });
+    for (const card of cards) io.observe($('[data-fx]', card));
+  } else cards.forEach(start);
+  grid.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fx-tab]');
+    const card = e.target.closest('.fx-card');
+    if (b && card) { pressIn(b, 'data-fx-tab'); start(card); return; }
+    const get = e.target.closest('[data-fx-code]');
+    if (get && card) {
+      const dialog = $('#code-dialog');
+      const k = tabOf(card);
+      const tpl = tplOf(card, k);
+      $('#code-dialog-title').textContent = `${$('h2', card).textContent}: ${$(`[data-fx-tab="${k}"]`, card).textContent}`;
+      $('#code-dialog-code').replaceChildren(tpl.content.cloneNode(true));
+      for (const cp of $$('.copy', $('#code-dialog-code'))) cp.hidden = false;
+      const guide = $('.fx-actions a', card); const gl = $('#code-dialog-guide');
+      gl.href = guide.getAttribute('href'); gl.textContent = guide.textContent;
+      dialog.dataset.fxId = tpl.dataset.fxId;
+      openDialog(dialog, get);
+    }
+  });
+}
+
+// ---------- the indicator catalogue: filter, category, live preview ----------
+function initCatalogue() {
+  const box = $('[data-catalogue]');
+  if (!box) return;
+  const input = $('#cat-filter'); const count = $('#cat-count');
+  const rows = $$('tbody tr', box);
+  let cat = 'all';
+  const apply = () => {
+    const q = input.value.trim().toLowerCase();
+    let n = 0;
+    for (const r of rows) { const on = (cat === 'all' || r.dataset.cat === cat) && (!q || r.dataset.text.includes(q)); r.hidden = !on; if (on) n++; }
+    count.textContent = n === rows.length ? '' : n ? `${n} of ${rows.length} indicators` : 'No indicator matches. Try part of a name, such as "average".';
+  };
+  input.addEventListener('input', apply);
+  box.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-cat-filter]');
+    if (c) { cat = c.dataset.catFilter; pressIn(c, 'data-cat-filter'); apply(); return; }
+    const b = e.target.closest('[data-preview]');
+    if (b) { preview(b.dataset.preview); $('.cat-preview', box).scrollIntoView({ block: 'nearest' }); }
+  });
+  const el = $('[data-catalogue-chart]', box);
+  let entry = null;
+  let series = [];
+  function preview(id) {
+    return chartLibs().then(() => {
+      const L = window.ChartistLite; const I = window.ChartistLiteIndicators;
+      const spec = I && I.getIndicator && I.getIndicator(id);
+      if (!spec) return;
+      if (!entry) {
+        el.textContent = '';
+        const chart = L.createChart(el, { theme: currentTheme(), ariaLabel: el.dataset.label });
+        const bars = makeBars(220, 7);
+        chart.addSeries(L.CandlestickSeries, { title: 'DEMO' }).setData(bars);
+        entry = { charts: [chart], tools: [], chart, bars, id: '' };
+        registry.push(entry);
+        el._demo = entry;
+        el.dataset.ready = '1';
+      }
+      const { chart, bars } = entry;
+      for (const x of series) chart.removeSeries(x);
+      series = [];
+      const out = spec.compute(bars);
+      const pane = spec.overlay ? 0 : 1;
+      const accents = currentTheme() === 'dark' ? ['#64B5FF', '#FF9F0A', '#63D5C8', '#FF6961', '#B8C46A'] : ['#0062C4', '#B25000', '#0A6A64', '#C4141D', '#5F6B12'];
+      spec.outputs.forEach((o, k) => {
+        const color = accents[k % accents.length];
+        const s = o.kind === 'histogram'
+          ? chart.addSeries(L.HistogramSeries, { title: o.label, priceLineVisible: false, lastValueVisible: false, color }, pane)
+          : chart.addSeries(L.LineSeries, { title: spec.outputs.length === 1 ? I.legendLabel(spec) : `${I.legendLabel(spec)} ${o.label}`, lineWidth: o.kind.startsWith('band') ? 1 : 2, color, priceLineVisible: false, lastValueVisible: false }, pane);
+        s.setData(out[o.key]);
+        series.push(s);
+      });
+      for (const g of spec.guides || []) if (series[0]) L.createPriceLine(series[0], { price: g, lineStyle: 'dotted', axisLabelVisible: false });
+      entry.id = id;
+      $('[data-preview-title]', box).textContent = `${spec.name} (${spec.id})`;
+      for (const b of $$('[data-preview]', box)) b.setAttribute('aria-pressed', String(b.dataset.preview === id));
+    });
+  }
+  const first = () => preview(rows[0].querySelector('[data-preview]').dataset.preview);
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { io.disconnect(); first(); } }, { rootMargin: '300px' });
+    io.observe(el);
+  } else first();
+  box._preview = preview;
 }
 
 // ---------- copy buttons ----------
@@ -755,6 +913,10 @@ function initGuideNav() {
       sc0._showCurrent();
       // Rows change height when the web fonts arrive: check once more then.
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { fit(); sc0._showCurrent(); });
+      // The font sheet is added by boot.js, so `fonts.ready` can settle before it arrives: check again when the
+      // faces finish loading and when the page has loaded.
+      if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => { fit(); sc0._showCurrent(); });
+      window.addEventListener('load', () => { fit(); sc0._showCurrent(); }, { once: true });
     }
   }
   const drawer = $('#drawer');
@@ -773,6 +935,6 @@ function start() {
   const toggle = $('#theme-toggle');
   if (toggle) toggle.addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true));
   applyTheme(currentTheme(), false);
-  initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initConnect(); initCharts(); initMeter(); initHero();
+  initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initConnect(); initCharts(); initMeter(); initHero(); initCatalogue(); initFeatures();
 }
 start();

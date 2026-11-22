@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { codeBlock, esc, parseFrontMatter, renderMarkdown } from './markdown.mjs';
 import { makeBars } from './src/demo-data.js';
 import { EXAMPLES } from './src/examples.js';
+import { features } from './src/gallery.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.join(here, '..');
@@ -107,6 +108,7 @@ async function loadFacts() {
     ['src/indicators/catalog.ts', "export { INDICATORS } from './src/indicators/catalog.ts';"],
     ['src/transforms/chart-types.ts', "export { CHART_TYPES } from './src/transforms/chart-types.ts';"],
     ['src/drawings/index.ts', "export { TOOLS, BASIC_TOOLS } from './src/drawings/index.ts';"],
+    ['src/drawings/contract.ts', "export { GROUP_ORDER } from './src/drawings/contract.ts';"],
   ].filter(([f]) => existsSync(path.join(pkg, f)));
   const res = await build({ absWorkingDir: pkg, stdin: { contents: parts.map((x) => x[1]).join('\n'), resolveDir: pkg, loader: 'ts' }, bundle: true, format: 'esm', platform: 'neutral', write: false, logLevel: 'silent' });
   return import(`data:text/javascript;base64,${Buffer.from(res.outputFiles[0].text).toString('base64')}`);
@@ -114,7 +116,8 @@ async function loadFacts() {
 const FACTS = await loadFacts();
 const CATALOG = (FACTS.INDICATORS || []).map((x) => ({ id: x.id, name: x.name, shortName: x.shortName, category: x.category, overlay: x.overlay, inputs: x.inputs, outputs: x.outputs, guides: x.guides || [] }));
 const CHART_TYPES = (FACTS.CHART_TYPES || []).map((t) => ({ id: t.id, name: t.name, kind: t.kind, irregularTime: t.irregularTime, inputs: t.inputs }));
-const DRAWING_TOOLS = DRAWINGS && FACTS.TOOLS ? FACTS.TOOLS.map((t) => ({ id: t.id, label: t.label })) : [];
+const DRAWING_TOOLS = DRAWINGS && FACTS.TOOLS ? FACTS.TOOLS.map((t) => ({ id: t.id, label: t.label, group: t.group, key: t.key || '', points: t.points })) : [];
+const DRAWING_GROUPS = (FACTS.GROUP_ORDER || []).map((g) => ({ id: g.id, label: g.label, tools: DRAWING_TOOLS.filter((t) => t.group === g.id) })).filter((g) => g.tools.length);
 const BASIC_TOOL_COUNT = FACTS.BASIC_TOOLS ? FACTS.BASIC_TOOLS.length : DRAWING_TOOLS.length;
 const WIDGET = existsSync(path.join(pkg, 'src', 'widget', 'index.ts')) && existsSync(path.join(pkg, 'dist', 'chartist-lite.terminal.iife.min.js'));
 const EXTRAS = existsSync(path.join(pkg, 'dist', 'chartist-lite-extras.iife.min.js'));
@@ -149,6 +152,10 @@ const GLYPH = {
   atom: svg('<circle cx="12" cy="12" r="1.5"/><ellipse cx="12" cy="12" rx="9" ry="3.6"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-60 12 12)"/>'),
   frame: svg('<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M3 8.5h18"/>'),
   pulse: svg('<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>'),
+  bricks: svg('<rect x="3.5" y="14" width="5" height="5" rx="1"/><rect x="9.5" y="9" width="5" height="5" rx="1"/><rect x="15.5" y="4" width="5" height="5" rx="1"/>'),
+  tip: svg('<path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 16h-6l-4 3.5V16H5a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 5 5Z"/><path d="M8 9.5h8M8 12.5h5"/>'),
+  list: svg('<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/>'),
+  scale: svg('<path d="M12 4v16M6 20h12"/><path d="M5 8h14"/><path d="m5 8-2.5 6a2.8 2.8 0 0 0 5 0L5 8ZM19 8l-2.5 6a2.8 2.8 0 0 0 5 0L19 8Z"/>'),
 };
 
 /**
@@ -180,6 +187,15 @@ async function measureSizes() {
   for (const [label, entry, id, name, line] of ENTRIES) {
     const code = await bundle(entry);
     rows.push({ label, id, name, line, min: kb(code.length), gzip: kb(gz(code)), brotli: kb(br(code)) });
+  }
+  // The drawing tools as a page imports them: the default fifteen, or every tool.
+  if (DRAWINGS && FACTS.BASIC_TOOLS) {
+    const d = rows.findIndex((r) => r.id === 'drawings');
+    const basic = await bundle("export { createDrawingTools, BASIC_TOOLS } from './src/drawings/index.ts';");
+    const all = await bundle("export { createDrawingTools, ALL_TOOLS } from './src/drawings/index.ts';");
+    rows.splice(d, 1,
+      { label: 'Drawings, the default tools', id: 'drawings', name: 'lite-charts/drawings', line: `createDrawingTools with the default ${BASIC_TOOL_COUNT} tools (BASIC_TOOLS), toolbar, undo, JSON`, min: kb(basic.length), gzip: kb(gz(basic)), brotli: kb(br(basic)) },
+      { label: 'Drawings, every tool', id: 'drawings-all', name: 'lite-charts/drawings + ALL_TOOLS', line: `All ${DRAWING_TOOLS.length} tools in ${DRAWING_GROUPS.length} groups`, min: kb(all.length), gzip: kb(gz(all)), brotli: kb(br(all)) });
   }
   const FILES = [
     ['Script tag: chartist-lite.iife.min.js', 'dist/chartist-lite.iife.min.js', 'iife-core'],
@@ -215,9 +231,9 @@ for (const theme of ['dark', 'light']) {
 // ---------- guides ----------
 const GROUPS = [
   { id: 'start', title: 'Start here', blurb: 'Get a chart on the page, then choose how it gets there.' },
-  { id: 'build', title: 'Build the chart', blurb: 'Series, indicators, panes and the time axis.' },
-  { id: 'customise', title: 'Make it yours', blurb: 'Colours, your own marks, and readers who use a keyboard.' },
-  { id: 'reference', title: 'Reference', blurb: 'Every export, and what changes if you know another library.' },
+  { id: 'build', title: 'Build the chart', blurb: 'Series, chart types, indicators, panes, time, drawing and live data.' },
+  { id: 'customise', title: 'Make it yours', blurb: 'Colours, tooltips and alerts, your own marks, and readers who use a keyboard.' },
+  { id: 'reference', title: 'Reference', blurb: 'Every export, the indicator catalogue, and how it compares.' },
 ];
 const guideDir = path.join(pkg, 'docs', 'guide');
 const guides = readdirSync(guideDir).filter((f) => f.endsWith('.md')).map((f) => {
@@ -226,8 +242,8 @@ const guides = readdirSync(guideDir).filter((f) => f.endsWith('.md')).map((f) =>
   if (!meta.title || !meta.description) throw new Error(`docs/guide/${f} needs a title and a description in its front matter`);
   if (!GROUPS.some((g) => g.id === meta.group)) throw new Error(`docs/guide/${f} needs a group: one of ${GROUPS.map((g) => g.id).join(', ')}`);
   return {
-    slug, src: `docs/guide/${f}`, out: `guide/${slug}.html`, title: meta.title, description: meta.description,
-    order: Number(meta.order || 99), group: meta.group, task: meta.task || '', summary: meta.summary || meta.description,
+    slug, src: `docs/guide/${f}`, out: `guide/${slug}.html`, title: meta.title, description: fillTokens(meta.description, f),
+    order: Number(meta.order || 99), group: meta.group, task: fillTokens(meta.task || '', f), summary: fillTokens(meta.summary || meta.description, f),
     layout: meta.layout || 'guide', related: (meta.related || '').split(',').map((s) => s.trim()).filter(Boolean), body,
   };
 }).sort((a, b) => a.order - b.order);
@@ -391,6 +407,7 @@ const TASK_ICONS = {
   'getting-started': 'play', embedding: 'code', 'series-types': 'candles', indicators: 'wave', 'panes-and-scales': 'panes',
   'time-and-time-zones': 'clock', 'drawing-tools': 'pen', theming: 'sun', plugins: 'pin', accessibility: 'keys',
   'api-reference': 'book', 'coming-from-lightweight-charts': 'swap', 'live-data': 'pulse',
+  widget: 'frame', 'chart-types': 'bricks', extras: 'tip', 'indicator-catalogue': 'list', 'how-it-compares': 'scale',
 };
 
 /** The guide navigation panel: groups of icon rows, the current page with its one-line task, and a foot with
@@ -497,6 +514,32 @@ ${page.body}
 `;
 }
 
+const CAT_NAMES = { trend: 'Trend', momentum: 'Momentum', volatility: 'Volatility', volume: 'Volume', other: 'Other' };
+/** The indicator catalogue as a table, from the catalog itself: filter, category switch, and a live preview. */
+function catalogueHtml() {
+  if (!CATALOG.length) return '<p>The catalogue is not built in this version.</p>';
+  const cats = Object.keys(CAT_NAMES).filter((c) => CATALOG.some((x) => x.category === c));
+  const fmt = (v) => (typeof v === 'number' ? String(v).replace('-', '\u2212') : String(v));
+  const inputText = (i) => {
+    const range = i.min !== undefined && i.max !== undefined ? ` (${fmt(i.min)} to ${fmt(i.max)})` : '';
+    const opts = i.type === 'select' ? ` (${i.options.join(', ')})` : '';
+    return `<span class="in"><code>${esc(i.key)}</code> ${esc(fmt(i.default))}${esc(range || opts)}</span>`;
+  };
+  const rows = CATALOG.map((x) => `<tr data-cat="${x.category}" data-text="${esc(`${x.id} ${x.name} ${x.shortName} ${x.category}`.toLowerCase())}"><td><button class="cat-name" type="button" data-preview="${esc(x.id)}" aria-label="Preview ${esc(x.name)}">${esc(x.name)}</button></td><td><code>${esc(x.id)}</code></td><td>${CAT_NAMES[x.category] || esc(x.category)}</td><td>${x.overlay ? 'On price' : 'Own pane'}</td><td class="inputs">${x.inputs.length ? x.inputs.map(inputText).join('') : '<span class="muted">none</span>'}</td><td>${esc(x.outputs.map((o) => o.label).join(', '))}</td></tr>`).join('');
+  return `<div class="catalogue" data-catalogue>
+<div class="cat-preview window" data-stage><div class="window-bar"><span class="window-title" data-preview-title>Preview</span><span class="muted cat-hint">Pick a name in the table</span></div><div class="chart h-320" data-catalogue-chart data-label="Live preview of the chosen indicator on demo data"><p class="chart-fallback">The preview appears here when JavaScript runs.</p></div></div>
+<div class="cat-tools js-only"><label class="cat-filter">${ICON.search}<span class="visually-hidden">Filter the catalogue</span><input id="cat-filter" type="search" placeholder="Filter: rsi, average, volume..." autocomplete="off" spellcheck="false"></label><div class="seg" role="group" aria-label="Category"><button type="button" data-cat-filter="all" aria-pressed="true">All ${CATALOG.length}</button>${cats.map((c) => `<button type="button" data-cat-filter="${c}" aria-pressed="false">${CAT_NAMES[c]} ${CATALOG.filter((x) => x.category === c).length}</button>`).join('')}</div><p class="api-count" id="cat-count" role="status"></p></div>
+<div class="table-wrap" role="region" tabindex="0" aria-label="Table: the indicator catalogue"><table class="cat-table"><thead><tr><th scope="col">Indicator</th><th scope="col">Id</th><th scope="col">Category</th><th scope="col">Drawn</th><th scope="col">Inputs and defaults</th><th scope="col">Outputs</th></tr></thead><tbody>${rows}</tbody></table></div>
+</div>`;
+}
+
+/** Every drawing tool by toolbar group, read from the source: id, name, key, points, and whether it is a default tool. */
+function drawingToolsHtml() {
+  if (!DRAWING_GROUPS.length) return '<p>The drawing tools are not built in this version.</p>';
+  const basic = new Set((FACTS.BASIC_TOOLS || []).map((t) => t.id));
+  return `<div class="table-wrap" role="region" tabindex="0" aria-label="Table: every drawing tool by group"><table><thead><tr><th scope="col">Group</th><th scope="col">Tool</th><th scope="col">Id</th><th scope="col">Key</th><th scope="col" class="num">Points</th><th scope="col">Default</th></tr></thead><tbody>${DRAWING_GROUPS.map((g) => g.tools.map((t, i) => `<tr><td>${i === 0 ? esc(g.label) : ''}</td><td>${esc(t.label)}</td><td><code>${esc(t.id)}</code></td><td>${t.key ? `<kbd>${esc(t.key)}</kbd>` : ''}</td><td class="num">${t.points === 0 ? 'freehand' : t.points}</td><td>${basic.has(t.id) ? 'yes' : ''}</td></tr>`).join('')).join('')}</tbody></table></div>`;
+}
+
 /** The "what you load" tables: every entry with gzip and brotli, then three typical pages. */
 function sizeTables(sizes, p) {
   const entries = sizes.filter((r) => r.line && !r.id.startsWith('iife') && r.id !== 'terminal');
@@ -510,6 +553,7 @@ function sizeTables(sizes, p) {
 // ---------- pages ----------
 const pages = [];
 const liveBundles = new Map(); // page path -> [fn source]
+const liveSources = {};         // live example id -> the code it runs (the gallery's "Get this code" shows the same)
 const searchDocs = [];
 
 
@@ -524,7 +568,24 @@ function chapterLabel(i, total, title) {
   return `<div class="chapter-label"><span class="chapter-tag"><span class="n">${pad2(i + 1)}</span><span class="sep" aria-hidden="true"></span><span class="t">${esc(title)}</span></span><span class="chapter-rule" aria-hidden="true"></span><span class="chapter-progress"><span class="ticks" aria-hidden="true">${ticks}</span>${pad2(i + 1)} / ${pad2(total)}</span></div>`;
 }
 
-function docPage({ path: p, src, title, description, body, group, prevNext, related, crumbs, ld: ldExtra, live, entries, html: allowHtml }) {
+/** Numbers a guide may name as {{token}}: read from the source and from measurements at build time, never typed. */
+function tokens() {
+  const t = {
+    indicators: CATALOG.length, chartTypes: CHART_TYPES.length, drawingTools: DRAWING_TOOLS.length, basicTools: BASIC_TOOL_COUNT,
+    drawingGroups: DRAWING_GROUPS.length, seriesTypes: SERIES_COUNT,
+    'perf.worst': PERF ? PERF.worst.toFixed(2) : 'n/a', 'perf.scenarios': PERF ? PERF.scenarios : 'n/a', 'perf.budget': PERF ? PERF.budget.toFixed(2) : '8.33',
+  };
+  for (const r of SIZES) { t[`size.${r.id}.gzip`] = r.gzip; t[`size.${r.id}.brotli`] = r.brotli; }
+  for (const [i, r] of SIZES.typical.entries()) { t[`typical.${i}.gzip`] = r.gzip; t[`typical.${i}.brotli`] = r.brotli; }
+  return t;
+}
+function fillTokens(text, srcFile) {
+  const t = tokens();
+  return text.replace(/\{\{([\w.-]+)\}\}/g, (m, k) => { if (k in t) return String(t[k]); warnings.push(`${srcFile}: unknown token ${m}`); return m; });
+}
+
+function docPage({ path: p, src, title, description, body: rawBody, group, prevNext, related, crumbs, ld: ldExtra, live, entries, html: allowHtml }) {
+  const body = fillTokens(rawBody, src);
   const fns = [];
   const md = renderMarkdown(body, renderOptions(p, src, { live: live ? makeLive(live, fns) : null, entries, html: !!allowHtml }));
   if (fns.length) liveBundles.set(p, fns);
@@ -533,6 +594,8 @@ function docPage({ path: p, src, title, description, body, group, prevNext, rela
   const libs = [usesAny(fns, EXTRA_NAMES) && EXTRAS ? 'extras' : '', usesAny(fns, TRANSFORM_NAMES) && TRANSFORMS ? 'transforms' : '', usesAny(fns, WIDGET_NAMES) && WIDGET ? 'widget' : ''].filter(Boolean);
   const usesLiveElement = LIVE && md.html.includes('data-connect="element"');
   const h1Match = /<h1 id="[^"]*">([\s\S]*?)<\/h1>/.exec(md.html);
+  md.html = md.html.replace('<p>@@CATALOGUE@@</p>', catalogueHtml);
+  md.html = md.html.replace('<p>@@DRAWING_TOOLS@@</p>', drawingToolsHtml);
   let html = md.html.replace(/<h1 id="[^"]*">[\s\S]*?<\/h1>\n?/, '');
   let lead = '';
   const firstP = /^<p>([\s\S]*?)<\/p>\n?/.exec(html);
@@ -603,7 +666,7 @@ if (existsSync(path.join(pkg, 'docs', 'PERFORMANCE.md'))) {
   const p = 'guide/index.html';
   let k = 0;
   const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Guide</span></nav>
-<h1 id="top">Learn it one task <span class="serif-frame">at a time.</span></h1><p class="lead">${['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen'][guides.length] || guides.length} short pages, each about one job. Start with Getting started; every page after it has live charts you can touch and code you can copy.</p></div></section>
+<h1 id="top">Learn it one task <span class="serif-frame">at a time.</span></h1><p class="lead">${['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty'][guides.length] || guides.length} short pages, each about one job. Start with Getting started; every page after it has live charts you can touch and code you can copy.</p></div></section>
 <div class="wrap">
 ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"><div class="task-group-head"><h2 id="g-${grp.id}">${esc(grp.title)}</h2><p>${esc(grp.blurb)}</p></div><ul class="task-grid">${guides.filter((x) => x.group === grp.id).map((x) => { k++; return `<li><a class="card task-card" href="${rel(p, x.out)}"><span class="tile tile--${((k - 1) % 5) + 1}">${GLYPH[TASK_ICONS[x.slug]] || GLYPH.book}</span><p class="task">${esc(x.task)}</p><h3>${esc(x.title)}</h3><p>${esc(x.summary)}</p><span class="go">Read the guide ${ICON.arrow}</span></a></li>`; }).join('')}</ul></section>`).join('\n')}
 </div>`;
@@ -631,7 +694,27 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
     'element-candles': `<chartist-chart type="candlestick" volume height="240" aria-label="Demo candlestick chart with volume, from the custom element"><script type="application/json">${ohlc}</script>${fb('Demo bars for the candlestick element')}</chartist-chart>`,
     'element-area': `<chartist-chart type="area" height="240" aria-label="Demo area chart, from the custom element"><script type="application/json">${vals}</script>${fb('Demo closing values for the area element')}</chartist-chart>`,
   };
-  const cards = EXAMPLES.filter((ex) => (DRAWINGS || ex.kind !== 'drawings') && (LIVE || ex.kind !== 'live')).map((ex) => {
+  // The feature gallery: every tab's code compiled into this page's live script, run as shown.
+  const FX = features(CHART_TYPES).filter((f) => (TRANSFORMS || f.id !== 'types') && (EXTRAS || !['ranges', 'compare', 'latest', 'tooltips', 'alerts', 'replay', 'bands', 'custom'].includes(f.id)) && (DRAWINGS || f.id !== 'drawings') && (WIDGET || f.id !== 'tags'));
+  const fxFns = [];
+  const fxCards = FX.map((f) => {
+    const ids = f.tabs.map((t, k) => `fx-${f.id}-${k}`);
+    f.tabs.forEach((t, k) => {
+      if (t.lang === 'html') { liveSources[ids[k]] = t.code.split('\n').filter((l) => !/<script\s+src=/.test(l)).join('\n').trim(); return; }
+      const runnable = t.code.replace(/^\s*import\s[\s\S]*?from\s+['"][^'"]+['"];?[ \t]*$/gm, '').trim();
+      liveSources[ids[k]] = runnable;
+      fxFns.push(`${JSON.stringify(ids[k])}: function (api) { const { ${LIVE_NAMES.join(', ')} } = api; {\n${runnable}\n} }`);
+    });
+    const label = `${f.title}: live example`;
+    return `<article class="card fx-card" id="fx-${f.id}" aria-labelledby="fx-${f.id}-h">
+<div class="fx-head"><h2 id="fx-${f.id}-h">${esc(f.title)}</h2><div class="seg fx-tabs js-only" role="group" aria-label="${esc(f.title)}: variant">${f.tabs.map((t, k) => `<button type="button" data-fx-tab="${k}" aria-pressed="${k === 0}">${esc(t.label)}</button>`).join('')}</div></div>
+<div class="fx-stage" data-stage><div class="chart h-320" data-fx="${f.id}" data-fx-live="${ids[0]}" data-label="${esc(label)}"${f.themeFree ? ' data-theme-free' : ''}><p class="chart-fallback">${esc(f.title)}. The live chart appears here when JavaScript runs.</p></div></div>
+<div class="fx-foot"><p>${f.text}</p><div class="fx-actions"><button class="btn btn--sm js-only" type="button" data-fx-code aria-haspopup="dialog">Get this code</button><a href="${g(f.guide[0])}">${esc(f.guide[1])}</a></div></div>
+${f.tabs.map((t, k) => `<template data-fx-src="${k}" data-fx-id="${ids[k]}" data-fx-lang="${t.lang || 'js'}">${codeBlock(t.code, t.lang || 'js')}</template>`).join('')}
+</article>`;
+  }).join('\n');
+  if (fxFns.length) liveBundles.set(p, fxFns);
+  const cards = EXAMPLES.filter((ex) => (DRAWINGS || ex.kind !== 'drawings') && (LIVE || ex.kind !== 'live')).filter((ex) => !['line', 'area', 'bar', 'histogram', 'baseline'].includes(ex.id) || !TRANSFORMS).map((ex) => {
     let stage; let controls; let tpl;
     if (ex.connect) {
       // Click-to-connect, in the card and in its large view alike.
@@ -652,24 +735,35 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
 </article>`;
   }).join('\n');
   const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Examples</span></nav>
-<h1 id="top">Charts you can <span class="serif-frame">touch.</span></h1><p class="lead">Every chart here is drawn by ${esc(NAME)} in your browser, from invented demo data${LIVE ? ', except the Live card, which shows exchange prices once you press Connect' : ''}. Drag to pan, scroll or pinch to zoom, tab in and press Enter to step through bars. Open any card for a large chart and its code.</p></div></section>
+<h1 id="top">Charts you can <span class="serif-frame">touch.</span></h1><p class="lead">Every chart here is drawn by ${esc(NAME)} in your browser, from invented demo data${LIVE ? ', except the Live card, which shows exchange prices once you press Connect' : ''}. Switch a tab and the chart redraws; "Get this code" hands you exactly the code that runs.</p></div></section>
 <div class="wrap">
+<section class="fx-section" aria-labelledby="fx-h"><div class="task-group-head"><h2 id="fx-h">Feature gallery</h2><p>${FX.length} features, each with its variants. Drag to pan, scroll or pinch to zoom, tab in and press Enter to step through bars.</p></div>
+<div class="fx-grid" id="fx-gallery">
+${fxCards}
+</div></section>
+<section class="more-section" aria-labelledby="more-h"><div class="task-group-head"><h2 id="more-h">More examples</h2><p>Panes, time zones, the drawing playground and the element. Open any card for a large chart and its code.</p></div>
 <div class="filters js-only"><div class="seg" role="group" aria-label="Filter examples">${KINDS.map(([k, l], i) => `<button type="button" data-filter="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div></div>
 <div class="gallery" id="ex-gallery">
 ${cards}
+</div></section>
 </div>
-</div>
+<dialog class="code-dialog" id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="ex-dialog-head"><h2 id="code-dialog-title">Code</h2><a class="btn btn--sm" id="code-dialog-guide" href="${g('getting-started')}">Guide</a><button class="icon-btn" type="button" data-close aria-label="Close the code">${ICON.close}</button></div>
+  <div class="code-dialog-body"><div id="code-dialog-code"></div><p class="live-note" id="code-dialog-note">This is the code running in the card, as written. <code>bars</code>, <code>longBars</code>, <code>intradayBars</code> and <code>compareRows</code> are invented demo data and <code>every(ms, fn)</code> is a timer that stops when the tab changes: put your own rows and <code>setInterval</code> in their place. The import lines are left to your bundler.</p></div>
+</dialog>
 <dialog class="ex-dialog" id="ex-dialog" aria-labelledby="ex-dialog-title">
   <div class="ex-dialog-head"><h2 id="ex-dialog-title">Example</h2><a class="btn btn--sm" id="ex-dialog-guide" href="${g('getting-started')}">Guide</a><button class="icon-btn" type="button" data-close aria-label="Close the example">${ICON.close}</button></div>
   <div class="ex-dialog-body"><div class="ex-dialog-stage" data-stage id="ex-dialog-stage"></div><div class="ex-dialog-side"><p id="ex-dialog-text"></p><div id="ex-dialog-code"></div></div></div>
 </dialog>`;
   pages.push({
-    path: p, title: `Examples: candlestick, line, area, indicators and panes | ${NAME}`, demos: true, drawings: DRAWINGS, liveElement: LIVE,
-    description: `Live ${NAME} charts you can touch: every series type, indicators, MACD and RSI panes, scale modes, a time zone switch and the chartist-chart web component.`,
+    path: p, title: `Gallery: chart types, tooltips, alerts, drawing and more | ${NAME}`, demos: true, drawings: DRAWINGS, liveElement: LIVE,
+    live: fxFns.length ? `live/examples.js` : null, liveLib: LIVE && usesAny(fxFns, ['connectLive']),
+    libs: [usesAny(fxFns, EXTRA_NAMES) && EXTRAS ? 'extras' : '', usesAny(fxFns, TRANSFORM_NAMES) && TRANSFORMS ? 'transforms' : ''].filter(Boolean),
+    description: `Live ${NAME} charts with tabs and their code: ${CHART_TYPES.length} chart types, themes, tooltips, compare, alerts, replay, custom series and drawing tools.`,
     crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Examples', path: p }],
     body,
   });
-  searchDocs.push({ t: 'Examples', u: p, d: 'Live charts with their code.', s: EXAMPLES.map((ex) => [ex.title, ex.id, ex.text.replace(/<[^>]+>/g, '')]) });
+  searchDocs.push({ t: 'Gallery', u: p, d: 'Live charts with tabs and their code.', s: [...FX.map((f) => [f.title, `fx-${f.id}`, f.text.replace(/<[^>]+>/g, '')]), ...EXAMPLES.map((ex) => [ex.title, ex.id, ex.text.replace(/<[^>]+>/g, '')])] });
 }
 
 // Home: the product story in chapters.
@@ -856,7 +950,9 @@ for (const [src, dest] of [['site.js', 'site.js'], ['demos.js', 'demos.js']]) {
 writeFileSync(path.join(out, 'assets', 'boot.js'), (await transform(readFileSync(path.join(here, 'src', 'boot.js'), 'utf8'), { minify: true, target: 'es2015' })).code);
 for (const [p, fns] of liveBundles) {
   const name = `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js`;
-  const srcCode = `window.__CL_LIVE = Object.assign(window.__CL_LIVE || {}, {\n${fns.join(',\n')}\n});`;
+  const ids = fns.map((f) => JSON.parse(f.slice(0, f.indexOf(':'))));
+  const srcs = Object.fromEntries(Object.entries(liveSources).filter(([k]) => ids.includes(k) || (p === 'examples.html' && k.startsWith('fx-'))));
+  const srcCode = `window.__CL_LIVE = Object.assign(window.__CL_LIVE || {}, {\n${fns.join(',\n')}\n});${Object.keys(srcs).length ? `\nwindow.__CL_LIVE_SRC = ${JSON.stringify(srcs)};` : ''}`;
   let code;
   try { code = (await transform(srcCode, { minify: true, target: 'es2020', loader: 'js' })).code; }
   catch (e) { throw new Error(`a live example on ${p} does not compile: ${e.message}`); }
@@ -875,6 +971,8 @@ for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min
 }
 copyFileSync(path.join(pkg, config.ogImageSource), path.join(out, ogImage.path));
 copyFileSync(path.join(pkg, 'docs/screenshots/basic-light.png'), path.join(out, 'assets/img/basic-light.png'));
+// Rows for the no-code tags of the gallery (invented demo data).
+writeFileSync(path.join(out, 'assets', 'demo-bars.json'), JSON.stringify(makeBars(200, 7)));
 for (const t of Object.keys(POSTERS)) copyFileSync(POSTERS[t].src, path.join(out, POSTERS[t].path));
 for (const [dest, src] of assets) { mkdirSync(path.dirname(path.join(out, dest)), { recursive: true }); copyFileSync(src, path.join(out, dest)); }
 

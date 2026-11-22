@@ -48,9 +48,10 @@ With a script tag, load `chartist-lite-live.iife.min.js` next to the core file a
 | `volumeSeries` | A histogram (or any single-value series) that gets each bar's volume | none |
 | `chart` | The chart: older history loads when the view reaches the left edge | none |
 | `history` | Bars loaded at start and per older page, 10 to 5000 | `500` |
-| `onStatus(status, { provider, symbol, interval })` | Called when the status changes | none |
+| `onStatus(status, info)` | Called when the status changes, with `info()` (below) | none |
 | `onError(error)` | Called with each failure; the feed carries on | none |
 | `onBars(kind, bars)` | `'history'` after history loads, `'update'` after each frame's updates, with the bars that changed | none |
+| `guard` | The bad-print guard: `{ maxJump, futureSeconds }` to tune it; `false` keeps only the rules that cannot drop a real print (finite, positive prices, no far-future time) | `{ maxJump: 20, futureSeconds: 900 }` |
 | `fetch`, `WebSocket`, `env` | Replacements for tests and other environments (frames, timers, clock, document, window) | the browser's |
 
 Each exchange caps one load: Coinbase gives 300 bars a call and the entry makes at most five calls (1500 bars), Binance up to 1000, Kraken its newest 720.
@@ -61,11 +62,17 @@ Each exchange caps one load: Coinbase gives 300 bars a call and the entry makes 
 |---|---|
 | `connecting` | The first load of history and the stream |
 | `live` | The stream is open and subscribed |
-| `reconnecting` | The stream closed, or a retry with bars already shown. It waits 1 s, doubling up to 30 s, each wait varied by up to 30%, then reloads history to fill the gap |
+| `reconnecting` | The stream closed, went quiet, or a retry with bars already shown. It waits 1 s, doubling up to 30 s, each wait varied by up to 30%, then reloads history to fill the gap |
 | `offline` | The tab is hidden or the browser is offline: the stream is closed and requests are aborted until it comes back. Also after `disconnect()` |
-| `error` | No exchange returned history. It tries again on the same schedule |
+| `error` | No exchange returned history. It tries again on the same schedule, except after three rounds in a row that fail for good (an HTTP 4xx, an unknown or malformed symbol, no bars): then it stops until you call `retry()` |
 
 Show the status as a word with its colour, never colour alone. The demos on this page and the element do exactly that.
+
+### Limits that keep it polite
+
+Every history request is abandoned after 10 s (and the next exchange is tried), a socket must open within 10 s, and a stream with no message for 60 s, or three intervals when that is longer (capped at 5 minutes), is reconnected. The backoff starts over only once a trade has arrived or the socket has stayed open for 30 s, so a server that accepts and drops at once is not asked every second; history is not reloaded when the last load is under 10 s old; and no more than 30 starts happen in an hour. These are `LIVE_LIMITS`.
+
+The bad-print guard drops only what cannot be a real print: a price further from the last close than `maxJump` times the recent range (the high-low span of the last 50 bars, never taken as under 5% of the price; 20 times by default, which with a calm range is a whole 100% of the price in one trade), a time too far in the future, or a price that is not positive. A unit mistake or a corrupt message is caught; a fast market is not.
 
 ## The element, with no code
 
@@ -102,7 +109,7 @@ const live = connectLive(candles, {
 //   live.setSymbol('ETH-USD')
 ```
 
-`setInterval(interval)` and `setSymbol(symbol)` clear the bars, load history again starting from the first exchange in line, and subscribe afresh. An unknown interval, the value already in use, or an empty symbol is ignored. `status()`, `provider()`, `symbol()` and `interval()` read the current state; `provider()` names the exchange in use after any fallback, or `null` before one answers.
+`setInterval(interval)` and `setSymbol(symbol)` clear the bars, load history again starting from the first exchange in line, and subscribe afresh. An unknown interval, the value already in use, or an empty symbol is ignored. `status()`, `provider()`, `symbol()` and `interval()` read the current state; `provider()` names the exchange in use after any fallback, or `null` before one answers. `info()` gives `{ provider, providerLabel, symbol, pair, quote, interval }`: on Binance, `BTC-USD` is quoted as `BTC-USDT` with `quote: 'USDT'`, so a label can say so. `retry()` starts again after the status stopped at `error`.
 
 ## Load older history
 
