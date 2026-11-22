@@ -360,7 +360,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
         for (let i = 1; i < xs.length; i++) ctx.lineTo(xs[i], yu[i]);
         for (let i = xs.length - 1; i >= 0; i--) ctx.lineTo(xs[i], yl[i]);
         ctx.closePath();
-        ctx.fillStyle = alpha(st?.color && st.color.startsWith('#') ? st.color : colors().line, isDark() ? 0.09 : 0.07);
+        ctx.fillStyle = alpha(st?.color && st.color.startsWith('#') ? st.color : colors().line, isDark() ? 0.12 : 0.09);
         ctx.fill();
       },
     };
@@ -558,9 +558,21 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     placeLegend(true);
     paintLegend(lastCross);
   }
+  /** Left edge of the top pane's legend rows: right of the drawing rail when it is shown (read on layout only). */
+  let legendLeftCached = 6;
+  function legendLeft(): number {
+    let left = chart.priceScale('left').width() + 6;
+    if (tools && drawingsOn) {
+      const ui = chart.element().querySelector('[data-chartist-drawing-ui]') as HTMLElement | null;
+      const rail = ui?.shadowRoot?.querySelector('[role="toolbar"]') as HTMLElement | null;
+      left = rail && rail.offsetWidth ? rail.offsetLeft + rail.offsetWidth + 6 : left + 54;
+    }
+    legendLeftCached = left;
+    return left;
+  }
   function placeLegend(force = false): void {
     const tops = paneTops();
-    const left = chart.priceScale('left').width() + 6 + (tools && drawingsOn ? 48 : 0);
+    const left = legendLeft();
     const key = `${tops.join(',')}|${left}`;
     if (!force && key === legendKey) return;
     legendKey = key;
@@ -595,8 +607,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     draw() {
       if (placeQueued) return;
       const tops = paneTops();
-      const left = chart.priceScale('left').width() + 6 + (tools && drawingsOn ? 48 : 0);
-      if (`${tops.join(',')}|${left}` === legendKey) return;
+      if (`${tops.join(',')}|${legendLeftCached}` === legendKey) return;
       placeQueued = true;
       win.requestAnimationFrame(() => { placeQueued = false; if (!destroyed) placeLegend(); });
     },
