@@ -402,8 +402,9 @@ chartist-chart th, chartist-chart td { padding: 2px 16px 2px 0; border: 0; backg
 .header-cta { display: none; margin-left: 6px; }
 .gh-link svg { width: 20px; height: 20px; }
 @media (min-width: 600px) { .header-cta { display: inline-flex; } }
-@media (min-width: 880px) {
-  .main-nav { display: flex; }
+@media (min-width: 880px) { .main-nav { display: flex; } }
+/* The labelled search field needs the room the GitHub link takes below 1200 px; under it the search is an icon. */
+@media (min-width: 1200px) {
   .search-btn { min-width: 180px; }
   .search-btn .label { display: inline; margin-right: auto; }
   .search-btn kbd { display: inline-flex; }
@@ -737,11 +738,14 @@ h2:hover .anchor, h3:hover .anchor, h4:hover .anchor, .anchor:focus-visible { op
 .live-state[data-s="live"] .dot { background: var(--up); }
 .live-state[data-s="connecting"] .dot, .live-state[data-s="reconnecting"] .dot { background: var(--warn); }
 .live-state[data-s="error"] .dot { background: var(--down); }
-.hero-live { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+.hero-live { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; flex: 1 0 100%; }
+.hero-live .chip { margin-left: auto; }
+.hero-source { font: var(--t-label); color: var(--body); }
 .hero-live-note { flex: 1 0 100%; margin: 0; font: var(--t-caption); color: var(--muted); }
+.hero-symbols { order: 1; }
 .hero-visual .demo-bar .hero-controls { order: 2; }
-.hero-live { order: 1; }
-.hero-live-note { order: 3; }
+.hero-live { order: 3; }
+.hero-live-note { order: 4; }
 @media (min-width: 600px) { .hero-live-note { max-width: calc(100% - 170px); } }
 .connect { display: flex; flex-direction: column; background: var(--surface); position: relative; overflow: auto; }
 .connect > chartist-chart { flex: 1 0 auto; width: 100%; }

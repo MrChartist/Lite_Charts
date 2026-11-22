@@ -17,12 +17,12 @@ Every public export, with its signature as written in the source (`src/index.ts`
 
 | Import | Contents | Script tag file and global |
 |---|---|---|
-| `@mrchartist/chartist-lite` | `createChart`, the six series, price lines, markers, themes, formatting helpers, types | `chartist-lite.iife.min.js`, `ChartistLite` |
-| `@mrchartist/chartist-lite/indicators` | Indicator functions | `chartist-lite-indicators.iife.min.js`, `ChartistLiteIndicators` |
-| `@mrchartist/chartist-lite/element` | `defineChartistElement` and the element's parsing helpers | `chartist-lite.element.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
-| `@mrchartist/chartist-lite/drawings` | `createDrawingTools`, `TOOLS`, the JSON helpers | `chartist-lite-drawings.iife.min.js`, `ChartistLiteDrawings` |
-| `@mrchartist/chartist-lite/react` | `createChartistReact` and the controller | none |
-| `@mrchartist/chartist-lite/live` | `connectLive`, the built-in providers and their parsers | `chartist-lite-live.iife.min.js`, `ChartistLiteLive` |
+| `lite-charts` | `createChart`, the six series, price lines, markers, themes, formatting helpers, types | `chartist-lite.iife.min.js`, `ChartistLite` |
+| `lite-charts/indicators` | Indicator functions | `chartist-lite-indicators.iife.min.js`, `ChartistLiteIndicators` |
+| `lite-charts/element` | `defineChartistElement` and the element's parsing helpers | `chartist-lite.element.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
+| `lite-charts/drawings` | `createDrawingTools`, `TOOLS`, the JSON helpers | `chartist-lite-drawings.iife.min.js`, `ChartistLiteDrawings` |
+| `lite-charts/react` | `createChartistReact` and the controller | none |
+| `lite-charts/live` | `connectLive`, the built-in providers and their parsers | `chartist-lite-live.iife.min.js`, `ChartistLiteLive` |
 | `<chartist-chart live>` (element plus live) | the element with the live entry inside | `chartist-lite.element-live.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
 
 The package is `sideEffects: false`, and importing any entry touches no DOM.
@@ -826,7 +826,7 @@ const x = crispCoord(cssX, 1, scope.pixelRatio);
 
 ## Indicators
 
-From `@mrchartist/chartist-lite/indicators`. Each returns rows aligned one to one with the input; warm-up bars are `{ time }`. Defaults and warm-up lengths: [Indicators](indicators.md).
+From `lite-charts/indicators`. Each returns rows aligned one to one with the input; warm-up bars are `{ time }`. Defaults and warm-up lengths: [Indicators](indicators.md).
 
 ### `sma`, `ema`, `wma`
 
@@ -941,13 +941,13 @@ PriceSource, IndicatorRow, IndicatorPoint, SourceOptions, PeriodOptions, VwapOpt
 An `IndicatorRow` is `{ time, value?, open?, high?, low?, close?, volume? }`; an `IndicatorPoint` is `{ time, value? }`.
 
 ```js
-/** @type {import('@mrchartist/chartist-lite/indicators').IndicatorPoint[]} */
+/** @type {import('lite-charts/indicators').IndicatorPoint[]} */
 const points = sma(bars, 20);
 ```
 
 ## Drawings
 
-From `@mrchartist/chartist-lite/drawings`. Behaviour, tools and keys: [Drawing tools](drawing-tools.md).
+From `lite-charts/drawings`. Behaviour, tools and keys: [Drawing tools](drawing-tools.md).
 
 ### `createDrawingTools`
 
@@ -1073,7 +1073,7 @@ const twoPointTools = TOOLS.filter(t => t.points === 2).map(t => t.id);
 
 ## Live data
 
-From `@mrchartist/chartist-lite/live`. Behaviour, statuses, privacy and the exchanges' limits: [Live data](live-data.md). The core never imports this entry; importing it opens nothing.
+From `lite-charts/live`. Behaviour, statuses, privacy and the exchanges' limits: [Live data](live-data.md). The core never imports this entry; importing it opens nothing.
 
 ### `connectLive`
 
@@ -1153,7 +1153,7 @@ const b = new BarBuilder(60); b.apply({ kind: 'trade', time: 1700000000, price: 
 
 ## Element
 
-From `@mrchartist/chartist-lite/element`. Attributes, events and data formats: [Embedding the chart](embedding.md).
+From `lite-charts/element`. Attributes, events and data formats: [Embedding the chart](embedding.md).
 
 ### `defineChartistElement`
 
@@ -1194,7 +1194,7 @@ With the element-live build, `live` streams from a public exchange feed instead 
 
 ## React
 
-From `@mrchartist/chartist-lite/react`. Behaviour of updates: [Embedding the chart](embedding.md#3-react).
+From `lite-charts/react`. Behaviour of updates: [Embedding the chart](embedding.md#3-react).
 
 ### `createChartistReact`
 
@@ -1243,7 +1243,7 @@ ChartApi, SeriesApi, TimeScaleApi, PriceScaleApi, PaneApi, MouseEventParams, Mou
 The interfaces and option types of the main entry. `Time` is `number | string | BusinessDay` (UNIX seconds, `'YYYY-MM-DD'`, or `{ year, month, day }` with month 1 to 12). `DeepPartial<T>` is a recursive `Partial` that leaves functions and arrays whole.
 
 ```ts
-import type { ChartApi, Time } from '@mrchartist/chartist-lite';
+import type { ChartApi, Time } from 'lite-charts';
 ```
 
 ---

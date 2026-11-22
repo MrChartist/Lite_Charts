@@ -36,6 +36,18 @@
       "types": "./dist/types/live/index.d.ts",
       "import": "./dist/live.js"
     },
+    "./widget": {
+      "types": "./dist/types/widget/index.d.ts",
+      "import": "./dist/widget.js"
+    },
+    "./transforms": {
+      "types": "./dist/types/transforms/index.d.ts",
+      "import": "./dist/transforms.js"
+    },
+    "./extras": {
+      "types": "./dist/types/plugins/extras/index.d.ts",
+      "import": "./dist/extras.js"
+    },
     "./iife": "./dist/chartist-lite.iife.min.js",
     "./package.json": "./package.json"
   },

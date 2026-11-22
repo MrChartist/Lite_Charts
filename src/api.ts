@@ -6,6 +6,7 @@ import type { ChartPrimitive } from './plugins/primitive';
 import type { PriceScaleOptions } from './scales/price-scale';
 import type { LogicalRange } from './scales/time-scale';
 import type { ChartTimeScaleOptions } from './core/options';
+import type { SpanInput } from './core/span';
 import type { InputOf, OptionsOf, RowBase, RowOf, SeriesDefinition } from './series/definition';
 
 export interface Point { x: number; y: number }
@@ -90,6 +91,16 @@ export interface TimeScaleApi {
   width(): number;
   applyOptions(options: DeepPartial<ChartTimeScaleOptions>): void;
   options(): Readonly<ChartTimeScaleOptions>;
+  /**
+   * Show a calendar span that ends at the last bar, read in the chart's time zone: '1D' / '5D' (the last n sessions
+   * in the data), '1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All', or `{ days | weeks | months | years }`.
+   */
+  setVisibleSpan(span: SpanInput): void;
+  /** True while the newest bar is in view (false once the view is scrolled back into history). */
+  isAtRealTime(): boolean;
+  /** Called with the new state whenever `isAtRealTime()` changes (checked once per painted frame). */
+  subscribeRealTimeChange(handler: (atRealTime: boolean) => void): void;
+  unsubscribeRealTimeChange(handler: (atRealTime: boolean) => void): void;
   subscribeVisibleLogicalRangeChange(handler: LogicalRangeChangeHandler): void;
   unsubscribeVisibleLogicalRangeChange(handler: LogicalRangeChangeHandler): void;
 }
@@ -174,5 +185,10 @@ export interface ChartApi {
   element(): HTMLElement;
   /** Paint now instead of on the next animation frame. */
   paint(): void;
+  /**
+   * Call `fn` once when `remove()` runs (before the chart's own teardown), so a plugin can drop document listeners and
+   * DOM of its own. Returns a function that unsubscribes. Called at once when the chart is already removed.
+   */
+  onRemove(fn: () => void): () => void;
   remove(): void;
 }

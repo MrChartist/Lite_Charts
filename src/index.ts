@@ -57,6 +57,7 @@ export type {
 } from './core/options';
 export type { ThemeColors } from './core/theme';
 export type { Time, BusinessDay } from './core/time';
+export type { SpanInput } from './core/span';
 export type { PriceScaleOptions, PriceScaleMode, ScaleMargins } from './scales/price-scale';
 export type { LogicalRange } from './scales/time-scale';
 export type {

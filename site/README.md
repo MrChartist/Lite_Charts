@@ -48,8 +48,12 @@ The pages need no `'unsafe-inline'`: the only inline `<script>` blocks are JSON-
 are data, not code. A policy such as `default-src 'self'; img-src 'self' data:` works for the whole site; the live
 charts load the package's script files from `assets/`.
 
-The live Bitcoin demos (the hero's Live BTC toggle, the home chapter, the examples card and the Live data guide) are off
-until a reader presses them; then the reader's browser connects to the exchange directly. To keep them working under a
+The home page's hero chart shows real market data by default: when it comes into view the reader's browser connects to
+Coinbase's public feed for BTC-USD (a pair switch offers ETH and SOL), labelled "Real market data · Coinbase". It stays on
+demo data when the reader chose "Use demo data" (remembered in `localStorage` as `cl-hero-data`), when the browser asks
+to save data (`navigator.connection.saveData` or `prefers-reduced-data`) or is offline, and falls back to it with a quiet
+line when the feed fails. Every other live demo (the home chapter, the examples card and the Live data guide) stays off
+until a reader presses Connect. To keep them working under a
 policy, add `connect-src 'self' https://api.exchange.coinbase.com wss://ws-feed.exchange.coinbase.com`, plus
 `https://data-api.binance.vision wss://data-stream.binance.vision https://api.kraken.com wss://ws.kraken.com` for the
 element's fallback to Binance and Kraken. Without them those demos fall back quietly; nothing else changes.
@@ -57,8 +61,10 @@ element's fallback to Binance and Kraken. Without them those demos fall back qui
 ## Live demos and the check
 
 `node site/check.cjs` needs no network. It blocks every other host and asserts that no page requests one while it
-opens. Then it stubs `fetch` and `WebSocket` inside the page (`liveStub` in `check.cjs`) and checks that the hero's
-toggle is off by default, connects on a click, reads Live, moves its last bar on a stubbed trade and falls back to the
-demo data when the stub fails; the same for the home chapter's element (including its fallback to Binance and Kraken)
-and the guide's interval switch. With `SITE_SHOTS=1` it also tries one real connection for
+opens. Every context stubs `fetch` and `WebSocket` for the exchanges inside the page (`liveStub` in `check.cjs`), so the
+home hero's automatic connection never leaves the machine either. The check asserts that the hero connects by itself,
+says "Real market data · Coinbase", moves its last bar on a stubbed trade, switches pair, that "Use demo data"
+disconnects and, after a reload, nothing is requested; that it falls back to the demo data when the stub fails, and does
+not connect with Save-Data on; that no other page connects by itself; and, for the click-to-connect demos, the home
+chapter's element (including its fallback to Binance and Kraken) and the guide's interval switch. With `SITE_SHOTS=1` it also tries one real connection for
 `docs/screenshots/site-live-dark.png`, and skips it when the exchange cannot be reached.

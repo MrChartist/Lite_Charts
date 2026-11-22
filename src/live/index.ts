@@ -6,10 +6,11 @@
 //   const live = connectLive(candles, { symbol: 'BTC-USD', interval: '1m', volumeSeries: volume, chart });
 
 export { connectLive } from './connect';
-export type { LiveHandle, LiveOptions, LiveStatus, LiveEnv, ProviderName } from './connect';
-export { BarBuilder, backoffMs } from './bars';
+export { LIVE_LIMITS } from './connect';
+export type { LiveHandle, LiveInfo, LiveOptions, LiveStatus, LiveEnv, ProviderName } from './connect';
+export { BarBuilder, backoffMs, plausibleBar, plausibleTick } from './bars';
 export {
-  binance, coinbase, kraken, PROVIDERS, INTERVAL_SECONDS, binanceSymbol, krakenSymbols,
+  binance, coinbase, kraken, LiveError, PROVIDERS, INTERVAL_SECONDS, binanceSymbol, krakenSymbols,
   parseBinanceKlines, parseBinanceMessage, parseCoinbaseCandles, parseCoinbaseMessage, parseKrakenMessage, parseKrakenOHLC,
 } from './providers';
 export type { HistoryRange, LiveBar, LiveInterval, LiveProvider, LiveTick, ProviderDeps, StreamHandlers } from './providers';

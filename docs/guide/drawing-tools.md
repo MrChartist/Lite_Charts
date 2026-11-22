@@ -15,8 +15,8 @@ The `drawings` entry adds drawing tools to a chart: a ready toolbar, fifteen too
 ## Add the toolbar
 
 ```js live height=480
-import { createChart, CandlestickSeries } from '@mrchartist/chartist-lite';
-import { createDrawingTools } from '@mrchartist/chartist-lite/drawings';
+import { createChart, CandlestickSeries } from 'lite-charts';
+import { createDrawingTools } from 'lite-charts/drawings';
 
 const chart = createChart('chart');
 const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });

@@ -49,7 +49,7 @@ volume.setData(bars.map(b => ({
   {
     id: 'indicators', kind: 'indicators', title: 'Moving average and Bollinger bands', tags: ['sma', 'bollinger'], label: 'Demo candlestick chart with a moving average and Bollinger bands', guide: ['indicators', 'Indicators guide'],
     text: 'A 20-bar simple moving average and Bollinger bands from the <code>indicators</code> entry, drawn as line series.',
-    code: `import { sma, bollinger } from '@mrchartist/chartist-lite/indicators';
+    code: `import { sma, bollinger } from 'lite-charts/indicators';
 
 chart.addSeries(LineSeries, { title: 'SMA 20' }).setData(sma(bars, 20));
 const bb = bollinger(bars, { period: 20, mult: 2 });
@@ -96,7 +96,7 @@ chart.applyOptions({ timeScale: { timeZone: 'America/New_York' } });`,
   {
     id: 'drawings', kind: 'drawings', big: 'draw', title: 'Drawing tools and their toolbar', tags: ['createDrawingTools', 'toolbar'], label: 'Demo chart with drawing tools and the built-in toolbar', guide: ['drawing-tools', 'Drawing tools guide'],
     text: 'The built-in toolbar on a candlestick chart, with a Fibonacci retracement, a long position and a labelled level to start from. Open it to draw on a large chart.',
-    code: `import { createDrawingTools } from '@mrchartist/chartist-lite/drawings';
+    code: `import { createDrawingTools } from 'lite-charts/drawings';
 
 const tools = createDrawingTools(chart, candles, { toolbar: true });
 tools.add({ tool: 'fib', points: [{ time: '2024-06-03', price: 96.2 }, { time: '2024-07-29', price: 108.4 }] });

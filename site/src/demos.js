@@ -13,20 +13,33 @@ const closes = (bars) => bars.map((b) => ({ time: b.time, value: b.close }));
 const make = (el, L, theme, opts = {}) => L.createChart(el, { theme, ariaLabel: el.dataset.label, ...opts });
 
 const LIVE_WORDS = { off: 'Demo data', connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
+const HERO_PREF = 'cl-hero-data';      // 'demo' when the reader chose demo data; remembered in this browser only
+const SYMBOLS = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+const NAMES = { coinbase: 'Coinbase', binance: 'Binance', kraken: 'Kraken' };
+
+/** Why the hero should not connect by itself: the reader chose demo data, the browser saves data, or it is offline. */
+function heroHold() {
+  try { if (localStorage.getItem(HERO_PREF) === 'demo') return 'pref'; } catch (e) { /* storage blocked */ }
+  const c = navigator.connection;
+  if ((c && c.saveData) || (window.matchMedia && matchMedia('(prefers-reduced-data: reduce)').matches)) return 'save';
+  if (navigator.onLine === false) return 'offline';
+  return '';
+}
 
 /**
- * The hero chart. Demo data by default; the Live BTC toggle (off by default) connects the visitor's browser to
- * Coinbase's public feed through the live entry, loaded on that click. When Coinbase cannot be reached (status error,
- * or not live within 15 s) it goes back to the demo data with one quiet line.
+ * The hero chart. Owner's decision: real market data by default. When the hero is created (it is in view on load) it
+ * connects the visitor's browser to Coinbase's public feed for BTC-USD through the live entry, unless the reader chose
+ * demo data (remembered), the browser asks to save data (Save-Data or prefers-reduced-data) or it is offline. A symbol
+ * switch (BTC, ETH, SOL) and a "Use demo data" switch sit under it. When Coinbase cannot be reached (status error, or
+ * not live within 15 s) it shows the demo data with one quiet line.
  */
 function home(el, L, theme) {
   const I = window.ChartistLiteIndicators || {};
   const demoBars = makeBars(260, 7);
   const chart = make(el, L, theme);
-  const state = { type: 'candles', ind: new Set(['sma']), theme, bars: demoBars, live: null, status: 'off' };
+  const state = { type: 'candles', ind: new Set(['sma']), theme, bars: demoBars, live: null, status: 'off', symbol: SYMBOLS[0], provider: '' };
   const stage = el.closest('[data-stage]');
   const note = stage && stage.querySelector('[data-hero-live-note]');
-  const noteText = note ? note.textContent : '';
   let series = [];
   let refs = {};
   let token = 0;
@@ -44,7 +57,7 @@ function home(el, L, theme) {
     series = []; refs = {};
     const t = TONES[state.theme];
     const DEF = { candles: L.CandlestickSeries, bars: L.BarSeries, line: L.LineSeries, area: L.AreaSeries };
-    const main = chart.addSeries(DEF[state.type], { title: state.live ? 'BTC-USD' : 'DEMO' });
+    const main = chart.addSeries(DEF[state.type], { title: state.live ? state.symbol : 'DEMO' });
     main.setData(state.bars.map(shape));
     series.push(main); refs.main = main;
     if (state.ind.has('sma') && I.sma) {
@@ -71,14 +84,23 @@ function home(el, L, theme) {
   }
 
   // ---- live mode ----
+  const q = (sel) => (stage ? stage.querySelector(sel) : null);
   function show(s, message) {
     state.status = s;
     if (!stage) return;
-    const btn = stage.querySelector('[data-hero-live]');
-    const st = stage.querySelector('.hero-live .live-state');
-    if (btn) btn.setAttribute('aria-pressed', String(s !== 'off'));
+    const live = s !== 'off';
+    const st = q('.hero-live .live-state');
     if (st) { st.dataset.s = s; st.querySelector('.live-word').textContent = LIVE_WORDS[s] || s; }
-    if (note) note.textContent = message || (s === 'off' ? noteText : 'Live BTC: one-minute candles from Coinbase\'s public feed, straight to your browser. Indicative prices, not advice.');
+    const label = q('[data-hero-source]');
+    if (label) label.textContent = live ? `Real market data · ${NAMES[state.provider] || 'Coinbase'}` : 'Invented demo data';
+    const demo = q('[data-hero-demo]');
+    if (demo) demo.setAttribute('aria-pressed', String(!live));
+    const sym = q('[data-hero-symbols]');
+    if (sym) sym.hidden = !live;
+    for (const btn of stage.querySelectorAll('[data-hero-symbol]')) btn.setAttribute('aria-pressed', String(btn.dataset.heroSymbol === state.symbol));
+    if (note) note.textContent = message || (live
+      ? `Prices come straight from ${NAMES[state.provider] || 'Coinbase'}'s public feed to your browser, with nothing in between and nothing stored. Indicative, not advice.`
+      : 'Invented prices. Switch off "Use demo data" to load real prices from Coinbase, straight to your browser.');
   }
   /** Bars changed in this frame (connectLive's onBars): replace the forming bar or append, then paint them. */
   function applyUpdates(changed) {
@@ -96,7 +118,7 @@ function home(el, L, theme) {
     token++;
     clearTimeout(timer);
     if (state.live) { try { state.live.disconnect(); } catch (e) { /* already closed */ } }
-    const was = state.live || state.status !== 'off';
+    const was = !!state.live;
     state.live = null;
     show('off', message);
     if (!was) return;
@@ -105,9 +127,10 @@ function home(el, L, theme) {
     render(false);
     chart.timeScale().resetTimeScale();
   }
-  const fail = () => stopLive('Could not reach Coinbase from this browser, so the chart shows the demo data again.');
+  const fail = () => stopLive('Coinbase could not be reached from this browser, so this is invented demo data.');
   async function startLive() {
     const my = ++token;
+    state.provider = 'coinbase';
     show('connecting');
     let LV;
     try { LV = await window.__CL_LIVE_LIB(); } catch (e) { LV = null; }
@@ -119,9 +142,10 @@ function home(el, L, theme) {
     // so the type and indicator buttons keep working on live bars.
     const sink = { seriesType: () => 'candlestick', setData() {}, update() {} };
     state.live = LV.connectLive(sink, {
-      symbol: 'BTC-USD', interval: '1m', provider: LV.coinbase, history: 300,   // Coinbase alone, no fallback
-      onStatus(s) {
+      symbol: state.symbol, interval: '1m', provider: LV.coinbase, history: 300,   // Coinbase alone, no fallback
+      onStatus(s, info) {
         if (my !== token) return;
+        if (info && info.provider) state.provider = info.provider;
         if (s === 'live') reached = true;
         if (s === 'error' && !reached) { fail(); return; }
         show(s);
@@ -132,7 +156,7 @@ function home(el, L, theme) {
           state.bars = list.map((b) => ({ ...b }));
           if (first) {
             first = false;
-            chart.applyOptions({ timeScale: { timeZone: 'local' }, ariaLabel: 'Bitcoin in US dollars, one-minute candles, live from Coinbase' });
+            chart.applyOptions({ timeScale: { timeZone: 'local' }, ariaLabel: `${state.symbol}, one-minute candles, real prices live from Coinbase` });
             render(false);
             const n = state.bars.length;
             chart.timeScale().setVisibleLogicalRange({ from: n - 90, to: n + 3 });
@@ -142,13 +166,21 @@ function home(el, L, theme) {
     });
     timer = setTimeout(() => { if (my === token && !reached) fail(); }, 15000);
   }
+  function setSymbol(sym) {
+    if (!SYMBOLS.includes(sym) || sym === state.symbol) return;
+    state.symbol = sym;
+    if (state.live) { stopLive(); startLive(); }   // a fresh connection: history for the new pair, then its stream
+    else show(state.status);
+  }
+  const remember = (demo) => { try { if (demo) localStorage.setItem(HERO_PREF, 'demo'); else localStorage.removeItem(HERO_PREF); } catch (e) { /* storage blocked */ } };
 
   render();
   if (stage) {
     stage.addEventListener('click', (e) => {
       const tb = e.target.closest('[data-hero-type]');
       const ib = e.target.closest('[data-hero-ind]');
-      const lb = e.target.closest('[data-hero-live]');
+      const db = e.target.closest('[data-hero-demo]');
+      const sb = e.target.closest('[data-hero-symbol]');
       if (tb) {
         state.type = tb.dataset.heroType;
         for (const b of stage.querySelectorAll('[data-hero-type]')) b.setAttribute('aria-pressed', String(b === tb));
@@ -158,16 +190,20 @@ function home(el, L, theme) {
         if (state.ind.has(k)) state.ind.delete(k); else state.ind.add(k);
         ib.setAttribute('aria-pressed', String(state.ind.has(k)));
         render();
-      } else if (lb) {
-        if (state.status === 'off') startLive(); else stopLive('Live BTC is off. Nothing more is requested.');
-      }
+      } else if (db) {
+        if (state.status === 'off') { remember(false); startLive(); } else { remember(true); stopLive(); }
+      } else if (sb) setSymbol(sb.dataset.heroSymbol);
     });
   }
+  const hold = heroHold();
+  if (hold) show('off', hold === 'save' ? 'Invented demo data, because your browser asks to save data. Switch off "Use demo data" to load real prices from Coinbase.'
+    : hold === 'offline' ? 'Invented demo data: this browser is offline.' : '');
+  else startLive();
   window.addEventListener('pagehide', () => { if (state.live) state.live.disconnect(); });
   return one(chart, {
     restyle(t) { state.theme = t; chart.applyOptions({ theme: t }); render(); },
     // For the site check: the hero's live state and its main series.
-    hero: { status: () => state.status, main: () => refs.main, bars: () => state.bars },
+    hero: { status: () => state.status, main: () => refs.main, bars: () => state.bars, symbol: () => state.symbol },
   });
 }
 

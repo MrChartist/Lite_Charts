@@ -46,9 +46,10 @@ function listPages(dir, base = '') {
   return out.sort();
 }
 
-function isExternal(url, origin) {
-  if (!/^(https?|wss?):/i.test(url)) return false;
-  return !url.startsWith(origin);
+/** Any http(s) or ws(s) address that is not this machine's test server. */
+function isExternal(url) {
+  const m = /^(?:https?|wss?):\/\/([^/:]+)/i.exec(url);
+  return !!m && m[1] !== '127.0.0.1';
 }
 
 // ---- live data with no network: fetch and WebSocket for the exchanges, stubbed inside the page ----
@@ -73,7 +74,8 @@ function liveStub(opts) {
     const start = Math.floor(Date.parse(url.searchParams.get('start')) / 1000);
     const end = Math.floor(Date.parse(url.searchParams.get('end')) / 1000);
     const rows = [];
-    for (let t = Math.floor(end / g) * g; t >= start; t -= g) {
+    const newest = Math.min(Math.floor(end / g) * g, Math.floor(Date.now() / 1000 / g) * g);   // never a bar in the future
+    for (let t = newest; t >= start; t -= g) {
       const o = +f(t).toFixed(2); const c = +f(t + g).toFixed(2);
       rows.push([t, +(Math.min(o, c) - 9).toFixed(2), +(Math.max(o, c) + 9).toFixed(2), o, c, +(1 + Math.abs(Math.sin(t)) * 6).toFixed(4)]);
     }
@@ -442,14 +444,13 @@ async function interactive(browser, origin) {
 
   // Live data, with no network at all: other hosts are blocked, and fetch and WebSocket are stubbed in the page.
   if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite-live.iife.min.js'))) {
-    const liveCtx = async (fail) => {
-      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-      await ctx.route((u) => isExternal(String(u), origin), (r) => r.abort());
-      await ctx.addInitScript(liveStub, { fail });
+    const liveCtx = async (fail, extra) => {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }, { fail });
+      if (extra) await ctx.addInitScript(extra);
       const page = await ctx.newPage();
       const errs = watch(page);
       const external = [];
-      page.on('request', (r) => { if (isExternal(r.url(), origin)) external.push(r.url()); });
+      page.on('request', (r) => { if (isExternal(r.url())) external.push(r.url()); });
       page.on('websocket', (w) => external.push(w.url()));
       return { ctx, page, errs, external };
     };
@@ -459,61 +460,87 @@ async function interactive(browser, origin) {
       const main = h && h.main();
       const d = main ? main.data() : [];
       return {
-        ready: !!h, status: h ? h.status() : '', pressed: document.querySelector('[data-hero-live]').getAttribute('aria-pressed'),
-        word: document.querySelector('.hero-live .live-word').textContent, note: document.querySelector('[data-hero-live-note]').textContent,
+        ready: !!h, status: h ? h.status() : '', demo: document.querySelector('[data-hero-demo]').getAttribute('aria-pressed'),
+        word: document.querySelector('.hero-live .live-word').textContent, source: document.querySelector('[data-hero-source]').textContent,
+        note: document.querySelector('[data-hero-live-note]').textContent, symbolsHidden: document.querySelector('[data-hero-symbols]').hidden,
         n: d.length, last: d[d.length - 1] || null, title: main ? main.options().title : '',
         requests: window.__stub.requests.slice(), sockets: window.__stub.sockets.map((x) => ({ url: x.url, state: x.readyState, sent: x.sent })),
       };
     });
+    const heroReady = (page) => page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
+    const waitWord = (page, w) => page.waitForFunction((x) => document.querySelector('.hero-live .live-word').textContent === x, w, { timeout: 8000 }).catch(() => {});
 
-    // The hero: off by default, connects on click, reads Live, the last bar follows a trade, and switches off again.
+    // The hero: real market data by default. It connects by itself, says so, and the last bar follows a trade.
     {
       const { ctx, page, errs, external } = await liveCtx(false);
       await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
-      await settle(page);
-      await page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
+      await heroReady(page);
+      await waitWord(page, 'Live');
       let h = await hero(page);
-      ok(h.ready && h.pressed === 'false' && h.status === 'off' && h.word === 'Demo data' && h.title === 'DEMO', `live hero: off by default, on demo data ("${h.word}", ${h.title})`);
-      ok(/Coinbase/.test(h.note) && /Off by default/.test(h.note), `live hero: the line under the toggle names the exchange ("${h.note}")`);
-      ok(h.requests.length === 0 && h.sockets.length === 0 && external.length === 0, `live hero: no request to any exchange or other host on load (${h.requests.length}, ${h.sockets.length}, ${external.length})`);
-      await page.click('[data-hero-live]');
-      await page.waitForFunction(() => document.querySelector('.hero-live .live-word').textContent === 'Live', null, { timeout: 8000 }).catch(() => {});
-      h = await hero(page);
-      ok(h.pressed === 'true' && h.status === 'live' && h.word === 'Live', `live hero: one click connects and the status reads Live ("${h.word}")`);
-      ok(h.requests.length > 0 && h.requests.every((u) => u.startsWith('https://api.exchange.coinbase.com/products/BTC-USD/candles')), `live hero: history comes from Coinbase only (${h.requests.length} requests)`);
+      ok(h.status === 'live' && h.word === 'Live' && h.demo === 'false', `live hero: connects by itself on load and the status reads Live ("${h.word}")`);
+      ok(h.source === 'Real market data · Coinbase', `live hero: the label says "${h.source}"`);
+      ok(/straight from Coinbase/.test(h.note) && /not advice/.test(h.note), `live hero: the line under it says the prices come straight from the exchange and are not advice ("${h.note}")`);
+      ok(h.requests.length > 0 && h.requests.every((u) => u.startsWith('https://api.exchange.coinbase.com/products/BTC-USD/candles')) && external.length === 0, `live hero: BTC-USD history from Coinbase only, through the stub (${h.requests.length} requests, ${external.length} real)`);
       ok(h.sockets.length === 1 && h.sockets[0].url === 'wss://ws-feed.exchange.coinbase.com' && /"matches"/.test(h.sockets[0].sent.join('')), 'live hero: one Coinbase stream, subscribed to trades');
-      ok(h.n === 300 && h.title === 'BTC-USD', `live hero: the chart shows the Coinbase bars (${h.n}, ${h.title})`);
+      ok(h.n === 300 && h.title === 'BTC-USD' && !h.symbolsHidden, `live hero: the chart shows the Coinbase bars, with the pair switch (${h.n}, ${h.title})`);
       const before = h.last;
       const price = +(before.close + 321.25).toFixed(2);
       const sent = await page.evaluate((p) => window.__stubTrade(p), price);
-      await page.waitForFunction((p) => { const m = document.querySelector('[data-demo="home"]')._demo.hero.main(); const d = m.data(); return d[d.length - 1].close === p; }, price, { timeout: 3000 }).catch(() => {});
+      await page.waitForFunction((p) => { const d = document.querySelector('[data-demo="home"]')._demo.hero.main().data(); return d[d.length - 1].close === p; }, price, { timeout: 3000 }).catch(() => {});
       h = await hero(page);
       ok(sent === 1 && h.last.close === price && h.last.high >= price && h.last.time >= before.time, `live hero: the last bar moves on a stubbed trade (close ${before.close} to ${h.last.close})`);
       await page.click('[data-hero-ind="volume"]');
       await page.click('[data-hero-type="line"]');
       h = await hero(page);
       ok(h.n >= 300 && h.status === 'live', 'live hero: the type and indicator buttons keep working on live bars');
-      await page.click('[data-hero-live]');
+      await page.click('[data-hero-symbol="ETH-USD"]');
+      await waitWord(page, 'Live');
+      await page.waitForFunction(() => document.querySelector('[data-demo="home"]')._demo.hero.main().options().title === 'ETH-USD', null, { timeout: 5000 }).catch(() => {});
       h = await hero(page);
-      ok(h.pressed === 'false' && h.word === 'Demo data' && h.n === 260 && h.title === 'DEMO' && h.sockets.every((x) => x.state === 3), `live hero: a second click closes the stream and brings the demo data back (${h.n})`);
+      ok(h.title === 'ETH-USD' && h.requests.some((u) => /products\/ETH-USD\/candles/.test(u)) && h.sockets.filter((x) => x.state === 1).length === 1, `live hero: the ETH switch loads ETH-USD with one open stream (${h.title})`);
+      // "Use demo data": disconnects, and is remembered: after a reload nothing is requested.
+      await page.click('[data-hero-demo]');
+      h = await hero(page);
+      ok(h.demo === 'true' && h.word === 'Demo data' && h.source === 'Invented demo data' && h.n === 260 && h.title === 'DEMO' && h.sockets.every((x) => x.state === 3) && h.symbolsHidden, `live hero: "Use demo data" closes the stream and shows the demo data (${h.n})`);
+      external.length = 0;
+      await page.reload({ waitUntil: 'load' });
+      await heroReady(page);
+      await page.waitForTimeout(1500);
+      h = await hero(page);
+      ok(h.demo === 'true' && h.word === 'Demo data' && h.requests.length === 0 && h.sockets.length === 0 && external.length === 0, `live hero: the demo choice is remembered; after a reload no request goes to any other host (${h.requests.length}, ${h.sockets.length}, ${external.length})`);
+      await page.click('[data-hero-demo]');
+      await waitWord(page, 'Live');
+      ok((await hero(page)).status === 'live' && await page.evaluate(() => localStorage.getItem('cl-hero-data') === null), 'live hero: switching demo data off connects again and forgets the choice');
       ok(errs.length === 0, 'live hero: no console errors ' + errs.join(' | '));
       await ctx.close();
     }
-    // The hero when the exchange cannot be reached: back to the demo data, with one quiet line.
+    // When the exchange cannot be reached: demo data, silently, with one quiet line; nothing is remembered.
     {
       const { ctx, page, errs } = await liveCtx(true);
       await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
-      await page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
-      await page.click('[data-hero-live]');
-      await page.waitForFunction(() => /Could not reach/.test(document.querySelector('[data-hero-live-note]').textContent), null, { timeout: 8000 }).catch(() => {});
+      await heroReady(page);
+      await page.waitForFunction(() => /could not be reached/.test(document.querySelector('[data-hero-live-note]').textContent), null, { timeout: 8000 }).catch(() => {});
       const h = await hero(page);
-      ok(h.pressed === 'false' && h.word === 'Demo data' && /Could not reach Coinbase/.test(h.note) && h.n === 260 && h.title === 'DEMO' && h.requests.length > 0, `live hero: a failed connection falls back to the demo data quietly ("${h.note}")`);
+      ok(h.status === 'off' && h.word === 'Demo data' && /Coinbase could not be reached/.test(h.note) && h.n === 260 && h.title === 'DEMO' && h.requests.length > 0, `live hero: a failed connection falls back to the demo data quietly ("${h.note}")`);
+      ok(await page.evaluate(() => localStorage.getItem('cl-hero-data') === null), 'live hero: a failure is not remembered as a choice');
       ok(errs.length === 0, 'live hero fallback: no console errors ' + errs.join(' | '));
       await ctx.close();
     }
-    // The one-tag element in the home chapter: off, connects on click, Live, a trade moves its last bar, Disconnect.
+    // A browser that asks to save data: no connection at all.
     {
-      const { ctx, page, errs, external } = await liveCtx(false);
+      const { ctx, page } = await liveCtx(false, () => { Object.defineProperty(navigator, 'connection', { value: { saveData: true }, configurable: true }); });
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      await heroReady(page);
+      await page.waitForTimeout(1200);
+      const h = await hero(page);
+      ok(h.status === 'off' && h.requests.length === 0 && h.sockets.length === 0 && /save data/.test(h.note), `live hero: with Save-Data on it does not connect ("${h.note}")`);
+      await ctx.close();
+    }
+    // The one-tag element in the home chapter: off, connects on click, Live, a trade moves its last bar, Disconnect.
+    // The hero is set to demo data here, so every request below is the chapter's own.
+    const heroDemo = () => { try { localStorage.setItem('cl-hero-data', 'demo'); } catch (e) { /* none */ } };
+    {
+      const { ctx, page, errs, external } = await liveCtx(false, heroDemo);
       await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
       await settle(page);
       ok(await page.evaluate(() => !document.querySelector('#ch-live').closest('.chapter').querySelector('chartist-chart') && window.__stub.requests.length === 0) && external.length === 0, 'live chapter: off by default, no element and no request until Connect');
@@ -533,7 +560,7 @@ async function interactive(browser, origin) {
       await ctx.close();
     }
     {
-      const { ctx, page } = await liveCtx(true);
+      const { ctx, page } = await liveCtx(true, heroDemo);
       await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
       const sec = '.chapter:has(#ch-live)';
       await page.locator('#ch-live').scrollIntoViewIfNeeded();
@@ -584,12 +611,14 @@ async function interactive(browser, origin) {
 // ---- final screenshots (SITE_SHOTS=1) ----
 async function screenshots(browser, origin) {
   const shot = async (name, url, { width = 1440, height = 900, theme = 'dark', mobile = false, prep } = {}) => {
-    const ctx = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
+    const ctx = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 }, null);
     await ctx.addInitScript((t) => { try { localStorage.setItem('cl-theme', t); } catch (e) { /* none */ } }, theme);
     const page = await ctx.newPage();
     await page.goto(`${origin}/${url}`, { waitUntil: 'load' });
     await page.evaluate(() => document.fonts.ready);
     await settle(page);
+    // The home hero connects to the real exchange by itself here: wait until it is live or has fallen back.
+    if (url === 'index.html') await page.waitForFunction(() => { const w = document.querySelector('.hero-live .live-word'); return w && w.textContent !== 'Connecting'; }, null, { timeout: 20000 }).catch(() => {});
     if (prep) await prep(page);
     await page.waitForTimeout(700);
     await page.screenshot({ path: path.join(shots, `${name}.png`) });
@@ -609,7 +638,7 @@ async function screenshots(browser, origin) {
   // One real screenshot of the hero in live mode, only when the exchange can be reached from here. Not an assertion:
   // without network it says so and the check carries on.
   if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite-live.iife.min.js'))) {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }, null);
     await ctx.addInitScript(() => { try { localStorage.setItem('cl-theme', 'dark'); } catch (e) { /* none */ } });
     const page = await ctx.newPage();
     await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
@@ -620,7 +649,6 @@ async function screenshots(browser, origin) {
     else {
       await page.evaluate(() => document.fonts.ready);
       await page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
-      await page.click('[data-hero-live]');
       const live = await page.waitForFunction(() => document.querySelector('.hero-live .live-word').textContent === 'Live', null, { timeout: 25000 }).then(() => true).catch(() => false);
       if (!live) console.log('site-live-dark.png skipped: the hero did not reach Live with the real exchange');
       else {
@@ -654,6 +682,17 @@ async function screenshots(browser, origin) {
   const { server, port } = await serve('/');
   const origin = `http://127.0.0.1:${port}`;
   const browser = await chromium.launch();
+  // Every context works with no network: other hosts are blocked and the exchanges' fetch and WebSocket are stubbed in
+  // the page (the home hero connects by itself). Pass { fail: true } for a failing exchange, or null for the real
+  // network (the final screenshots only).
+  const rawContext = browser.newContext.bind(browser);
+  browser.newContext = async (opts = {}, live = { fail: false }) => {
+    const ctx = await rawContext(opts);
+    if (live === null) return ctx;
+    await ctx.route((u) => isExternal(String(u)), (r) => r.abort());
+    await ctx.addInitScript(liveStub, live);
+    return ctx;
+  };
   const titles = new Map(); const descs = new Map();
   const linkCache = new Map();
   const docIds = new Map();
@@ -683,7 +722,7 @@ async function screenshots(browser, origin) {
       page.on('response', (r) => { if (r.status() >= 400) problems.push(`HTTP ${r.status()} ${r.url()}`); });
       // Nothing may reach another host while a page opens and scrolls: live demos connect only on a click.
       const external = [];
-      page.on('request', (r) => { if (isExternal(r.url(), origin)) external.push(r.url()); });
+      page.on('request', (r) => { if (isExternal(r.url())) external.push(r.url()); });
       page.on('websocket', (w) => external.push(w.url()));
       await page.goto(`${origin}/${pg}`, { waitUntil: 'load' });
       await settle(page);
@@ -691,6 +730,10 @@ async function screenshots(browser, origin) {
       if (d.hasCharts) await waitCharts(page, label);
       ok(problems.length === 0, `${label}: console and network clean ${problems.join(' | ')}`);
       ok(external.length === 0, `${label}: no request to another host on load ${external.slice(0, 3).join(' | ')}`);
+      if (pg !== 'index.html') {
+        const used = await page.evaluate(() => window.__stub ? window.__stub.requests.length + window.__stub.sockets.length : 0);
+        ok(used === 0, `${label}: no live demo connects by itself (${used} exchange requests); only the home hero does`);
+      }
       ok(d.h1 === 1, `${label}: exactly one h1 (found ${d.h1})`);
       ok(!!d.title && !!d.desc, `${label}: title and description present`);
       ok(d.overflow <= 0, `${label}: no horizontal overflow (${d.overflow}px)`);

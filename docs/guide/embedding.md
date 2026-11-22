@@ -134,7 +134,7 @@ This content stays in the page source and shows for visitors without JavaScript 
 
 ```html
 <script type="module">
-  import { defineChartistElement } from '@mrchartist/chartist-lite/element';
+  import { defineChartistElement } from 'lite-charts/element';
   defineChartistElement();
 </script>
 
@@ -149,7 +149,7 @@ React is an optional peer dependency (18 or later). The wrapper does not import 
 
 ```jsx
 import * as React from 'react';
-import { createChartistReact } from '@mrchartist/chartist-lite/react';
+import { createChartistReact } from 'lite-charts/react';
 
 export const { ChartistChart, useChartist } = createChartistReact(React);
 ```

@@ -2,7 +2,7 @@
 
 <p align="center"><strong>Financial charts that stay light.</strong> Candlesticks, indicators, drawing tools, stacked panes and exchange time zones on one canvas, with no runtime dependencies.</p>
 
-<p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"></a> <a href="https://mrchartist.github.io/Lite_Charts/"><img src="https://img.shields.io/badge/docs-live%20demo-0B0B0F" alt="Documentation and live demo"></a> <a href="https://github.com/MrChartist/Lite_Charts/issues"><img src="https://img.shields.io/github/issues/MrChartist/Lite_Charts?color=0B0B0F" alt="Open issues on GitHub"></a> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-32.6%20KB%20gzip-0B0B0F" alt="Core 32.6 KB gzip"> <img src="https://img.shields.io/badge/120%20Hz-worst%20p95%204.9%20ms-0B0B0F" alt="120 Hz frame budget: worst p95 4.9 ms of 8.33"> <img src="https://img.shields.io/badge/tests-219%20passing-0B0B0F" alt="219 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
+<p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"></a> <a href="https://mrchartist.github.io/Lite_Charts/"><img src="https://img.shields.io/badge/docs-live%20demo-0B0B0F" alt="Documentation and live demo"></a> <a href="https://github.com/MrChartist/Lite_Charts/issues"><img src="https://img.shields.io/github/issues/MrChartist/Lite_Charts?color=0B0B0F" alt="Open issues on GitHub"></a> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-33.3%20KB%20gzip-0B0B0F" alt="Core 33.3 KB gzip"> <img src="https://img.shields.io/badge/120%20Hz-worst%20p95%204.9%20ms-0B0B0F" alt="120 Hz frame budget: worst p95 4.9 ms of 8.33"> <img src="https://img.shields.io/badge/tests-219%20passing-0B0B0F" alt="219 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/site-readme-hero-dark.png"><img src="docs/screenshots/site-readme-hero-light.png" alt="A Chartist Lite chart drawn from demo data: daily candles with a 20-bar moving average, Bollinger bands, volume and an RSI pane, with the built-in legend and crosshair" width="1600" height="800"></picture></p>
 
@@ -33,9 +33,9 @@
 - **Exchange time zones without session gaps,** daylight saving included.
 - **Keyboard and screen-reader inspect mode:** Enter steps through bars, each one announced.
 
-Chartist Lite is a small JavaScript library that draws price charts on a single canvas. It comes as an ES module, a React wrapper, a `<chartist-chart>` web component and plain script-tag files. Core 32.6 KB gzip, no runtime dependencies, written from scratch.
+Chartist Lite is a small JavaScript library that draws price charts on a single canvas. It comes as an ES module, a React wrapper, a `<chartist-chart>` web component and plain script-tag files. Core 33.3 KB gzip, no runtime dependencies, written from scratch.
 
-**Status: version 0.1.0, not yet published to npm.** Build it from source for now (see [Install](#install)). Licence: Apache-2.0. Source and issues: [github.com/MrChartist/Lite_Charts](https://github.com/MrChartist/Lite_Charts); documentation site with live charts: [mrchartist.github.io/Lite_Charts](https://mrchartist.github.io/Lite_Charts/).
+**Status: version 0.1.0. Not on npm yet.** Build it from the GitHub repository (see [Install](#install)). Licence: Apache-2.0. Source and issues: [github.com/MrChartist/Lite_Charts](https://github.com/MrChartist/Lite_Charts); documentation site with live charts: [mrchartist.github.io/Lite_Charts](https://mrchartist.github.io/Lite_Charts/).
 
 ## Live Bitcoin in one tag
 
@@ -49,11 +49,11 @@ One script tag and one HTML tag: history, then a live stream from Coinbase's pub
 
 ![The chartist-chart element streaming one-minute Bitcoin candles and volume from Coinbase, with its green Live status at the top right](docs/screenshots/bitcoin-element.png)
 
-The visitor's browser connects to the exchange directly; nothing passes through a server and nothing is stored. If Coinbase's history does not load, Binance (quoted in USDT, not USD) and then Kraken are tried. Change `symbol` or `interval` and the stream follows. From code, `connectLive(series, { symbol, interval })` in `@mrchartist/chartist-lite/live` does the same for any series, and a provider of your own can feed any market. Prices are indicative and not advice; using exchange data in a commercial or redistributed product is subject to each exchange's terms (Needs verification, and the embedder's responsibility). The whole story, with the CSP hosts: [Live data](docs/guide/live-data.md).
+The visitor's browser connects to the exchange directly; nothing passes through a server and nothing is stored. If Coinbase's history does not load, Binance (quoted in USDT, not USD) and then Kraken are tried. Change `symbol` or `interval` and the stream follows. From code, `connectLive(series, { symbol, interval })` in `lite-charts/live` does the same for any series, and a provider of your own can feed any market. Prices are indicative and not advice; using exchange data in a commercial or redistributed product is subject to each exchange's terms (Needs verification, and the embedder's responsibility). The whole story, with the CSP hosts: [Live data](docs/guide/live-data.md).
 
 ## Try it in 60 seconds
 
-1. Build once (clone the repository, then `npm ci && npm run build`, see [Install](#install)), or take the two files from `dist/`: `chartist-lite.iife.min.js` and `chartist-lite-indicators.iife.min.js`.
+1. Build once (clone the repository, then `npm ci && npm run build`; see [Install](#install)), or take the two files from `dist/`: `chartist-lite.iife.min.js` and `chartist-lite-indicators.iife.min.js`.
 2. Put them in a folder with this file, saved as `chart.html`.
 3. Double-click `chart.html`. No server and no data file are needed: the bars are made up in the page.
 
@@ -100,7 +100,9 @@ Drag to pan, scroll or pinch to zoom, click the chart and press Enter to step th
 
 ## Install
 
-The package is **not yet published to npm**, so `npm install @mrchartist/chartist-lite` does not work today. Build it from GitHub and host the files yourself:
+Not on npm yet. Two ways work today, both from the GitHub repository:
+
+**1. Script tags.** Clone and build once, then copy the files you need from `dist/` next to your page (or take them from the files attached to a GitHub Release, once one exists):
 
 ```bash
 git clone https://github.com/MrChartist/Lite_Charts
@@ -109,16 +111,22 @@ npm ci
 npm run build        # writes dist/
 ```
 
-| You want | Use from `dist/` | Once published, import from |
-|---|---|---|
-| A script tag and a global | `chartist-lite.iife.min.js` (`ChartistLite`) | |
-| Indicators by script tag | `chartist-lite-indicators.iife.min.js` (`ChartistLiteIndicators`) | `@mrchartist/chartist-lite/indicators` |
-| Drawing tools by script tag | `chartist-lite-drawings.iife.min.js` (`ChartistLiteDrawings`) | `@mrchartist/chartist-lite/drawings` |
-| Live prices by script tag | `chartist-lite-live.iife.min.js` (`ChartistLiteLive`) | `@mrchartist/chartist-lite/live` |
-| A live `<chartist-chart live>` with no code | `chartist-lite.element-live.iife.min.js` (registers the tag, with the live entry inside) | |
-| The `<chartist-chart>` element | `chartist-lite.element.iife.min.js` (registers the tag) | `@mrchartist/chartist-lite/element` |
-| An ES module for a bundler | `index.js` and the other entry files | `@mrchartist/chartist-lite` |
-| React 18 or later | `react.js` | `@mrchartist/chartist-lite/react` |
+| You want | File from `dist/` (global) |
+|---|---|
+| The chart | `chartist-lite.iife.min.js` (`ChartistLite`) |
+| Indicators | `chartist-lite-indicators.iife.min.js` (`ChartistLiteIndicators`) |
+| Drawing tools | `chartist-lite-drawings.iife.min.js` (`ChartistLiteDrawings`) |
+| Live prices | `chartist-lite-live.iife.min.js` (`ChartistLiteLive`) |
+| The `<chartist-chart>` element | `chartist-lite.element.iife.min.js` (registers the tag) |
+| A live `<chartist-chart live>` with no code | `chartist-lite.element-live.iife.min.js` (registers the tag, with the live entry inside) |
+
+**2. ES modules, with a bundler.** After building the clone, add it to your project as a local dependency under the name the examples use:
+
+```bash
+npm i lite-charts@file:../Lite_Charts     # the path to your built clone
+```
+
+Then `import { createChart } from 'lite-charts'` works, as do `lite-charts/indicators`, `lite-charts/drawings`, `lite-charts/live`, `lite-charts/element` and `lite-charts/react` (React 18 or later). The clone must be built first: `dist/` is not in the repository, so a plain git dependency (`npm i github:MrChartist/Lite_Charts`) would install without it.
 
 React is an optional peer dependency, used only by the React entry. Nothing else is installed with the package. Only the live entry and the element-live build contain network code; the core, indicators, drawings, React and plain element entries have none.
 
@@ -138,8 +146,8 @@ The data can be a URL (JSON or CSV), an inline `<script type="application/json">
 <details><summary>ES module and createChart</summary>
 
 ```js
-import { createChart, CandlestickSeries, LineSeries } from '@mrchartist/chartist-lite';
-import { sma } from '@mrchartist/chartist-lite/indicators';
+import { createChart, CandlestickSeries, LineSeries } from 'lite-charts';
+import { sma } from 'lite-charts/indicators';
 
 const chart = createChart('chart', { theme: 'auto', ariaLabel: 'Daily price' });
 const candles = chart.addSeries(CandlestickSeries, { title: 'DEMO' });
@@ -157,7 +165,7 @@ The container needs a height in CSS; the chart fills it and follows its size.
 
 ```jsx
 import * as React from 'react';
-import { createChartistReact } from '@mrchartist/chartist-lite/react';
+import { createChartistReact } from 'lite-charts/react';
 
 export const { ChartistChart } = createChartistReact(React);
 
@@ -181,7 +189,7 @@ function Price({ candles, average }) {
 <details><summary>Drawing tools</summary>
 
 ```js
-import { createDrawingTools } from '@mrchartist/chartist-lite/drawings';
+import { createDrawingTools } from 'lite-charts/drawings';
 
 const tools = createDrawingTools(chart, candles, { toolbar: true });
 tools.add({ tool: 'horizontal', points: [{ time: '2024-06-03', price: 104.9 }], text: 'Resistance' });
@@ -269,7 +277,7 @@ An overlay scale (any id other than `'right'` and `'left'`) gives volume its own
 <details><summary>An RSI pane under the price</summary>
 
 ```js
-import { rsi } from '@mrchartist/chartist-lite/indicators';
+import { rsi } from 'lite-charts/indicators';
 
 const rsiLine = chart.addSeries(LineSeries, { title: 'RSI 14' }, 1);   // pane 1: a new pane below
 rsiLine.setData(rsi(bars, 14));
@@ -282,7 +290,7 @@ createPriceLine(rsiLine, { price: 30, lineStyle: 'dotted' });
 <details><summary>Live updates with update()</summary>
 
 ```js
-import { createIndicator } from '@mrchartist/chartist-lite/indicators';
+import { createIndicator } from 'lite-charts/indicators';
 
 const rsi14 = createIndicator('rsi', { period: 14 });
 rsi14.seed(history);                      // warm up on the bars you already have
@@ -435,17 +443,17 @@ Bundled and minified with esbuild, gzipped at level 9, by `npm run size` on the 
 
 | Entry | Gzip |
 |---|---|
-| Core (`createChart` and the six series) | 32.6 KB |
+| Core (`createChart` and the six series) | 33.3 KB |
 | A page that imports only `createChart`, candlesticks and lines | 28.1 KB |
-| Indicators | 5.2 KB |
+| Indicators | 6.9 KB |
 | Drawings | 15.9 KB |
-| Element (includes the chart) | 36.0 KB |
-| React (includes the chart) | 32.1 KB |
+| Element (includes the chart) | 36.7 KB |
+| React (includes the chart) | 32.7 KB |
 | Live | 4.4 KB |
-| Script tag files: core, indicators, element, drawings, live | 32.9 KB, 5.5 KB, 36.3 KB, 16.1 KB, 4.7 KB |
-| Script tag file: element with the live entry (`chartist-lite.element-live.iife.min.js`) | 40.3 KB |
+| Script tag files: core, indicators, element, drawings, live | 33.6 KB, 7.2 KB, 36.9 KB, 16.1 KB, 4.7 KB |
+| Script tag file: element with the live entry (`chartist-lite.element-live.iife.min.js`) | 40.9 KB |
 
-The core has a 45 KB budget that `npm run size` enforces.
+The core has a 34 KB budget that `npm run size` enforces.
 
 ## Browser support and what is not verified
 
@@ -536,7 +544,7 @@ How the pieces fit: [ARCHITECTURE.md](ARCHITECTURE.md).
 | `npm run build` | Builds `dist/`: ES modules per entry, type declarations and the minified script-tag files |
 | `npm test` | Runs the unit tests (Vitest) |
 | `npm run typecheck` | Type-checks the source |
-| `npm run size` | Prints each entry's size, gzipped, and fails when the core goes over 45 KB |
+| `npm run size` | Prints each entry's size, gzipped, and fails when the core goes over 34 KB |
 | `npm run bench` | Builds, then measures frame cost against 120 Hz and 144 Hz; writes `docs/PERFORMANCE.md` |
 | `npm run screenshots` | Builds, then shoots every screenshot in `docs/screenshots/` |
 | `npm run site` | Builds the documentation site into `site/dist/` (needs `npm run build` first) |

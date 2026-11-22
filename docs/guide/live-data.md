@@ -13,13 +13,13 @@ summary: History and a live stream from public exchange feeds, in one call or on
 The optional `live` entry fills a series with history and then streams live prices into it from a public exchange feed: Coinbase, Binance or Kraken, with no API key and no server. The core never imports it and makes no network requests; this entry connects only when you call `connectLive`, and then the visitor's browser talks to the exchange directly.
 
 > [!NOTE]
-> Every live chart on this page is off until you press Connect. Until then the page asks no exchange for anything. The prices are indicative and are not advice.
+> Every live chart on this page is off until you press Connect. Until then the page asks no exchange for anything. The prices come straight from the exchange to your browser, and are indicative, not advice.
 
 ## Connect a series
 
 ```js live height=420 connect
-import { createChart, CandlestickSeries, HistogramSeries } from '@mrchartist/chartist-lite';
-import { connectLive } from '@mrchartist/chartist-lite/live';
+import { createChart, CandlestickSeries, HistogramSeries } from 'lite-charts';
+import { connectLive } from 'lite-charts/live';
 
 const chart = createChart('chart', { timeScale: { timeZone: 'local' } });
 const candles = chart.addSeries(CandlestickSeries, { title: 'BTC-USD' });
@@ -119,8 +119,8 @@ const added = await live.loadOlder();   // the bars added; 0 when there is nothi
 A provider is a small object. This one makes its prices up, so it needs no network and runs as soon as the page opens:
 
 ```js live height=360
-import { createChart, CandlestickSeries } from '@mrchartist/chartist-lite';
-import { connectLive } from '@mrchartist/chartist-lite/live';
+import { createChart, CandlestickSeries } from 'lite-charts';
+import { connectLive } from 'lite-charts/live';
 
 let last = 100;
 const walk = (p) => +(p * (1 + (Math.random() - 0.5) * 0.004)).toFixed(2);
@@ -167,8 +167,8 @@ There is no hook of ours to learn. Create the chart in an effect (or in the Reac
 
 ```jsx
 import * as React from 'react';
-import { createChart, CandlestickSeries } from '@mrchartist/chartist-lite';
-import { connectLive } from '@mrchartist/chartist-lite/live';
+import { createChart, CandlestickSeries } from 'lite-charts';
+import { connectLive } from 'lite-charts/live';
 
 export function LiveBitcoin({ interval = '1m' }) {
   const ref = React.useRef(null);
@@ -208,7 +208,7 @@ With a provider name, the other two exchanges are tried when the first fails, an
 - **Nothing stored.** The entry writes nothing to storage. History requests are sent with `credentials: 'omit'`, so they carry no cookies; a WebSocket has no such switch, so the stream's opening request follows the browser's own cookie rules for the exchange's site. The exchange sees the visitor's IP address and the page's origin, as it would for any request a browser makes.
 - **Paused when hidden.** A hidden tab or an offline browser closes the stream until the page is back.
 
-On this site, the hero's Live BTC toggle and every demo on this page stay off until you press them, and the site check confirms that a page opens with no request to any other host.
+On this site, the home page's hero chart connects to Coinbase by itself when it comes into view, labelled "Real market data · Coinbase", unless you chose "Use demo data" (remembered in your browser), your browser asks to save data, or it is offline. Every other live demo, this page's included, stays off until you press Connect, and the site check confirms that no other page asks an exchange for anything as it opens.
 
 ## Honest notes
 

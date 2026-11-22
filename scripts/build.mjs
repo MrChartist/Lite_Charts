@@ -2,7 +2,7 @@
 // .d.ts files from tsc. Run from the package folder: `npm run build`.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,13 +14,25 @@ export const ENTRIES = {
   react: 'src/react/index.ts',
   drawings: 'src/drawings/index.ts',
   live: 'src/live/index.ts',
+  // Optional entries: each is built only when its index file exists (an empty file builds an empty module), so a
+  // half-landed folder never breaks the shared build.
+  widget: 'src/widget/index.ts',
+  transforms: 'src/transforms/index.ts',
+  extras: 'src/plugins/extras/index.ts',
 };
+const OPTIONAL = new Set(['widget', 'transforms', 'extras']);
+const present = Object.fromEntries(Object.entries(ENTRIES).filter(([name, file]) => {
+  if (existsSync(join(root, file))) return true;
+  if (!OPTIONAL.has(name)) throw new Error(`missing entry ${file}`);
+  console.log(`skip optional entry ${name} (${file} not found)`);
+  return false;
+}));
 
 rmSync(join(root, 'dist'), { recursive: true, force: true });
 
 await build({
   absWorkingDir: root,
-  entryPoints: ENTRIES,
+  entryPoints: present,
   outdir: 'dist',
   bundle: true,
   format: 'esm',
@@ -54,7 +66,12 @@ for (const [entry, outfile, globalName] of [
   ['src/drawings/index.ts', 'dist/chartist-lite-drawings.iife.min.js', 'ChartistLiteDrawings'],
   ['src/live/index.ts', 'dist/chartist-lite-live.iife.min.js', 'ChartistLiteLive'],
   ['src/element/auto-live.ts', 'dist/chartist-lite.element-live.iife.min.js', 'ChartistLiteElement'],
+  ['src/widget/index.ts', 'dist/chartist-lite-widget.iife.min.js', 'ChartistLiteWidget'],
+  ['src/widget/auto.ts', 'dist/chartist-lite.terminal.iife.min.js', 'ChartistLiteTerminal'],
+  ['src/transforms/index.ts', 'dist/chartist-lite-transforms.iife.min.js', 'ChartistLiteTransforms'],
+  ['src/plugins/extras/index.ts', 'dist/chartist-lite-extras.iife.min.js', 'ChartistLiteExtras'],
 ]) {
+  if (!existsSync(join(root, entry))) continue;
   await build({
     absWorkingDir: root, entryPoints: [entry], outfile, bundle: true, format: 'iife', globalName, minify: true,
     target: 'es2020', sourcemap: true, legalComments: 'none', logLevel: 'warning',

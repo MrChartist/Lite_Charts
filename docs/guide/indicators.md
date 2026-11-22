@@ -13,7 +13,7 @@ summary: Twelve indicators as plain functions, with live forms for streaming dat
 The `indicators` entry is a set of pure functions from rows to series data. It has no chart import, no DOM and no dependencies, and each function is its own file, so a bundler keeps only what you import.
 
 ```js
-import { sma, rsi, macd } from '@mrchartist/chartist-lite/indicators';
+import { sma, rsi, macd } from 'lite-charts/indicators';
 ```
 
 With a script tag, load `chartist-lite-indicators.iife.min.js` and use the global `ChartistLiteIndicators`.
@@ -54,8 +54,8 @@ Arrays are aligned one to one with the input, so `series.setData(sma(rows, 20))`
 Overlays such as a moving average go on the price pane as line series. Oscillators such as RSI go in a lower pane so they get their own scale (see [Panes and scales](panes-and-scales.md)):
 
 ```js live height=480
-import { createChart, CandlestickSeries, LineSeries, createPriceLine } from '@mrchartist/chartist-lite';
-import { sma, rsi } from '@mrchartist/chartist-lite/indicators';
+import { createChart, CandlestickSeries, LineSeries, createPriceLine } from 'lite-charts';
+import { sma, rsi } from 'lite-charts/indicators';
 
 const chart = createChart('chart');
 chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
@@ -70,8 +70,8 @@ createPriceLine(rsiLine, { price: 30, lineStyle: 'dotted' });
 Multi-output functions return an object of arrays, one per line. MACD in its own pane, with the histogram coloured by sign:
 
 ```js live height=420
-import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from '@mrchartist/chartist-lite';
-import { macd } from '@mrchartist/chartist-lite/indicators';
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries } from 'lite-charts';
+import { macd } from 'lite-charts/indicators';
 
 const chart = createChart('chart');
 chart.addSeries(CandlestickSeries, { title: 'DEMO' }).setData(bars);
@@ -86,7 +86,7 @@ chart.addSeries(LineSeries, { title: 'Signal', lineWidth: 1, color: '#FF9F0A' },
 ## Higher timeframes
 
 ```js
-import { aggregate } from '@mrchartist/chartist-lite/indicators';
+import { aggregate } from 'lite-charts/indicators';
 
 aggregate(fiveMinuteBars, { every: 3 });                 // 15-minute bars
 aggregate(fiveMinuteBars, 'day', 'America/New_York');    // one bar per calendar day in that zone
@@ -97,7 +97,7 @@ aggregate(fiveMinuteBars, 'day', 'America/New_York');    // one bar per calendar
 ## Incremental forms for live data
 
 ```js
-import { createIndicator } from '@mrchartist/chartist-lite/indicators';
+import { createIndicator } from 'lite-charts/indicators';
 
 const rsi14 = createIndicator('rsi', { period: 14 });   // 'sma' | 'ema' | 'rsi' | 'macd'
 rsi14.seed(history);                                    // optional warm-up; returns what rsi(history) would
