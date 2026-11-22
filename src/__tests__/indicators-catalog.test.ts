@@ -18,12 +18,12 @@ function series(n: number, seed = 7): IndicatorRow[] {
 }
 
 const ROWS = series(300);
-/** Studies that legitimately have no value on 300 daily bars with default settings (they need a longer history). */
-const NEEDS_LONGER = new Set(['weeks-high-low']);
+/** Studies that legitimately have no value on 300 daily bars with default settings (a longer history, or intraday bars). */
+const NEEDS_LONGER = new Set(['weeks-high-low', 'opening-range']);
 
 describe('indicator catalog', () => {
   it('is importable on its own and lists every indicator', () => {
-    expect(INDICATORS.length).toBeGreaterThanOrEqual(84);
+    expect(INDICATORS.length).toBeGreaterThanOrEqual(85);
     expect(entry.INDICATORS).toBe(INDICATORS);
     expect(entry.getIndicator).toBe(getIndicator);
     expect(entry.legendLabel).toBe(legendLabel);
@@ -131,6 +131,16 @@ describe('indicator catalog', () => {
       }
     }
     expect(() => getIndicator('rsi')!.compute(null as never)).not.toThrow();
+  });
+
+  it('the opening range draws on intraday bars from its defaults (09:15 IST)', () => {
+    // 5-minute bars from 03:45 UTC (09:15 IST), 75 per day, three days
+    const rows = series(225, 3).map((r, i) => ({ ...r, time: Date.UTC(2026, 0, 5, 3, 45) / 1000 + Math.floor(i / 75) * 86_400 + (i % 75) * 300 }));
+    const out = getIndicator('opening-range')!.compute(rows);
+    expect(out.high.findIndex(p => p.value !== undefined)).toBe(2); // the third bar completes 09:15 to 09:30
+    expect(out.high[2].value).toBe(Math.max(...rows.slice(0, 3).map(r => r.high as number)));
+    expect(out.high[75].value).toBeUndefined(); // the next session's first bar is inside its range
+    expect(out.low[77].value).toBe(Math.min(...rows.slice(75, 78).map(r => r.low as number)));
   });
 
   it('looks specs up by id', () => {

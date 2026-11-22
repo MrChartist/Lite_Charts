@@ -44,7 +44,7 @@ describe('stacked area', () => {
     expect(() => StackedAreaSeries.normalize({ time: T(2), values: [1, -1] })).toThrow(/values/);
     expect(() => StackedAreaSeries.normalize({ time: T(2), values: [1, NaN] })).toThrow(/values/);
     const input = [1, 2];
-    const copy = StackedAreaSeries.normalize({ time: T(2), values: input }) as { values: number[] };
+    const copy = StackedAreaSeries.normalize({ time: T(2), values: input }) as unknown as { values: number[] };
     input[0] = 99;
     expect(copy.values[0]).toBe(1);
   });

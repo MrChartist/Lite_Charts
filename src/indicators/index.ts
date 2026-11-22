@@ -61,6 +61,8 @@ export type { AnchoredVwapOptions } from './anchored-vwap';
 export { vwapBands } from './vwap-bands';
 export type { VwapBandsOptions } from './vwap-bands';
 export type { VwapBandsResult, VwapPrice } from './vwap-acc';
+export { openingRange } from './opening-range';
+export type { OpeningRangeOptions, OpeningRangeResult } from './opening-range';
 export { pivotHighLow } from './pivot-high-low';
 export type { PivotHighLowOptions, PivotHighLowResult } from './pivot-high-low';
 export { zigzag } from './zigzag';

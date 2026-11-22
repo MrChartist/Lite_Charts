@@ -18,6 +18,7 @@ import { createPriceLine } from '../plugins/price-line';
 import { HistogramSeries } from '../series/histogram';
 import { LineSeries } from '../series/line';
 import { chartTypeIcon, chartTypeList, resolveChartType, type TransformsLike } from './chart-types';
+import { CHART_TYPES, applyChartType } from '../transforms/index';
 import { CRYPTO_SYMBOLS, demoBars } from './demo';
 import { btn, h, Layers, placePopover } from './dom';
 import { svgIcon } from './icons';
@@ -118,7 +119,8 @@ interface Ind {
 
 let seq = 0;
 
-export function createWidget(container: HTMLElement | string, options: WidgetOptions = {}): Widget {
+type Container = HTMLElement | string;
+export function createWidget(container: Container, options: WidgetOptions = {}): Widget {
   const parent = typeof container === 'string' ? (typeof document === 'undefined' ? null : document.getElementById(container)) : container;
   if (!parent || typeof parent.appendChild !== 'function') throw new TypeError('Chartist Lite: createWidget needs a container element (or its id)');
   const doc = parent.ownerDocument;
@@ -207,6 +209,7 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
   } as never);
   function chart0Desc(): string { return 'Left and right arrows pan, plus and minus zoom, Home and End jump to the first and last bar. Press Enter to inspect bars one at a time; Escape stops.'; }
   let main: AnySeries | null = null;
+  let mainData: readonly Record<string, unknown>[] = [];
   let mainKind: 'series' | 'transform' = 'series';
   let volume: AnySeries | null = null;
   type ToolsLike = { destroy(): void; undo(): boolean; redo(): boolean; canUndo(): boolean; canRedo(): boolean; exportJSON(): string; importJSON(j: string): number; on(e: string, f: () => void): () => void; colors(): unknown };
@@ -225,7 +228,8 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
     if (!loader) return null;
     try { const m = await loader(); if (m) modules[name] = m as never; return (m as WidgetModules[K]) ?? null; } catch (e) { emit('error', e); return null; }
   }
-  const transforms = (): TransformsLike | null => (modules.transforms as TransformsLike | undefined) ?? null;
+  const BUILTIN: TransformsLike = { CHART_TYPES: CHART_TYPES as never, applyChartType };
+  const transforms = (): TransformsLike => (modules.transforms as TransformsLike | undefined) ?? BUILTIN;
   const chartTypes = (): readonly ChartTypeInfo[] => chartTypeList(transforms());
 
   // ── theme ──
@@ -245,17 +249,20 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
     if (main) { chart.removeSeries(main); main = null; }
     main = chart.addSeries(r.definition, { title: symbol.symbol, ...(r.options ?? {}) } as never, 0);
     mainKind = r.transformed ? 'transform' : 'series';
+    mainData = r.data as readonly Record<string, unknown>[];
     main.setData(r.data as never);
     syncVolume();
   }
   function syncVolume(): void {
-    const want = settings.volume && mainKind === 'series' && rows.some(b => b.volume !== undefined);
+    // A transform (bricks, lines) has its own times: its rows carry their summed volume, or no volume is shown.
+    const src = (mainKind === 'series' ? rows : mainData) as readonly { time: unknown; volume?: unknown }[];
+    const want = settings.volume && src.some(b => typeof b.volume === 'number');
     if (want && !volume) {
       volume = chart.addSeries(HistogramSeries, { priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false, priceFormat: { precision: 0, minMove: 1 } } as never, 0);
       chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     } else if (!want && volume) { chart.removeSeries(volume); volume = null; }
     chart.priceScale('right', 0).applyOptions({ scaleMargins: { top: 0.1, bottom: volume ? 0.22 : 0.1 } });
-    volume?.setData(rows.map(b => ({ time: b.time, value: b.volume ?? 0 })) as never);
+    volume?.setData(src.map(b => ({ time: b.time, value: typeof b.volume === 'number' ? b.volume : 0 })) as never);
   }
 
   /** New history: everything is recomputed. */
@@ -282,7 +289,7 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
     if (b.time < last.time) return;
     if (b.time === last.time) rows[rows.length - 1] = { ...b, volume: b.volume ?? last.volume }; else rows.push(b);
     if (mainKind === 'series' && main) {
-      const r = resolveChartType(chartType, [rows[rows.length - 1]], null);
+      const r = resolveChartType(chartType, [rows[rows.length - 1]], transforms());
       const d = r.data[0] as Record<string, unknown>;
       try { main.update(d as never); } catch { buildMain(); }
       if (volume) volume.update({ time: b.time, value: rows[rows.length - 1].volume ?? 0 } as never);
@@ -938,6 +945,9 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
   const statusEl = h(doc, 'span', 'st hide', { role: 'status' }, [h(doc, 'span', 'dot'), h(doc, 'span', '', {}, [''])]);
   const ivGroup = h(doc, 'div', 'grp', { role: 'radiogroup', 'aria-label': S.interval });
   const ivMore = btn(doc, { icon: 'chevron', label: S.moreIntervals, iconPx: 16, attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, onClick: ev => openIntervalMenu(ev.currentTarget as HTMLElement) });
+  const ivCur = h(doc, 'span', 'hide', {}, ['']);
+  ivCur.style.setProperty('font-weight', '600');
+  ivMore.prepend(ivCur);
   const typeBtn = btn(doc, { icon: chartTypeIcon(chartType), label: S.chartType, attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, onClick: ev => openChartTypeMenu(ev.currentTarget as HTMLElement) });
   const indBtn = btn(doc, { icon: 'indicators', text: S.indicators, label: `${S.indicators} (Alt+I)`, attrs: { 'aria-haspopup': 'dialog' }, onClick: ev => openIndicators(ev.currentTarget as HTMLElement) });
   const cmpBtn = btn(doc, { icon: 'compare', label: S.compare, attrs: { 'aria-haspopup': 'dialog' }, onClick: ev => openSymbolSearch(ev.currentTarget as HTMLElement, '', true) });
@@ -1076,6 +1086,7 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
     symDesc.textContent = symbol.description ?? '';
     symDesc.classList.toggle('hide', !symbol.description);
     if (canSearch()) symBtn.append(...(symBtn.querySelector('svg') ? [] : [svgIcon(doc, 'search', 16)]));
+    ivCur.textContent = interval;
     for (const k of ivKeys) { const on = k.dataset.iv === interval; k.setAttribute('aria-checked', String(on)); k.tabIndex = on ? 0 : -1; }
     if (!ivKeys.some(k => k.dataset.iv === interval)) buildIntervalKeys();
     typeBtn.replaceChildren(svgIcon(doc, chartTypeIcon(chartType), 20));
@@ -1143,10 +1154,13 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
       // Separators next to nothing go too.
       more.classList.toggle('hide', !res.overflow.some(id => defs.find(d => d.id === id)?.run));
     }
-    if (bar0Hidden()) { /* nothing */ }
+    // With the keys collapsed, the menu button names the interval.
+    const ivHidden = overflowTop.includes('intervals');
+    ivCur.textContent = interval;
+    ivCur.classList.toggle('hide', !ivHidden);
+    ivMore.classList.toggle('i', !ivHidden);
     placeLegend(true);
   }
-  function bar0Hidden(): boolean { return false; }
   const RO = (win as Window & typeof globalThis).ResizeObserver;
   let roQueued = false;
   if (RO) {
@@ -1191,9 +1205,8 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
     fillMenu(m, () => close(true));
     const sheet = sheets();
     opener.setAttribute('aria-expanded', 'true');
-    if (!sheet) { m.style.setProperty('visibility', 'hidden'); w.appendChild(m); }
+    if (!sheet) { m.style.setProperty('visibility', 'hidden'); w.appendChild(m); placePopover(m, opener.getBoundingClientRect(), w.getBoundingClientRect(), prefer, align); m.style.removeProperty('visibility'); }
     close = layers.push(m, { kind: 'menu', opener, sheet, onClose: () => opener.setAttribute('aria-expanded', 'false') });
-    if (!sheet) { placePopover(m, opener.getBoundingClientRect(), w.getBoundingClientRect(), prefer, align); m.style.removeProperty('visibility'); }
   }
 
   function openIntervalMenu(opener: HTMLElement): void {
@@ -1523,9 +1536,8 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
     go.addEventListener('click', submit);
     m.addEventListener('keydown', ev => { if (ev.key === 'Enter' && (ev.target as HTMLElement).tagName === 'INPUT') { ev.preventDefault(); submit(); } });
     const sheet = sheets();
-    if (!sheet) { m.style.setProperty('visibility', 'hidden'); w.appendChild(m); }
+    if (!sheet) { m.style.setProperty('visibility', 'hidden'); w.appendChild(m); placePopover(m, opener.getBoundingClientRect(), w.getBoundingClientRect(), 'above'); m.style.removeProperty('visibility'); }
     const close = layers.push(m, { kind: 'dialog', opener, sheet, focus: dateF });
-    if (!sheet) { placePopover(m, opener.getBoundingClientRect(), w.getBoundingClientRect(), 'above'); m.style.removeProperty('visibility'); }
   }
 
   function goToTime(t: number): void {

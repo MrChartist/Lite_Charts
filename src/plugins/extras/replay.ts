@@ -117,7 +117,7 @@ export function createReplay(chart: ChartApi, series: AnySeries, options: Partia
   // ── strip DOM ──
   const bar = make(doc, 'div', {
     position: inline ? 'relative' : 'absolute', left: '0', top: '0', display: 'flex', 'align-items': 'center', gap: '2px', height: `${H}px`, padding: '0 4px',
-    'border-radius': `${H / 2}px`, 'pointer-events': 'auto', 'white-space': 'nowrap', 'max-width': '100%', overflow: 'hidden',
+    'border-radius': `${H / 2}px`, 'pointer-events': 'auto', 'white-space': 'nowrap', overflow: 'hidden', ...(inline ? { 'max-width': '100%' } : {}),
   }, dom.root);
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', 'Bar replay');

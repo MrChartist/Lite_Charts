@@ -122,8 +122,9 @@ export class Layers {
   }
 }
 
+type El = HTMLElement;
 /** Place a popover under (or above) `anchor`, inside `box` (both in client px), with an 8 px margin. */
-export function placePopover(el: HTMLElement, anchor: DOMRect, box: DOMRect, prefer: 'below' | 'above' = 'below', align: 'start' | 'end' = 'start'): void {
+export function placePopover(el: El, anchor: DOMRect, box: DOMRect, prefer: 'below' | 'above' = 'below', align: 'start' | 'end' = 'start'): void {
   const w = el.offsetWidth, hgt = el.offsetHeight;
   let left = align === 'start' ? anchor.left - box.left : anchor.right - box.left - w;
   left = Math.max(8, Math.min(box.width - w - 8, left));

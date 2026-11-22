@@ -90,7 +90,7 @@ export interface WidgetOptions {
   data?: readonly WidgetRowInput[];
   feed?: WidgetFeed;
   /** Real crypto from public exchange APIs (needs the live module): `true` starts on BTC-USD. */
-  live?: boolean | { provider?: string; symbol?: string };
+  live?: boolean | { provider?: string | object; symbol?: string };
   indicators?: readonly (string | ({ id: string } & Partial<Omit<IndicatorState, 'id'>>))[];
   /** Drawing tools: true, or saved drawings JSON to restore. Needs the drawings module (given or loaded). */
   drawings?: boolean | string;

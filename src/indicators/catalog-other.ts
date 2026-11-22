@@ -5,6 +5,7 @@ import { pivotPoints, PIVOT_KINDS } from './pivot-points';
 import { cpr } from './cpr';
 import { previousHighLow } from './previous-high-low';
 import { weeksHighLow } from './weeks-high-low';
+import { openingRange } from './opening-range';
 import { pivotHighLow } from './pivot-high-low';
 import { zigzag } from './zigzag';
 
@@ -35,6 +36,12 @@ export const OTHER: IndicatorSpec[] = [
     id: 'weeks-high-low', name: '52-Week High / Low', shortName: '52W', category: 'other', overlay: true,
     inputs: [int('weeks', 'Weeks', 52, 1, 260)], outputs: [line('high', 'High', 'up'), line('low', 'Low', 'down')],
     run: (rows, v) => weeksHighLow(rows, { weeks: v.weeks }),
+  }),
+  define({
+    id: 'opening-range', name: 'Opening Range', shortName: 'ORB', category: 'other', overlay: true,
+    inputs: [int('minutes', 'Range (minutes)', 15, 1, 375), int('open', 'Session open (minutes after midnight)', 555, 0, 1439), select('zone', 'Exchange zone', 'Asia/Kolkata', ZONES)],
+    outputs: [line('high', 'Range high', 'up'), line('low', 'Range low', 'down')],
+    run: (rows, v) => openingRange(rows, { minutes: v.minutes, open: v.open, zone: v.zone }),
   }),
   define({
     id: 'pivot-high-low', name: 'Swing Highs and Lows', shortName: 'Swings', category: 'other', overlay: true,

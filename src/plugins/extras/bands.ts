@@ -434,7 +434,7 @@ export function createVerticalLine(chart: ChartApi, options: Partial<VerticalLin
         const cw = Math.ceil(tw + 12);
         const ch = size + 8;
         const cx = chipLeft(xc, cw, pane.x + 2, pane.x + pane.width - 2);
-        const cy = pane.y + 6;
+        const cy = pane.y + 34;
         const fill = opts.color ?? s.colors.tagBackground;
         ctx.fillStyle = fill;
         ctx.beginPath();

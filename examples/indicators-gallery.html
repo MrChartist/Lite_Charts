@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: indicator gallery</title>
+<style>
+  :root { color-scheme: light; --bg: #F8F8F8; --ink: #1D1D1F; --muted: #6E6E73; --card: #FFFFFF; --edge: rgba(0,0,0,0.1); --accent: #0066CC; --sel: rgba(0,102,204,0.1); }
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #0C0C0C; --ink: #F5F5F7; --muted: #98989D; --card: #141414; --edge: rgba(255,255,255,0.12); --accent: #0A84FF; --sel: rgba(10,132,255,0.18); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+    font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  h1 small { font-weight: 400; color: var(--muted); margin-left: 8px; }
+  button, input, select { font: inherit; color: var(--ink); }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  header label { color: var(--muted); font-size: 13px; margin-right: 8px; }
+  header select { height: 32px; border-radius: 8px; border: 1px solid var(--edge); background: var(--card); padding: 0 8px; }
+  #theme { height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge); background: var(--card); cursor: pointer; }
+  main { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+  aside { background: var(--card); border: 1px solid var(--edge); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 8px; max-height: 760px; }
+  #search { width: 100%; height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--edge); background: var(--bg); }
+  #list { overflow: auto; margin: 0 -4px; padding: 0 4px; }
+  #list h2 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+  #list h2:first-child { margin-top: 4px; }
+  .item { display: flex; width: 100%; justify-content: space-between; gap: 8px; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .item:hover { background: var(--sel); }
+  .item[aria-current="true"] { background: var(--sel); color: var(--accent); font-weight: 600; }
+  .item span:last-child { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  #empty { color: var(--muted); padding: 8px; }
+  section { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  #head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  #title { font-size: 15px; font-weight: 600; margin: 0; }
+  #meta { color: var(--muted); font-size: 12px; }
+  #inputs { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+  #inputs label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  #inputs input[type=number], #inputs select { height: 30px; border-radius: 8px; border: 1px solid var(--edge); background: var(--card); padding: 0 8px; }
+  #inputs input[type=number] { width: 84px; }
+  #chart { height: 600px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { max-height: 300px; } #chart { height: 460px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Indicator gallery<small id="count"></small></h1>
+  <div>
+    <label>Demo candles <select id="data" aria-label="Demo candles"><option value="daily">Daily</option><option value="intraday">5 minutes</option></select></label>
+    <button id="theme" type="button">Dark theme</button>
+  </div>
+</header>
+<main>
+  <aside aria-label="Indicators">
+    <input id="search" type="search" placeholder="Search indicators" aria-label="Search indicators" autocomplete="off">
+    <div id="list"></div>
+  </aside>
+  <section>
+    <div id="head"><h2 id="title"></h2><span id="meta"></span></div>
+    <div id="inputs" role="group" aria-label="Inputs"></div>
+    <div id="chart"></div>
+  </section>
+</main>
+<!-- Build first: `npm run build` (writes both scripts below), then `node scripts/screenshots-indicators-gallery.cjs`. -->
+<script src="../dist/chartist-lite.iife.min.js"></script>
+<script src="../dist/chartist-lite-indicators.iife.min.js"></script>
+<script>
+  // Demo candles: a seeded random walk, business days only, with volume (about 560 calendar days: enough for 52 weeks).
+  function makeBars(count, seed) {
+    let s = seed >>> 0;
+    const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const bars = [];
+    let close = 100;
+    let day = Date.UTC(2023, 0, 2) / 1000;
+    while (bars.length < count) {
+      const wd = new Date(day * 1000).getUTCDay();
+      if (wd !== 0 && wd !== 6) {
+        const open = close;
+        close = Math.max(1, open * (1 + (rand() - 0.49) * 0.04));
+        const high = Math.max(open, close) * (1 + rand() * 0.012);
+        const low = Math.min(open, close) * (1 - rand() * 0.012);
+        bars.push({ time: new Date(day * 1000).toISOString().slice(0, 10), open: +open.toFixed(2), high: +high.toFixed(2), low: +low.toFixed(2), close: +close.toFixed(2), volume: Math.floor(1000 + rand() * 9000) });
+      }
+      day += 86400;
+    }
+    return bars;
+  }
+
+  // Intraday demo candles: 5-minute bars, 75 a day from 09:15 IST (03:45 UTC), 20 weekdays, times as UNIX seconds.
+  function makeIntraday(days, seed) {
+    let s = seed >>> 0;
+    const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const out = [];
+    let close = 100;
+    let day = Date.UTC(2026, 0, 5, 3, 45) / 1000;
+    for (let d = 0; d < days; ) {
+      const wd = new Date(day * 1000).getUTCDay();
+      if (wd !== 0 && wd !== 6) {
+        for (let k = 0; k < 75; k++) {
+          const open = close;
+          close = Math.max(1, open * (1 + (rand() - 0.49) * 0.006));
+          const high = Math.max(open, close) * (1 + rand() * 0.002);
+          const low = Math.min(open, close) * (1 - rand() * 0.002);
+          out.push({ time: day + k * 300, open: +open.toFixed(2), high: +high.toFixed(2), low: +low.toFixed(2), close: +close.toFixed(2), volume: Math.floor(1000 + rand() * 9000) });
+        }
+        d++;
+      }
+      day += 86400;
+    }
+    return out;
+  }
+
+  const { createChart, CandlestickSeries, LineSeries, HistogramSeries, createPriceLine, createSeriesMarkers } = ChartistLite;
+  const { INDICATORS, legendLabel } = ChartistLiteIndicators;
+  const DATA = { daily: makeBars(400, 7), intraday: makeIntraday(20, 11) };
+  let bars = DATA.daily;
+
+  // Colour roles of the catalog's `tone`: 'line' is the accent, 'up' / 'down' the rising and falling colours, 'muted' a
+  // quiet neutral, a number picks a further accent.
+  const palette = {
+    light: { line: '#0066CC', up: '#248A3D', down: '#D70015', muted: 'rgba(60,60,67,0.55)', guide: 'rgba(60,60,67,0.45)', accents: ['#0066CC', '#B85C00', '#8944AB', '#00857A', '#C4326B', '#6E6E73'] },
+    dark: { line: '#0A84FF', up: '#30D158', down: '#FF453A', muted: 'rgba(235,235,245,0.55)', guide: 'rgba(235,235,245,0.45)', accents: ['#0A84FF', '#FF9F0A', '#BF5AF2', '#40C8E0', '#FF6482', '#98989D'] },
+  };
+  const CATEGORIES = [['trend', 'Trend'], ['momentum', 'Momentum'], ['volatility', 'Volatility'], ['volume', 'Volume'], ['other', 'Levels and swings']];
+  const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
+
+  const $ = id => document.getElementById(id);
+  const state = { id: null, params: {}, theme: 'light', chart: null, series: [], drawn: 0, errors: [] };
+
+  function colorOf(tone, theme) {
+    const p = palette[theme];
+    if (typeof tone === 'number') return p.accents[tone % p.accents.length];
+    return p[tone] || p.line;
+  }
+
+  function spec(id) { return INDICATORS.find(s => s.id === id); }
+
+  function draw() {
+    const s = spec(state.id);
+    if (!s) return;
+    if (state.chart) state.chart.remove();
+    const theme = state.theme;
+    const p = palette[theme];
+    const chart = createChart('chart', { theme, ariaLabel: s.name + ' on demo candles' });
+    state.chart = chart;
+    state.series = [];
+    const candles = chart.addSeries(CandlestickSeries, { title: s.overlay ? 'DEMO' : '' }, 0);
+    candles.setData(bars);
+    const pane = s.overlay ? 0 : 1;
+    let out;
+    try { out = s.compute(bars, state.params); } catch (e) { state.errors.push(String(e)); out = {}; }
+    const label = legendLabel(s, state.params);
+    let drawn = 0;
+    let firstLine = null;
+    s.outputs.forEach((o, k) => {
+      const rows = out[o.key] || [];
+      const count = rows.filter(r => r.value !== undefined).length;
+      drawn += count;
+      const title = k === 0 ? label : o.label;
+      const color = colorOf(o.tone, theme);
+      let series;
+      if (o.kind === 'histogram') {
+        series = chart.addSeries(HistogramSeries, { lastValueVisible: false, priceLineVisible: false, title }, pane);
+        const sign = o.tone === 'line' || o.tone === undefined;
+        series.setData(rows.map(r => (r.value === undefined ? r : { ...r, color: sign ? (r.value >= 0 ? p.up : p.down) : color })));
+      } else if (o.kind === 'markers') {
+        series = chart.addSeries(LineSeries, { ...quiet, color: 'rgba(0,0,0,0)', lineWidth: 1, title }, pane);
+        series.setData(rows);
+        createSeriesMarkers(series, rows.filter(r => r.value !== undefined).map(r => ({ time: r.time, position: 'inBar', shape: 'circle', color, size: 0.5 })));
+      } else {
+        const band = o.kind === 'band-upper' || o.kind === 'band-lower';
+        series = chart.addSeries(LineSeries, { ...quiet, color, lineWidth: band ? 1 : 2, lineStyle: o.tone === 'muted' && !band ? 'dashed' : 'solid', title, lastValueVisible: !s.overlay && k === 0 }, pane);
+        series.setData(rows);
+      }
+      if (!firstLine && o.kind !== 'histogram') firstLine = series;
+      state.series.push(series);
+    });
+    if (!s.overlay && s.guides && (firstLine || state.series[0])) {
+      for (const g of s.guides) createPriceLine(firstLine || state.series[0], { price: g, lineStyle: 'dotted', axisLabelVisible: true, color: p.guide });
+    }
+    if (!s.overlay) {
+      const panes = chart.panes();
+      panes[0].setStretchFactor(2);
+      panes[1].setStretchFactor(1.2);
+    }
+    chart.timeScale().setVisibleLogicalRange({ from: bars.length - (bars === DATA.daily ? 150 : 400), to: bars.length + 2 });
+    state.drawn = drawn;
+    $('meta').textContent = `${s.category}, ${s.overlay ? 'on the price pane' : 'own pane'}, ${drawn} values`;
+  }
+
+  function buildInputs() {
+    const s = spec(state.id);
+    const box = $('inputs');
+    box.textContent = '';
+    for (const input of s.inputs) {
+      const label = document.createElement('label');
+      label.append(input.label + ' ');
+      let el;
+      if (input.type === 'select' || input.type === 'source') {
+        el = document.createElement('select');
+        for (const o of input.options) { const opt = document.createElement('option'); opt.value = o; opt.textContent = o; el.append(opt); }
+        el.value = state.params[input.key];
+      } else if (input.type === 'bool') {
+        el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!state.params[input.key];
+      } else {
+        el = document.createElement('input'); el.type = 'number';
+        if (input.min !== undefined) el.min = input.min;
+        if (input.max !== undefined) el.max = input.max;
+        el.step = input.step !== undefined ? input.step : input.type === 'int' ? 1 : 'any';
+        el.value = state.params[input.key];
+      }
+      el.dataset.key = input.key;
+      el.setAttribute('aria-label', input.label);
+      el.addEventListener('input', () => {
+        state.params[input.key] = input.type === 'bool' ? el.checked : input.type === 'select' || input.type === 'source' ? el.value : el.valueAsNumber;
+        draw();
+      });
+      label.append(el);
+      box.append(label);
+    }
+  }
+
+  function pick(id) {
+    const s = spec(id);
+    if (!s) throw new Error('no indicator ' + id);
+    state.id = id;
+    state.params = Object.fromEntries(s.inputs.map(i => [i.key, i.default]));
+    $('title').textContent = s.name;
+    buildInputs();
+    draw();
+    for (const b of document.querySelectorAll('.item')) b.setAttribute('aria-current', b.dataset.id === id ? 'true' : 'false');
+  }
+
+  function renderList(query) {
+    const q = query.trim().toLowerCase();
+    const list = $('list');
+    list.textContent = '';
+    let shown = 0;
+    for (const [cat, title] of CATEGORIES) {
+      const specs = INDICATORS.filter(s => s.category === cat && (!q || (s.name + ' ' + s.shortName + ' ' + s.id).toLowerCase().includes(q)));
+      if (!specs.length) continue;
+      const h = document.createElement('h2');
+      h.textContent = `${title} (${specs.length})`;
+      list.append(h);
+      for (const s of specs) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'item'; b.dataset.id = s.id;
+        b.setAttribute('aria-current', s.id === state.id ? 'true' : 'false');
+        const a = document.createElement('span'); a.textContent = s.name;
+        const c = document.createElement('span'); c.textContent = s.overlay ? 'overlay' : 'pane';
+        b.append(a, c);
+        b.addEventListener('click', () => pick(s.id));
+        list.append(b);
+        shown++;
+      }
+    }
+    if (!shown) { const e = document.createElement('div'); e.id = 'empty'; e.textContent = 'No indicator matches'; list.append(e); }
+    return shown;
+  }
+
+  $('search').addEventListener('input', e => renderList(e.target.value));
+  $('theme').addEventListener('click', () => {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = state.theme;
+    $('theme').textContent = state.theme === 'dark' ? 'Light theme' : 'Dark theme';
+    draw();
+  });
+
+  $('data').addEventListener('change', e => { bars = DATA[e.target.value]; draw(); });
+
+  $('count').textContent = `${INDICATORS.length} indicators`;
+  renderList('');
+  pick('bollinger');
+
+  // Hooks for scripts/screenshots-indicators-gallery.cjs.
+  window.__gallery = {
+    ids: INDICATORS.map(s => s.id), pick, renderList,
+    setData: kind => { bars = DATA[kind]; $('data').value = kind; draw(); },
+    state: () => ({ id: state.id, drawn: state.drawn, panes: state.chart.panes().length, seriesWithValues: state.series.filter(s => s.data().some(r => r.value !== undefined)).length, series: state.series.length }),
+  };
+</script>
+</body>
+</html>

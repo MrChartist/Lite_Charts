@@ -25,8 +25,9 @@ export interface IndicatorInput {
 /**
  * How one output is drawn. `tone` is a colour role: 'line' is the accent, 'up' / 'down' the rising and falling colours,
  * 'muted' a quiet neutral (bands, guides), a number picks further accents (1 is the second accent, 2 the third...).
- * A 'histogram' is drawn as bars (the UI may colour them by sign); 'band-upper' and 'band-lower' are the two edges of
- * one shaded band (the first of each in the list belong together); 'markers' are isolated values drawn as dots.
+ * A 'histogram' is drawn as bars: tone 'line' (the default) colours each bar by its sign ('up' at or above zero, 'down'
+ * below), any other tone is one colour. 'band-upper' and 'band-lower' are the two edges of one band, paired in list order
+ * (the first upper with the first lower, and so on); 'markers' are isolated values drawn as dots, not joined.
  */
 export interface IndicatorOutput {
   key: string;
@@ -137,7 +138,7 @@ export const source = (def = 'close'): IndicatorInput => ({ key: 'source', label
 export const select = (key: string, label: string, def: string, options: string[]): IndicatorInput => ({ key, label, type: 'select', default: def, options });
 export const bool = (key: string, label: string, def: boolean): IndicatorInput => ({ key, label, type: 'bool', default: def });
 export const line = (key: string, label: string, tone: IndicatorOutput['tone'] = 'line'): IndicatorOutput => ({ key, label, kind: 'line', tone });
-export const hist = (key: string, label: string, tone: IndicatorOutput['tone'] = 'up'): IndicatorOutput => ({ key, label, kind: 'histogram', tone });
+export const hist = (key: string, label: string, tone: IndicatorOutput['tone'] = 'line'): IndicatorOutput => ({ key, label, kind: 'histogram', tone });
 export const upper = (key: string, label: string): IndicatorOutput => ({ key, label, kind: 'band-upper', tone: 'muted' });
 export const lower = (key: string, label: string): IndicatorOutput => ({ key, label, kind: 'band-lower', tone: 'muted' });
 export const dots = (key: string, label: string, tone: IndicatorOutput['tone'] = 'line'): IndicatorOutput => ({ key, label, kind: 'markers', tone });

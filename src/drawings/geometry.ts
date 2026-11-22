@@ -172,3 +172,120 @@ export function nearestOhlc(row: Record<string, unknown> | null, price: number):
 export function inBox(p: Pt, a: Pt, b: Pt, tol = 0): boolean {
   return p.x >= Math.min(a.x, b.x) - tol && p.x <= Math.max(a.x, b.x) + tol && p.y >= Math.min(a.y, b.y) - tol && p.y <= Math.max(a.y, b.y) + tol;
 }
+
+/** Point inside a polygon (even-odd rule). */
+export function inPolygon(p: Pt, poly: readonly Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Distance from p to a closed polygon's edges. */
+export function distToPolygon(p: Pt, poly: readonly Pt[]): number {
+  if (poly.length < 2) return poly.length ? Math.hypot(p.x - poly[0].x, p.y - poly[0].y) : Infinity;
+  let d = distToSegment(p, poly[poly.length - 1], poly[0]);
+  for (let i = 1; i < poly.length; i++) d = Math.min(d, distToSegment(p, poly[i - 1], poly[i]));
+  return d;
+}
+
+/** Points on the ellipse with centre c and radii rx, ry (n segments). */
+export function ellipsePoints(c: Pt, rx: number, ry: number, n = 64): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) { const t = (i / n) * Math.PI * 2; out.push({ x: c.x + rx * Math.cos(t), y: c.y + ry * Math.sin(t) }); }
+  return out;
+}
+
+/** The circle through three points, or null when they are on one line. */
+export function circleThrough(a: Pt, b: Pt, c: Pt): { x: number; y: number; r: number } | null {
+  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+  if (Math.abs(d) < 1e-9) return null;
+  const a2 = a.x * a.x + a.y * a.y, b2 = b.x * b.x + b.y * b.y, c2 = c.x * c.x + c.y * c.y;
+  const x = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
+  const y = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+  return { x, y, r: Math.hypot(a.x - x, a.y - y) };
+}
+
+/**
+ * Samples of the circular arc from a to c through b (n segments); a straight a-c when the three are on one line.
+ * Ported in spirit from the host engine's arc tool (PROVENANCE.md).
+ */
+export function arcThrough(a: Pt, b: Pt, c: Pt, n = 48): Pt[] {
+  const k = circleThrough(a, b, c);
+  if (!k || k.r > 1e5) return [a, c];
+  const t0 = Math.atan2(a.y - k.y, a.x - k.x);
+  const tb = Math.atan2(b.y - k.y, b.x - k.x);
+  let t1 = Math.atan2(c.y - k.y, c.x - k.x);
+  // Go the way that passes b.
+  const norm = (t: number): number => ((t % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const ccw = norm(tb - t0) < norm(t1 - t0);
+  if (ccw) { while (t1 < t0) t1 += 2 * Math.PI; } else { while (t1 > t0) t1 -= 2 * Math.PI; }
+  const out: Pt[] = [];
+  for (let i = 0; i <= n; i++) { const t = t0 + ((t1 - t0) * i) / n; out.push({ x: k.x + k.r * Math.cos(t), y: k.y + k.r * Math.sin(t) }); }
+  return out;
+}
+
+/**
+ * Quadratic Bezier from start to end bent towards `control` (de Casteljau), n segments. Ported from the host engine's
+ * `curveSampling.ts` (PROVENANCE.md), simplified to the quadratic form.
+ */
+export function sampleBezier(start: Pt, end: Pt, control: Pt, n = 48): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push({ x: u * u * start.x + 2 * u * t * control.x + t * t * end.x, y: u * u * start.y + 2 * u * t * control.y + t * t * end.y });
+  }
+  return out;
+}
+
+/**
+ * Corners of the rectangle whose base is a-b and whose height is the signed distance of c from that base (host
+ * engine `curveSampling.ts`, PROVENANCE.md). Null when the base has no length.
+ */
+export function rotatedRectCorners(a: Pt, b: Pt, c: Pt): [Pt, Pt, Pt, Pt] | null {
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  if (length < 1e-8) return null;
+  const nx = -(b.y - a.y) / length, ny = (b.x - a.x) / length;
+  const height = (c.x - a.x) * nx + (c.y - a.y) * ny;
+  return [a, b, { x: b.x + height * nx, y: b.y + height * ny }, { x: a.x + height * nx, y: a.y + height * ny }];
+}
+
+/** Bounding boxes of consecutive chunks of a long polyline, so a hit test walks only the chunks near the pointer. */
+export function chunkBoxes(pts: readonly Pt[], size = 32): Rect[] {
+  const out: Rect[] = [];
+  for (let s = 0; s < pts.length - 1; s += size) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const e = Math.min(pts.length - 1, s + size);
+    for (let i = s; i <= e; i++) { const p = pts[i]; if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+    out.push({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
+  }
+  return out;
+}
+
+/** Distance from p to a polyline, walking only the chunks (from `chunkBoxes(pts, size)`) within `tol` of p. */
+export function distToPolylineChunked(p: Pt, pts: readonly Pt[], boxes: readonly Rect[], tol: number, size = 32): number {
+  if (pts.length < 2) return distToPolyline(p, pts);
+  let d = Infinity;
+  for (let c = 0; c < boxes.length; c++) {
+    const b = boxes[c];
+    if (p.x < b.x - tol || p.x > b.x + b.width + tol || p.y < b.y - tol || p.y > b.y + b.height + tol) continue;
+    const s = c * size, e = Math.min(pts.length - 1, s + size);
+    for (let i = s + 1; i <= e; i++) d = Math.min(d, distToSegment(p, pts[i - 1], pts[i]));
+  }
+  return d;
+}
+
+/** Evenly thinned to at most `max` points, keeping the first and the last. */
+export function capPoints<T>(pts: readonly T[], max: number): T[] {
+  if (pts.length <= max) return pts.slice();
+  const out: T[] = [];
+  for (let i = 0; i < max; i++) out.push(pts[Math.round((i * (pts.length - 1)) / (max - 1))]);
+  return out;
+}
+
+/** Angle of a-b in degrees as a person reads it on screen (up is positive), -180 to 180. */
+export function screenAngle(a: Pt, b: Pt): number {
+  return (Math.atan2(a.y - b.y, b.x - a.x) * 180) / Math.PI;
+}

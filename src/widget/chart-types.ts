@@ -28,6 +28,7 @@ export function chartTypeIcon(id: string): string {
   if (k.includes('point') || k === 'pnf') return 'pnf';
   if (k.includes('break')) return 'linebreak';
   if (k.includes('range')) return 'range';
+  if (k.includes('highlow')) return 'bars';
   if (k.includes('step')) return 'step';
   if (k.includes('hlc')) return 'hlc';
   if (k.includes('column')) return 'columns';

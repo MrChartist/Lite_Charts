@@ -166,7 +166,7 @@ export function createCompare(chart: ChartApi, options: Partial<CompareOptions> 
     if (legend || !opts.legend) return;
     const dom = createHost(chart, 'compare', true, 3);
     const s = ui.state();
-    const row = make(dom.doc, 'div', { position: 'absolute', left: '0', top: '0', display: 'flex', 'flex-wrap': 'wrap', 'justify-content': 'flex-end', gap: '6px', 'pointer-events': 'none' }, dom.root);
+    const row = make(dom.doc, 'div', { position: 'absolute', left: '0', top: '0', width: 'max-content', display: 'flex', 'flex-wrap': 'wrap', 'justify-content': 'flex-start', gap: '6px', 'pointer-events': 'none' }, dom.root);
     row.setAttribute('role', 'list');
     row.setAttribute('aria-label', 'Compared series');
     const chip = chipBase(row, dom.doc);
@@ -182,7 +182,7 @@ export function createCompare(chart: ChartApi, options: Partial<CompareOptions> 
     if (!legend) return;
     const s = ui.state();
     css(legend.row, {
-      transform: `translate(${Math.round(s.plot.x + s.plot.width - 8)}px, ${Math.round(s.plot.y + 8)}px) translateX(-100%)`,
+      transform: `translate(${Math.round(s.plot.x + 8)}px, ${Math.round(s.plot.y + s.plot.height - 8)}px) translateY(-100%)`,
       'max-width': `${Math.max(120, Math.floor(s.plot.width - 16))}px`,
     });
   };

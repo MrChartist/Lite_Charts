@@ -16,8 +16,9 @@ import type { Widget, WidgetOptions } from './types';
 const bundled = { drawings, live: { connectLive } } as never;
 setTerminalModules(bundled);
 
+type Container = HTMLElement | string;
 /** createWidget with live data and drawings already available. */
-export function createWidget(container: HTMLElement | string, options: WidgetOptions = {}): Widget {
+export function createWidget(container: Container, options: WidgetOptions = {}): Widget {
   return baseCreate(container, { ...options, modules: { ...(bundled as object), ...(options.modules ?? {}) } });
 }
 

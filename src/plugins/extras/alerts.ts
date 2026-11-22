@@ -255,7 +255,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
       drag.moved = true;
       host?.requestUpdate();
     },
-    pointerUp(e, cancelled) {
+    pointerUp(_e, cancelled) {
       const d = drag;
       drag = null;
       if (!d || !d.moved) return;
@@ -267,7 +267,6 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
         prev = lastValue();
         changed();
       }
-      void e;
     },
     keyDown(e) {
       if (!selected || e.altKey || e.ctrlKey || e.metaKey) return false;

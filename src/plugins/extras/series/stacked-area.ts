@@ -47,7 +47,6 @@ function drawStacked(s: SeriesDrawScope<StackedAreaData, StackedAreaOptions>): v
     if (rows[i]) cur.push(i); else if (cur.length) { segs.push(cur); cur = []; }
   }
   if (cur.length) segs.push(cur);
-  const totals = new Float64Array(layers);
   for (let k = layers - 1; k >= 0; k--) {
     // Top edge of layer k = sum of layers 0..k; bottom edge = sum of layers 0..k-1.
     for (const seg of segs) {
@@ -56,7 +55,6 @@ function drawStacked(s: SeriesDrawScope<StackedAreaData, StackedAreaOptions>): v
       const botY = new Float64Array(seg.length);
       seg.forEach((ri, n) => {
         const v = (rows[ri] as StackedAreaData).values;
-        totals.fill(0);
         let t = 0;
         for (let j = 0; j <= k; j++) { if (j === k) botY[n] = y(t); t += v[j] ?? 0; }
         topY[n] = y(t);
