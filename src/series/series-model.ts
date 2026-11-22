@@ -6,6 +6,8 @@ import { mapToUnion } from '../core/time-index';
 import type { ChartPrimitive } from '../plugins/primitive';
 import type { RowBase, SeriesCommonOptions, SeriesDefinition } from './definition';
 
+/** `pos` of a row that is not on the axis (ordinal mode: it does not line up with the brick rows). */
+export const OFF = 0x7fffffff;
 const EXT_BLOCK = 128;
 const VAL_BLOCK = 32;
 
@@ -135,9 +137,10 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
   /**
    * Replace every row. Throws on unsorted or duplicate times, naming the row. `kind` is the kind of time the chart's
    * other series use (true = business days), checked BEFORE anything changes, so a rejected call leaves the series as
-   * it was.
+   * it was. `dup` (an ordinal chart): repeated times are allowed; `axis`: row i must have the time of slot i while the
+   * axis has one (every series of an ordinal chart but the one that makes the axis).
    */
-  setData(input: readonly (Record<string, unknown> & { time: Time })[], kind: boolean | null = null): void {
+  setData(input: readonly (Record<string, unknown> & { time: Time })[], kind: boolean | null = null, dup = false, axis: TimeIndex | null = null): void {
     const n = input.length;
     const rows: (R | null)[] = new Array(n);
     const times = new Float64Array(Math.max(16, n));
@@ -150,9 +153,10 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
       if (business === null) business = b;
       else if (business !== b) throw new TypeError(`Chartist Lite: row ${i} mixes business days and timestamps`);
       if (kind !== null && b !== kind) throw new TypeError(kindError(kind));
-      if (i > 0 && !(t > times[i - 1])) {
+      if (i > 0 && !(t > times[i - 1]) && !(dup && t === times[i - 1])) {
         throw new TypeError(`Chartist Lite: rows must be in ascending time order without duplicates (row ${i})`);
       }
+      if (axis && i < axis.count && t !== axis.times[i]) throw new TypeError(alignError(i));
       times[i] = t;
       rows[i] = this.def.normalize(row);
     }
@@ -173,17 +177,21 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
 
   /**
    * Replace the last row (same time) or add one after it. 'insert' means the time is new to the shared axis but
-   * not after its last slot: the caller must rebuild the axis. Throws for a time before the last row.
+   * not after its last slot: the caller must rebuild the axis. Throws for a time before the last row. `append` with
+   * `dup` (an ordinal chart) adds a row with the same time as the last one; `axis` as in `setData` (checked first).
    */
-  update(row: Record<string, unknown> & { time: Time }, kind: boolean | null = null): { kind: UpdateKind; t: number } {
+  update(row: Record<string, unknown> & { time: Time }, kind: boolean | null = null, append = false, dup = false, axis: TimeIndex | null = null): { kind: UpdateKind; t: number } {
     const t = timeToSeconds(row.time);
     const b = isBusinessDayInput(row.time);
     if (this.businessDays !== null && this.businessDays !== b) throw new TypeError('Chartist Lite: update mixes business days and timestamps');
     if (kind !== null && b !== kind) throw new TypeError(kindError(kind));
+    const n = this.count;
+    const at = n > 0 && t === this.times[n - 1] && !append ? n - 1 : n;
+    if (axis && at < axis.count && t !== axis.times[at]) throw new TypeError(alignError(at));
     const value = this.def.normalize(row);
     if (this.count > 0) {
       const last = this.times[this.count - 1];
-      if (t === last) {
+      if (t === last && !append) {
         this.rows[this.count - 1] = value;
         this.fillRow(this.count - 1);
         this.version++;
@@ -192,7 +200,7 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
         if (this.vOk.length) this.vOk[Math.floor((this.count - 1) / VAL_BLOCK)] = 0;
         return { kind: 'replace', t };
       }
-      if (t < last) throw new RangeError('Chartist Lite: update() accepts the last bar or a newer one, not an older bar');
+      if (t < last || (t === last && !dup)) throw new RangeError('Chartist Lite: update() accepts the last bar or a newer one, not an older bar');
     }
     if (this.count >= this.times.length) {
       const times = new Float64Array(Math.max(16, this.times.length * 2));
@@ -220,9 +228,25 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
     return { kind: 'append', t };
   }
 
+  /** Remove the last `n` rows. */
+  pop(n: number): void {
+    const keep = Math.max(0, this.count - Math.max(0, Math.floor(n) || 0));
+    if (keep === this.count) return;
+    this.rows.length = keep;
+    this.count = keep;
+    if (!keep) this.businessDays = null;
+    this.version++;
+    this.dataCache = null;
+    this.extOk.fill(0, Math.floor(keep / EXT_BLOCK));
+    this.vOk.fill(0, Math.floor(keep / VAL_BLOCK));
+  }
+
   remap(index: TimeIndex): void {
     if (this.pos.length < this.times.length) this.pos = new Int32Array(this.times.length);
-    mapToUnion(index, this.times, this.count, this.pos);
+    if (!index.ordinal) { mapToUnion(index, this.times, this.count, this.pos); return; }
+    // Row i at slot i while it lines up with the axis; from the first row that does not, off the axis.
+    let on = true;
+    for (let i = 0; i < this.count; i++) this.pos[i] = (on = on && i < index.count && this.times[i] === index.times[i]) ? i : OFF;
   }
 
   /** Inclusive row range whose slots fall in [fromSlot, toSlot]; null when none. */
@@ -252,10 +276,14 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
   lastRow(skip = 0): R | null {
     for (let i = this.count - 1; i >= 0; i--) {
       const r = this.rows[i];
-      if (r && skip-- === 0) return r;
+      if (r && this.pos[i] !== OFF && skip-- === 0) return r;
     }
     return null;
   }
+}
+
+function alignError(i: number): string {
+  return `Chartist Lite: on a brick (ordinal) axis row ${i} must have the time of brick ${i}`;
 }
 
 function kindError(chartUsesBusinessDays: boolean): string {

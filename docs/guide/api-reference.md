@@ -307,10 +307,11 @@ candles.setData([{ time: '2024-01-02', open: 100, high: 104, low: 99, close: 103
 ### `series.update`
 
 ```sig
-update(row: Row): void
+update(row: Row, options?: { append?: boolean }): void
+pop(count?: number): void
 ```
 
-Replaces the last bar when the time is the same and appends a newer one, repainting only what is visible.
+Replaces the last bar when the time is the same and appends a newer one, repainting only what is visible. On a brick (ordinal) axis, `{ append: true }` adds a row with the same time as the last one (another brick of the same bar). `pop(count = 1)` removes the last rows (bricks an incremental transform took back): O(count) on a brick axis, an axis rebuild on a calendar one; it fires the data-changed event with kind `'set'`. See [the brick time axis](chart-types.md#the-brick-time-axis).
 
 ```js
 candles.update({ time: '2024-06-14', open: 101.2, high: 102.9, low: 100.8, close: 102.4 });
@@ -493,7 +494,7 @@ logicalToCoordinate(logical: number): number | null
 coordinateToLogical(x: number): number | null
 ```
 
-Converts between a time or logical index and x in CSS px from the plot's left edge.
+Converts between a time or logical index and x in CSS px from the plot's left edge. On a brick (ordinal) axis a time finds the first brick dated that time, and `coordinateToTime` gives the brick's true source time.
 
 ```js
 const x = chart.timeScale().timeToCoordinate('2024-03-04');
@@ -506,7 +507,7 @@ timeToLogical(time: Time | number): number | null
 logicalToTime(logical: number): number | null
 ```
 
-A time's logical index, and the time (UNIX seconds) at a logical index: exact for a bar's time, interpolated between bars, extrapolated past either end at the median bar interval. `null` before any data. Drawings anchor to times through these, so they survive zoom, resize and new data.
+A time's logical index, and the time (UNIX seconds) at a logical index: exact for a bar's time, interpolated between bars, extrapolated past either end at the median bar interval. `null` before any data. Drawings anchor to times through these, so they survive zoom, resize and new data. On a brick (ordinal) axis a repeated time gives its first brick, and brick j (from 0) of the bricks dated T answers T + span × j / (j + 1), `span` being the smallest gap between bricks (also the step past either end), so time and slot map one to one.
 
 ```js
 const t = chart.timeScale().logicalToTime(chart.timeScale().coordinateToLogical(x));
@@ -555,11 +556,12 @@ a.timeScale().subscribeVisibleLogicalRangeChange(r => r && b.timeScale().setVisi
 ```sig
 setVisibleSpan(span: '1D' | '5D' | '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All' | { days?, weeks?, months?, years? }): void
 isAtRealTime(): boolean
+isOrdinal(): boolean
 subscribeRealTimeChange(fn: (atRealTime: boolean) => void): void
 unsubscribeRealTimeChange(fn): void
 ```
 
-Shows a span that ends at the last bar, read in the chart's time zone; '1D' and '5D' are the last one and five sessions in the data; at least five bars. `isAtRealTime()` is true while the newest bar is in view; the change event fires once per painted frame when that changes.
+Shows a span that ends at the last bar, read in the chart's time zone; '1D' and '5D' are the last one and five sessions in the data; at least five bars. `isAtRealTime()` is true while the newest bar is in view; the change event fires once per painted frame when that changes. `isOrdinal()` is true while a series with an ordinal definition (a brick type) is on the chart: slots are its rows in order, and a span selects the bricks whose source dates fall in it.
 
 ```js
 chart.timeScale().setVisibleSpan('3M');
@@ -840,10 +842,10 @@ const text = value < 0 ? `${MINUS_SIGN}${Math.abs(value)}` : String(value);
 ### `SeriesDefinition`
 
 ```sig
-{ type; defaults; normalize(input); value(row); low(row, options?); high(row, options?); lastValueColor(row, options, colors); draw(scope); crosshairMarker?(row, options, colors) }
+{ type; defaults; normalize(input); value(row); low(row, options?); high(row, options?); lastValueColor(row, options, colors); draw(scope); crosshairMarker?(row, options, colors); ordinal?: { tickText?(level, text, date, opts) } }
 ```
 
-The contract of a series type. `draw` receives a `SeriesDrawScope` with `ctx`, `pixelRatio`, `rows` (with `null` for whitespace), `from`, `to`, `x(rowIndex)`, `y(price)` in device px, `barSpacing`, `options`, `colors`, `pane` (a `DeviceRect`), and the optional `decimate` and `paneIndex`. Related types: `SeriesCommonOptions`, `PriceFormat`, `RowBase`, `WhitespaceData`, `RowOf`, `OptionsOf`, `InputOf`. The contract is in `src/series/definition.ts`.
+The contract of a series type. `ordinal` puts the chart's time axis in ordinal (brick) mode while a series of the type is on it: rows by order, true times kept, every other series on the same rows; `tickText` rewrites each axis label for the brick it sits on (the transforms entry's `ordinalSeries` and `brickTickText`). `draw` receives a `SeriesDrawScope` with `ctx`, `pixelRatio`, `rows` (with `null` for whitespace), `from`, `to`, `x(rowIndex)`, `y(price)` in device px, `barSpacing`, `options`, `colors`, `pane` (a `DeviceRect`), and the optional `decimate` and `paneIndex`. Related types: `SeriesCommonOptions`, `PriceFormat`, `RowBase`, `WhitespaceData`, `RowOf`, `OptionsOf`, `InputOf`. The contract is in `src/series/definition.ts`.
 
 ```js
 const DotSeries = { ...LineSeries, type: 'dots', draw(scope) { /* your marks */ } };
@@ -1217,16 +1219,16 @@ const b = new BarBuilder(60); b.apply({ kind: 'trade', time: 1700000000, price: 
 
 ## Chart types
 
-From `lite-charts/transforms`. All {{chartTypes}} types, their inputs and the time-axis caveat of the brick types: [Chart types](chart-types.md).
+From `lite-charts/transforms`. All {{chartTypes}} types, their inputs and the brick time axis: [Chart types](chart-types.md).
 
 ### `applyChartType`
 
 ```sig
-applyChartType(id: ChartTypeId, rows, { brick?, box?, range?, reversal?, lines?, base?, source?, series? }?): { definition, data, options, info? }
+applyChartType(id: ChartTypeId, rows, { brick?, box?, range?, reversal?, lines?, base?, source?, series?, calendarTime? }?): { definition, data, options, info? }
 const CHART_TYPES: readonly { id, name, kind: 'series' | 'transform', irregularTime, inputs }[]
 ```
 
-Everything `addSeries` needs for one chart type: the series definition, the cleaned (and, for a transform, transformed) rows, and the series options; `info` reports what a transform used (brick, box, range, lines, shifted times). `CHART_TYPES` lists the {{chartTypes}} types with the inputs a settings form needs.
+Everything `addSeries` needs for one chart type: the series definition, the cleaned (and, for a transform, transformed) rows, and the series options; `info` reports what a transform used (brick, box, range, lines). The irregular types get an ordinal definition (bricks on their true dates, the brick axis); `calendarTime: true` keeps the plain definition and spreads repeated times instead (`info.shifted` counts the moved rows; always 0 otherwise). `CHART_TYPES` lists the {{chartTypes}} types with the inputs a settings form needs.
 
 ```js
 const { definition, data, options } = applyChartType('renko', bars, { brick: 0 });
@@ -1237,12 +1239,13 @@ chart.addSeries(definition, options).setData(data);
 
 ```sig
 renko(rows, options), lineBreak(rows, options), kagi(rows, options), pointFigure(rows, options), rangeBars(rows, options), heikinAshi(rows)
-createRenko(options), createLineBreak(options), createRangeBars(options)
+createRenko(history, options), createLineBreak(history, options), createRangeBars(history, options)   // update(bar) => { from, rows, removed }
+ordinalSeries(definition), brickTickText(level, text, date, opts?), applyDelta(series, delta, map?), BRICK_AXIS, BRICK_MONTH_OPEN_DAYS
 HollowCandlestickSeries, StepLineSeries, HlcAreaSeries, ColumnSeries, HighLowSeries, KagiSeries, PointFigureSeries
 autoBoxSize, measureSize, resolveSize, spreadTimes, cleanRows, chartType
 ```
 
-The pure transforms (rows in, rows out), incremental forms for live data, and the series definitions behind the looks that are not transforms. Sizes are a number, `{ atr: period }` or `{ percent }`.
+The pure transforms (rows in, rows out), incremental forms for live data, and the series definitions behind the looks that are not transforms. Sizes are a number, `{ atr: period }` or `{ percent }`. `ordinalSeries(def)` is `def` on the brick axis (cached, so `===` holds); `applyDelta` pops the `removed` bricks of an incremental update and appends its `rows`. `spreadTimes` is the fallback for a host that keeps a calendar axis.
 
 ```js
 const { rows, brick } = renko(bars, { brick: { atr: 14 } });

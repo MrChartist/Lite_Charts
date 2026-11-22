@@ -240,11 +240,11 @@ export function calendarOf(seconds: number, zone: string, businessDay: boolean):
 }
 
 /** Bar granularity of a series' rows (median gap of the last bars). */
-export function kindOfRows(rows: readonly { time: Time }[]): TimeKind {
+export function kindOfRows(rows: readonly { time: Time }[], ordinal = false): TimeKind {
   const n = Math.min(rows.length, 257);
   const times: number[] = [];
   for (let i = rows.length - n; i < rows.length; i++) times.push(timeToSeconds(rows[i].time));
-  return inferTimeKind(times, n);
+  return inferTimeKind(times, n, ordinal);
 }
 
 /** The crosshair's time stamp for a bar (the chart's own `timeFormatter` when set). */

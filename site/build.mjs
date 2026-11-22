@@ -286,7 +286,8 @@ const EXTRA_NAMES = ['createTooltip', 'createWatermark', 'createImageWatermark',
   'createCompare', 'createReplay', 'createBands', 'createPartialPriceLine', 'createSessionBreaks', 'createVerticalLine', 'StackedAreaSeries', 'HeatmapSeries',
   'RoundedCandlesSeries', 'WhiskerBoxSeries'];
 const TRANSFORM_NAMES = ['CHART_TYPES', 'applyChartType', 'renko', 'lineBreak', 'kagi', 'pointFigure', 'rangeBars', 'HollowCandlestickSeries', 'StepLineSeries',
-  'HlcAreaSeries', 'ColumnSeries', 'HighLowSeries', 'KagiSeries', 'PointFigureSeries'];
+  'HlcAreaSeries', 'ColumnSeries', 'HighLowSeries', 'KagiSeries', 'PointFigureSeries', 'createRenko', 'createLineBreak', 'createRangeBars',
+  'ordinalSeries', 'brickTickText', 'applyDelta'];
 const WIDGET_NAMES = ['createWidget', 'demoBars', 'CRYPTO_SYMBOLS'];
 const usesAny = (fns, names) => fns.some((f) => names.some((n) => new RegExp(`\\b${n}\\b`).test(f.replace(/^[^{]*\{[^}]*\}\s*=\s*api;/, ''))));
 const LIVE_NAMES = ['createChart', 'CandlestickSeries', 'BarSeries', 'LineSeries', 'AreaSeries', 'HistogramSeries', 'BaselineSeries',

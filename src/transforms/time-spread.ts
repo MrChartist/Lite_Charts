@@ -1,5 +1,7 @@
-// Unique times for rows that share one. A chart wants strictly ascending times, but renko bricks and range bars are
-// dated by the source bar and one bar can make several. `spreadTimes` keeps each row on its source time and moves a
+// Unique times for rows that share one: the FALLBACK for a host that keeps a calendar time axis
+// (`applyChartType(..., { calendarTime: true })`). The default is an ordinal axis (`ordinalSeries`), which keeps every
+// brick on its true source time and needs none of this. A calendar axis wants strictly ascending times, but renko
+// bricks and range bars are dated by the source bar and one bar can make several. `spreadTimes` keeps each row on its source time and moves a
 // row that would not be after the previous one forward by one step (one second for UNIX seconds, one day for
 // business days), in the same kind of time the input used. Pure, O(n); rows that need no change are returned as they are.
 

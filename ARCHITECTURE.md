@@ -10,7 +10,7 @@ For contributors and stage-2 workers. Public README, licence and contributing gu
 | Typecheck (sources and tests) | `npm run typecheck` |
 | Unit tests | `npm test` |
 | Build `dist/` | `npm run build` (ESM per entry, a licence banner on every file, declarations with real `.js` specifiers so `nodenext` consumers resolve them; optional entries `widget`, `transforms`, `extras` build only when their index file exists; IIFE globals `ChartistLite` (`chartist-lite.iife.min.js`), `ChartistLiteIndicators` (`chartist-lite-indicators.iife.min.js`), `ChartistLiteElement` (`chartist-lite.element.iife.min.js`, registers `<chartist-chart>` on load); `.d.ts` in `dist/types/`) |
-| Size | `npm run size` (each entry bundled + minified + gzip, and every IIFE file as built; fails if the core is over 34 KB gzip) |
+| Size | `npm run size` (each entry bundled + minified + gzip, and every IIFE file as built; fails if the core is over 34.6 KB gzip) |
 | Package as a consumer gets it | `npm run pack:check` (packs, unpacks into a throwaway consumer, imports every subpath in Node, type-checks a strict `nodenext` and a `bundler` consumer with `skipLibCheck: false`, and proves the types are real: a wrong member access must fail). ESM only: no CommonJS build, no `require` condition |
 | Rename the npm package | `node scripts/rename-package.mjs <name> [--only package,src,examples,notes,readme,docs,site] [--dry]` (safe to run twice; the name is `lite-charts`; product name and `ChartistLite*` globals stay) |
 | All of the above | `npm run check` |
@@ -25,7 +25,8 @@ src/
   core/
     time.ts           Time input (UNIX seconds | 'YYYY-MM-DD' | {year,month,day}) -> seconds; granularity inference
     zone.ts           IANA zone offsets (DST-safe change table), civil-day maths
-    time-index.ts     the shared time axis: sorted union of all series times + calendar fields per slot
+    time-index.ts     the shared time axis: sorted union of all series times + calendar fields per slot; ordinal mode
+                      (one slot per row of the brick series, repeats kept, one-to-one virtual times)
     format.ts         price / percent / time text (true minus U+2212, no grouping)
     options.ts        ChartOptions, defaults, deep merge
     theme.ts          light and dark palettes, readable text colour on a fill
@@ -59,7 +60,8 @@ src/
   render/dom.ts       CSSOM style writes with `!important` resets (CSP-safe, immune to page CSS)
   core/span.ts        calendar spans for range keys (pure): parseSpan, spanStartDay, spanStart, spanFirstIndex, localMidnight
   widget/             `./widget` entry: createWidget (the ready-made workspace) and <chartist-terminal> (see "Widget")
-  transforms/         `./transforms` entry: chart types (CHART_TYPES, applyChartType) and brick transforms
+  transforms/         `./transforms` entry: chart types (CHART_TYPES, applyChartType), brick transforms and the brick
+                      time axis (brick-axis.ts: ordinalSeries, brickTickText, applyDelta)
   plugins/extras/     `./extras` entry: tooltip, watermark, price alerts, replay, compare, range switcher, go to realtime
 ```
 
@@ -72,7 +74,7 @@ everything. Nothing imports `chart/` except `index.ts`.
 | Space | Unit | Origin | Used by |
 |---|---|---|---|
 | Time | seconds (business day = UTC midnight) | epoch | data, `TimeIndex.times` |
-| Logical | slot index on the shared axis (float allowed) | first distinct time = 0 | time scale, primitives (`logicalToX`) |
+| Logical | slot index on the shared axis (float allowed) | first distinct time = 0 (ordinal: first brick row = 0) | time scale, primitives (`logicalToX`) |
 | Row | index into one series' rows | that series' first row | `SeriesDrawScope.from/to`, `x(rowIndex)` |
 | CSS px | CSS pixels | chart top-left; the pane starts at (0,0) | API coordinates, primitives, axes, text |
 | Device px | backing-store pixels | canvas top-left | series `draw` (identity transform), grid, crisp lines |
@@ -343,8 +345,63 @@ as the effect's cleanup.
 | `SeriesDefinition.lastValueColor(row, options, colors, prev?)` | The row before, for a tag coloured by change (hollow candles) |
 
 Full screen needs no core change: the chart follows its container (ResizeObserver), checked in
-`scripts/screenshots-widget.cjs`. Not done: an irregular-time axis for brick types (several bricks from one bar); the
-transforms entry still spreads repeated times by one second (`spreadTimes`).
+`scripts/screenshots-widget.cjs`. The irregular-time axis for brick types is the next section.
+
+## Ordinal (brick) time axis (2026-11-22)
+
+Renko, line break, Kagi, point and figure and range bars make rows that are not evenly spaced in time, several from
+one source bar. **Design: a flag carried by the series definition** (`SeriesDefinition.ordinal: OrdinalAxis`), set by
+`applyChartType` through `ordinalSeries(def)` (transforms entry, cached per definition so `===` holds). Why not a chart
+option: the axis mode follows from what is drawn, so `applyChartType` -> `addSeries` -> `setData` is enough, the
+widget's type switch needs no extra call, a definition from another bundle (the widget loading the transforms IIFE)
+still works (structural check), and the label rule rides on the definition, so only brick users pay for it.
+
+- **Lead.** The first series on the chart whose definition has `ordinal` (`Chart.lead`, a getter) makes the axis:
+  `TimeIndex.rebuild(..., ordinal = true)` copies its times as they are (non-decreasing, repeats kept), one slot per
+  row. With no such series the axis is the calendar union, unchanged.
+- **Other series** must share the lead's rows: row i at slot i (`SeriesModel.remap`). `setData` / `update` of a
+  non-lead series throws when row i's time differs from slot i's (`alignError`; checked before anything changes).
+  Rows past the lead's end are kept off the axis (`pos = OFF`, never in `rowRange` / `rowAtSlot` / `lastRow`) and
+  placed when the lead appends that row. When the lead's data change, rows of others that stop matching go `OFF` until
+  their next `setData` (the widget re-sets volume and indicators right after). Repeated times are accepted only on an
+  ordinal chart (`dup`).
+- **update / pop.** Same time as the last row replaces it (as before); `{ append: true }` appends a row with the same
+  time (O(1): `TimeIndex.append`, calendar read for one slot, `minGap`). `pop(n)` removes rows: on the lead O(n)
+  (`TimeIndex.truncate`, day / month start lists trimmed, others' rows past the end `OFF`, a scrolled-back view kept
+  still); on a calendar chart the axis is rebuilt. `applyDelta(series, delta, map?)` (transforms) applies an
+  incremental transform's `{ from, rows, removed }`.
+- **Times.** `indexOf` / `lowerBound` give the FIRST slot of a repeated time (`timeToCoordinate`, primitives'
+  `timeToX`, `seriesRowAt`, markers). `setVisibleRange` uses `lowerBound(to, upper)` so every slot dated `to` is in.
+  `setVisibleSpan` and `spanFirstIndex` need no change: the first brick whose source date is in the span. `timeOf` /
+  `logicalOf` (TimeIndex, used by `logicalToTime` / `timeToLogical`) give slot a+j (the j-th brick after the first of
+  time T) the virtual time `T + span * j / (j + 1)`, span = smallest positive gap between slots (`minGap`; one day for
+  business days, 60 s, when there is none), piecewise linear between slots and `span` per slot past either end. It is
+  strictly increasing and one-to-one, a brick keeps its virtual time when bricks are appended, and in calendar mode
+  (j always 0) it is the old interpolation exactly (tested against the legacy formula).
+- **Kind.** `inferTimeKind(times, n, ordinal)` reads the smallest positive gap on an ordinal axis (the closest thing
+  to the source interval the bricks show); zero gaps never count.
+- **Labels.** `planTimeTicks` takes `tickText` (the lead's `ordinal.tickText`) and calls it once per candidate after
+  the hierarchy pass; cadence and layout are unchanged, so the longer texts keep fewer labels. A repeated time is
+  never a boundary (keys equal), so ticks sit on the first brick of a date. The rule (`brickTickText`, ported from the
+  host): year label -> `Aug 2020` unless the brick is in January; month label -> `17 Mar` past day 7; others unchanged.
+- **Readers.** Crosshair tag, legend, inspect mode and `MouseEventParams` read the row at the slot (true date).
+  Tooltip (extras) resolves the hovered brick by `logical` (n-th row of its time), kind via `kindOfRows(rows, true)`.
+  Session breaks (extras) are off (`isOrdinal()`). Drawings: anchors are `{ time, price }` through
+  `timeToLogical` / `logicalToTime`, so a point on a brick keeps its brick; switching candles <-> Renko maps by source
+  time (nothing hidden or destroyed; back on Renko a point returns to the same brick); the magnet and the bar-reading
+  tools (regression, VWAP, profile, ranges) address bricks by slot (`BarAccess.times` are the virtual times).
+- **Widget.** Volume from the transform's rows; indicators computed on the bricks (`indRows`) when `isOrdinal()`,
+  Heikin Ashi and series looks on the source bars; compare lines kept but empty on a brick axis; an indicator output
+  that cannot line up is left empty. Replay stays off for transforms.
+- **Cost.** Core +0.9 KB gzip (34454 -> about 35380 bytes; budget 34 -> 34.6 KB); the rule itself is in the transforms entry. Bench scenario
+  `renko`: 10k bricks, crosshair, pan, zoom, live tick through `createRenko` + `applyDelta`, fit.
+- **Fallback.** `applyChartType(..., { calendarTime: true })`: the plain definition and `spreadTimes` (next second /
+  next day after the previous row); `info.shifted` counts moved rows (0 on the brick axis).
+- **Checks.** `src/__tests__/ordinal-axis.test.ts` (index, model, planner with the host's cases plus one-day groups, a
+  ten-year gap, DST, a single brick, one intraday day, business days; incremental + `applyDelta`);
+  `scripts/screenshots-chart-types.cjs` (labels of a constructed series, crosshair / tag / inspect on a repeated
+  brick, no cut or overlapping label, ranges and spans, live bricks without the axis jumping);
+  `scripts/screenshots-widget.cjs` (indicators and volume on bricks, drawing round trip, save).
 
 ## Widget (2026-11-22)
 

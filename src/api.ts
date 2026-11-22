@@ -81,16 +81,24 @@ export interface TimeScaleApi {
   setVisibleLogicalRange(range: LogicalRange): void;
   /** Bars of space between the last bar and the right edge (negative when scrolled back). */
   scrollPosition(): number;
+  /** x of the bar at `time` (on an ordinal axis the first brick dated `time`), or null when no bar has it. */
   timeToCoordinate(time: Time): number | null;
+  /** The time of the bar nearest x, as given in the data (on an ordinal axis the brick's true source time). */
   coordinateToTime(x: number): Time | null;
   logicalToCoordinate(logical: number): number | null;
   coordinateToLogical(x: number): number | null;
   /**
    * Logical index of a time (seconds or a Time): exact for a bar's time, interpolated between bars, extrapolated past
-   * either end at the median bar interval. Null before any data. Drawings anchor to times through this.
+   * either end at the median bar interval. Null before any data. Drawings anchor to times through this. On an ordinal
+   * axis a repeated time gives its FIRST brick, and the bricks after it answer to the virtual times `logicalToTime`
+   * gives them (extrapolation uses the smallest gap between bricks).
    */
   timeToLogical(time: Time | number): number | null;
-  /** The time (UNIX seconds) at a logical index, interpolated / extrapolated the same way. Null before any data. */
+  /**
+   * The time (UNIX seconds) at a logical index, interpolated / extrapolated the same way. Null before any data. On an
+   * ordinal axis brick j (from 0) of the bricks dated T answers T + span * j / (j + 1), `span` the smallest positive gap
+   * between bricks, so time and logical index map one to one; the first brick of a time answers its true time.
+   */
   logicalToTime(logical: number): number | null;
   /** CSS px of the plot area. */
   width(): number;
@@ -103,6 +111,11 @@ export interface TimeScaleApi {
   setVisibleSpan(span: SpanInput): void;
   /** True while the newest bar is in view (false once the view is scrolled back into history). */
   isAtRealTime(): boolean;
+  /**
+   * True while a series whose definition has `ordinal` (the transforms' brick types) is on the chart: slots are its
+   * rows in order (times may repeat), not distinct times.
+   */
+  isOrdinal(): boolean;
   /** Called with the new state whenever `isAtRealTime()` changes (checked once per painted frame). */
   subscribeRealTimeChange(handler: (atRealTime: boolean) => void): void;
   unsubscribeRealTimeChange(handler: (atRealTime: boolean) => void): void;
@@ -122,8 +135,16 @@ export type AnySeriesDefinition = SeriesDefinition<any, any>;
 export interface SeriesApi<D extends AnySeriesDefinition> {
   seriesType(): string;
   setData(data: readonly InputOf<D>[]): void;
-  /** Replace the last bar (same time) or append a newer one. Repaints only what is visible. */
-  update(row: InputOf<D>): void;
+  /**
+   * Replace the last bar (same time) or append a newer one. Repaints only what is visible. On an ordinal (brick) axis
+   * `{ append: true }` adds a row with the same time as the last one (another brick from the same source bar).
+   */
+  update(row: InputOf<D>, options?: { append?: boolean }): void;
+  /**
+   * Remove the last `count` rows (default 1), e.g. bricks an incremental transform rolled back. O(count) on an ordinal
+   * axis; a calendar axis is rebuilt. Fires the data-changed event with kind 'set'.
+   */
+  pop(count?: number): void;
   /** The stored rows (copies are not made: do not mutate). Whitespace rows are omitted. */
   data(): readonly RowOf<D>[];
   applyOptions(options: DeepPartial<OptionsOf<D>>): void;

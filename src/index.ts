@@ -62,6 +62,6 @@ export type { PriceScaleOptions, PriceScaleMode, ScaleMargins } from './scales/p
 export type { LogicalRange } from './scales/time-scale';
 export type {
   SeriesDefinition, SeriesDrawScope, SeriesCommonOptions, PriceFormat, RowBase, WhitespaceData, DeviceRect,
-  RowOf, OptionsOf, InputOf,
+  RowOf, OptionsOf, InputOf, OrdinalAxis,
 } from './series/definition';
 export type { ChartPrimitive, PrimitiveDrawScope, PrimitiveHost, PriceAxisLabel, CssRect } from './plugins/primitive';

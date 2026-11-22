@@ -18,7 +18,7 @@ export type TransformRow = IndicatorRow;
 
 /** One output bar of a transform. */
 export interface BrickRow {
-  /** Time of the source bar that completed this row. Several rows of one transform may share it (see `spreadTimes`). */
+  /** Time of the source bar that completed this row. Several rows of one transform may share it (an ordinal axis keeps them all). */
   time: Time;
   open: number;
   high: number;

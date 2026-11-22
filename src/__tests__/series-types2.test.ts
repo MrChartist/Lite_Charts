@@ -369,7 +369,7 @@ describe('applyChartType and CHART_TYPES', () => {
     expect(chartType('renko')?.name).toBe('Renko');
     expect(chartType('nope')).toBeUndefined();
   });
-  it('every type gives a definition, rows its own normalize accepts, strictly ascending times, and a SeriesModel accepts them', () => {
+  it('every type gives a definition, rows its own normalize accepts, ascending times (repeats only on an ordinal axis), and a SeriesModel accepts them', () => {
     const rows = walk(400, 13);
     const seen = new Set<string>();
     for (const id of ids) {
@@ -377,10 +377,18 @@ describe('applyChartType and CHART_TYPES', () => {
       seen.add(a.definition.type);
       expect(a.data.length).toBeGreaterThan(0);
       const m = new SeriesModel(a.definition, { ...a.definition.defaults, ...common, ...a.options } as never);
-      expect(() => m.setData(a.data as never)).not.toThrow();
+      expect(() => m.setData(a.data as never, null, !!a.definition.ordinal)).not.toThrow();
       expect(m.count).toBe(a.data.length);
-      for (let i = 1; i < a.data.length; i++) expect(a.data[i].time as number).toBeGreaterThan(a.data[i - 1].time as number);
+      for (let i = 1; i < a.data.length; i++) {
+        if (a.definition.ordinal) expect(a.data[i].time as number).toBeGreaterThanOrEqual(a.data[i - 1].time as number);
+        else expect(a.data[i].time as number).toBeGreaterThan(a.data[i - 1].time as number);
+      }
       expect(Boolean(a.info)).toBe(chartType(id)!.irregularTime);
+      expect(Boolean(a.definition.ordinal)).toBe(chartType(id)!.irregularTime);
+      // The calendar fallback: the plain definition, unique times.
+      const c = applyChartType(id, rows, { calendarTime: true });
+      expect(c.definition.ordinal).toBeUndefined();
+      expect(() => new SeriesModel(c.definition, { ...c.definition.defaults, ...common, ...c.options } as never).setData(c.data as never)).not.toThrow();
     }
     expect(seen.size).toBe(12);
   });
@@ -403,11 +411,16 @@ describe('applyChartType and CHART_TYPES', () => {
     expect(applyChartType('kagi', rows, { reversal: 1 }).info).toMatchObject({ reversal: 1, reversalMode: 'percent' });
     expect(applyChartType('kagi', rows).info!.reversal).toBe(4);
   });
-  it('renko of the same bar shares one source time, spread so setData accepts it; the source index survives', () => {
+  it('renko bricks of one bar keep the bar\'s true time on the ordinal axis (shifted 0); the calendar fallback spreads them', () => {
     const rows = walk(300, 2);
     const r = applyChartType('renko', rows, { brick: 0.3 });
-    expect(r.info!.shifted).toBeGreaterThan(0);
+    expect(r.info!.shifted).toBe(0);
     expect(r.data.every(d => typeof d.sourceIndex === 'number')).toBe(true);
+    expect(r.data.every(d => d.time === rows[d.sourceIndex as number].time)).toBe(true);
+    expect(r.data.some((d, i) => i > 0 && d.time === r.data[i - 1].time)).toBe(true);
+    const c = applyChartType('renko', rows, { brick: 0.3, calendarTime: true });
+    expect(c.info!.shifted).toBeGreaterThan(0);
+    expect(c.data.map(d => d.sourceIndex)).toEqual(r.data.map(d => d.sourceIndex));
   });
   it('rows are cleaned: unreadable, older and repeated times never reach setData', () => {
     const rows = walk(50, 3);
@@ -417,7 +430,7 @@ describe('applyChartType and CHART_TYPES', () => {
     expect(clean[19]).toBe(rows[19]);
     for (const id of ids) {
       const a = applyChartType(id, dirty);
-      expect(() => new SeriesModel(a.definition, { ...a.definition.defaults, ...common, ...a.options } as never).setData(a.data as never)).not.toThrow();
+      expect(() => new SeriesModel(a.definition, { ...a.definition.defaults, ...common, ...a.options } as never).setData(a.data as never, null, !!a.definition.ordinal)).not.toThrow();
     }
     expect(cleanRows(rows)).toBe(rows);
   });
@@ -425,7 +438,7 @@ describe('applyChartType and CHART_TYPES', () => {
     const rows: TransformRow[] = [{ time: 1, open: 1, high: 2, low: 0, close: 1 }, { time: 2 }, { time: 3, open: 'x' as never, close: 2 }, { time: 4, value: 5 }];
     for (const id of ids) {
       const a = applyChartType(id, rows);
-      expect(() => new SeriesModel(a.definition, { ...a.definition.defaults, ...common, ...a.options } as never).setData(a.data as never)).not.toThrow();
+      expect(() => new SeriesModel(a.definition, { ...a.definition.defaults, ...common, ...a.options } as never).setData(a.data as never, null, !!a.definition.ordinal)).not.toThrow();
     }
     expect(applyChartType('candles', rows).data).toEqual([{ time: 1, open: 1, high: 2, low: 0, close: 1 }, { time: 2 }, { time: 3 }, { time: 4 }]);
     expect(applyChartType('line', rows).data.map(d => d.value)).toEqual([1, undefined, 2, 5]);
@@ -438,7 +451,7 @@ describe('applyChartType and CHART_TYPES', () => {
     });
     const a = applyChartType('renko', days as never, { brick: 0.2 });
     expect(a.data.every(d => typeof d.time === 'string')).toBe(true);
-    expect(() => new SeriesModel(a.definition, { ...a.definition.defaults, ...common } as never).setData(a.data as never)).not.toThrow();
+    expect(() => new SeriesModel(a.definition, { ...a.definition.defaults, ...common } as never).setData(a.data as never, null, !!a.definition.ordinal)).not.toThrow();
   });
   it('baseline takes the first close unless a base is given; series options are merged', () => {
     const rows = walk(20, 3);

@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Brick time axis (ordinal mode) for Renko, line break, Kagi, point and figure and range bars. A series whose
+  definition carries `ordinal` (set by `applyChartType` for these types, or `ordinalSeries(def)` from the transforms
+  entry) puts the chart's time axis in ordinal mode: one slot per row, every brick on the TRUE date of the bar that made
+  it (times may repeat), labels only on bricks with the host's rule (a year label names the month unless its brick is
+  in January, `Aug 2020`; a month label names the day past the month's first 7 days, `17 Mar`; `brickTickText`), the
+  crosshair tag, legend, inspect mode and tooltips on the brick's true date. Other series share the brick rows (row i
+  on brick i; a mismatching row throws). New API: `series.update(row, { append: true })`, `series.pop(count)`,
+  `timeScale().isOrdinal()`, `SeriesDefinition.ordinal` / `OrdinalAxis` (core); `ordinalSeries`, `brickTickText`,
+  `applyDelta`, `BRICK_AXIS`, `BRICK_MONTH_OPEN_DAYS`, `TransformDelta.removed`, `ChartTypeOptions.calendarTime`
+  (transforms). Example `examples/renko-live.html` (ticks through `createRenko` + `applyDelta`) and
+  `examples/renko-axis.html`; bench scenario `renko` (10k bricks).
+
 - Drawing tools: 38 more tools (53 in all), each one declarative `ToolDefinition` (`src/drawings/contract.ts`): info
   line, trend angle, horizontal segment, cross line; regression trend, flat top or bottom channel, disjoint channel,
   Andrews, Schiff, modified Schiff and inside pitchforks; Fibonacci extension, channel, fan, speed resistance fan, arcs,
@@ -62,6 +74,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   included).
 
 ### Changed
+
+- `applyChartType` no longer nudges repeated brick times forward (`spreadTimes`) unless `calendarTime: true`;
+  `info.shifted` is 0 on the default brick axis. `timeToLogical` / `logicalToTime` on a brick axis give each brick a
+  one-to-one time (T + span * j / (j + 1)); drawings are anchored by it and survive candles <-> Renko switches (mapped
+  by source time). `setVisibleRange` now covers every slot dated `to` (the last brick of a repeated time).
+  `inferTimeKind` ignores zero gaps. The time-axis planner gives a lone boundary in view its label (a single bar or
+  brick). Widget: indicators are computed on the bricks for the brick types, compare lines are kept but not drawn
+  there. Extras: the tooltip resolves the hovered brick (not the first of its time); session breaks are off on a brick
+  axis. Drawings: magnet and bar-reading tools address bricks by slot. Core entry budget 34 KB -> 34.6 KB gzip.
 
 - The package is named `lite-charts` (still private, not published). ESM only: no CommonJS build.
 - Core size budget lowered to 34 KB gzip.

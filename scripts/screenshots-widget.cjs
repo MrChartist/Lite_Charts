@@ -890,6 +890,67 @@ const COUNT_LISTENERS = () => {
   check(await page.evaluate(() => !document.querySelectorAll('chartist-chart [data-chartist-widget]').length), 'removing the element tears the widget down');
   await page.context().close();
 
+  // ── brick chart types on the ordinal axis: indicators and volume on the bricks, compare kept but not drawn, session
+  // breaks off, a drawing anchored on a brick survives candles -> Renko -> candles, save and restore ──
+  page = await newPage(1280, 800);
+  await page.goto(url('widget.html', ''));
+  await ready(page);
+  await page.waitForTimeout(600);
+  {
+    // A compare symbol and session breaks on, then Renko.
+    await page.evaluate(async () => { const W = window.__widget; const s = W.save(); s.compare = ['ORBT']; s.settings = { ...s.settings, sessionBreaks: true }; await W.load(s); });
+    await page.waitForTimeout(900);
+    await page.evaluate(() => window.__widget.setChartType('renko'));
+    await page.waitForTimeout(500);
+    const st = await page.evaluate(() => {
+      const W = window.__widget, c = W.chart;
+      const all = c.panes().flatMap((pn, i) => pn.getSeries().map(s => ({ pane: i, type: s.seriesType(), title: s.options().title, n: s.data().length, last: s.data().length ? s.data()[s.data().length - 1].time : null })));
+      const main = all.find(x => x.type === 'candlestick');
+      return { ordinal: c.timeScale().isOrdinal(), all, main, ticks: c.timeTicks.map(t => t.text) };
+    });
+    const others = st.all.filter(x => x !== st.main && x.n > 0);
+    check(st.ordinal && st.main.n > 10 && others.length >= 3 && others.every(x => x.last === st.main.last), 'widget Renko: ordinal axis; volume and indicators end on the last brick (computed on the bricks)', st.all);
+    check(st.all.some(x => x.type === 'line' && x.n === 0), 'widget Renko: the compare line is kept but empty on a brick axis', st.all.map(x => x.n));
+    check(st.ticks.length > 2 && st.ticks.some(t => /^[A-Z][a-z]{2} \d{4}$|^\d+ [A-Z][a-z]{2}$|^\d{4}$/.test(t)), 'widget Renko: brick axis labels', st.ticks);
+    // A trend line anchored on two bricks (the virtual times of slots k and k + 8), then candles and back.
+    const anchor = await page.evaluate(async () => {
+      const W = window.__widget, ts = W.chart.timeScale();
+      const main = W.chart.panes()[0].getSeries().find(s => s.seriesType() === 'candlestick');
+      const n = main.data().length, k = n - 20;
+      const pts = [k, k + 8].map(l => ({ time: ts.logicalToTime(l), price: main.data()[l].close }));
+      const s = W.save();
+      s.drawings = JSON.stringify({ format: 'chartist-lite-drawings', version: 2, drawings: [{ tool: 'trend', points: pts }] });
+      await W.load(s);
+      return { k, pts };
+    });
+    await page.waitForTimeout(900);
+    const where = () => page.evaluate(() => { const W = window.__widget, ts = W.chart.timeScale(); const d = JSON.parse(W.save().drawings || '{"drawings":[]}').drawings; return { type: W.save().chartType, n: d.length, l: d.length ? d[0].points.map(p => ts.timeToLogical(p.time)) : [] }; });
+    const onRenko = await where();
+    await page.evaluate(() => window.__widget.setChartType('candles'));
+    await page.waitForTimeout(500);
+    const onCandles = await where();
+    await page.evaluate(() => window.__widget.setChartType('renko'));
+    await page.waitForTimeout(500);
+    const back = await where();
+    const near = (a, b) => Math.abs(a - b) < 1e-6;
+    check(onRenko.n === 1 && near(onRenko.l[0], anchor.k) && near(onRenko.l[1], anchor.k + 8), 'a drawing anchors on bricks by their one-to-one times', onRenko);
+    check(onCandles.n === 1 && onCandles.l.every(Number.isFinite), 'switching to candles keeps the drawing, placed by source time', onCandles);
+    check(back.n === 1 && near(back.l[0], anchor.k) && near(back.l[1], anchor.k + 8), 'back on Renko the drawing sits on the same bricks', back);
+    // Go to date and a range key on bricks; the screenshot; save and restore of the brick type.
+    const misc = await page.evaluate(async () => {
+      const W = window.__widget, c = W.chart, ts = c.timeScale();
+      await W.setRange('1Y');
+      const r = ts.getVisibleLogicalRange();
+      const blob = await W.screenshot(false);
+      const saved = W.save();
+      return { range: r, blob: blob ? blob.size : 0, type: saved.chartType };
+    });
+    check(misc.range && misc.range.to > misc.range.from && misc.blob > 1000 && misc.type === 'renko', 'widget Renko: range key, screenshot, saved chart type', misc);
+    await calm(page);
+    await page.screenshot({ path: path.join(out, 'widget-renko.png') });
+  }
+  await page.context().close();
+
   check(errors.length === 0, 'no page errors', errors.slice(0, 5));
   await browser.close();
   if (failures.length) { console.error(`\n${failures.length} check(s) failed`); process.exit(1); }

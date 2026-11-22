@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: live Renko on a brick axis</title>
+<style>
+  :root { color-scheme: light; --bg: #F8F8F8; --ink: #1D1D1F; --muted: #6E6E73; --card: #FFFFFF; --edge: rgba(0,0,0,0.1); --focus: #0066CC; }
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #0C0C0C; --ink: #F5F5F7; --muted: #98989D; --card: #141414; --edge: rgba(255,255,255,0.12); --focus: #0A84FF; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+    font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  .note { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; }
+  button { font: inherit; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--edge); background: var(--card); color: var(--ink); cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .box { border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); height: 460px; }
+  @media (max-width: 520px) { .box { height: 340px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>DEMO · live Renko: ticks fed through createRenko, bricks appended with applyDelta</h1>
+  <button id="run" type="button">Pause</button>
+  <span class="note" id="note"></span>
+</header>
+<div class="box" id="chart"></div>
+
+<script src="../dist/chartist-lite.iife.min.js"></script>
+<script src="../dist/chartist-lite-transforms.iife.min.js"></script>
+<script>
+  // Seeded one-minute bars (UNIX seconds), then ticks on the forming bar. Nothing here talks to a network.
+  const L = ChartistLite;
+  const T = ChartistLiteTransforms;
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+  let s = 7;
+  const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const STEP = 60;
+  const bars = [];
+  let price = 100;
+  let t = Date.UTC(2026, 2, 16, 13, 30) / 1000;
+  for (let i = 0; i < 3000; i++) {
+    const open = price;
+    price = Math.max(5, open + (rand() - 0.5) * 0.9 + Math.sin(i / 90) * 0.05);
+    bars.push({ time: t, open, high: Math.max(open, price) + rand() * 0.2, low: Math.min(open, price) - rand() * 0.2, close: price, volume: Math.round(50 + rand() * 200) });
+    t += STEP;
+  }
+
+  // The incremental transform measures its brick on the history and keeps it; the chart is ordinal because the
+  // definition is (ordinalSeries), so bricks of one bar keep that bar's true time.
+  const inc = T.createRenko(bars, { brick: 0.5 });
+  const chart = L.createChart('chart', { theme, timeScale: { timeZone: 'America/New_York' }, ariaLabel: 'DEMO live Renko' });
+  const main = chart.addSeries(T.ordinalSeries(L.CandlestickSeries), { title: 'DEMO Renko 0.5' });
+  const vol = chart.addSeries(L.HistogramSeries, { priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false });
+  chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.22 } });
+  const volRow = b => ({ time: b.time, value: b.volume });
+  main.setData(inc.rows);
+  vol.setData(inc.rows.map(volRow));
+
+  // One tick: a new price on the forming bar (a new bar every `perBar` ticks). Returns the delta it applied.
+  let forming = null;
+  let ticks = 0;
+  const perBar = 6;
+  function tick() {
+    if (!forming || ticks % perBar === 0) {
+      const last = forming || bars[bars.length - 1];
+      forming = { time: last.time + STEP, open: last.close, high: last.close, low: last.close, close: last.close, volume: 0 };
+      bars.push(forming);
+    }
+    ticks++;
+    const p = Math.max(5, forming.close + (rand() - 0.5) * 0.8);
+    forming = { ...forming, close: p, high: Math.max(forming.high, p), low: Math.min(forming.low, p), volume: forming.volume + Math.round(rand() * 20) };
+    bars[bars.length - 1] = forming;
+    const d = inc.update(forming);
+    T.applyDelta(main, d);
+    T.applyDelta(vol, d, volRow);
+    note.textContent = `${inc.rows.length} bricks from ${bars.length} bars · ${ticks} ticks`;
+    return d;
+  }
+
+  const note = document.getElementById('note');
+  note.textContent = `${inc.rows.length} bricks from ${bars.length} bars`;
+  const runBtn = document.getElementById('run');
+  let timer = 0;
+  const start = () => { timer = setInterval(tick, 120); runBtn.textContent = 'Pause'; };
+  const stop = () => { clearInterval(timer); timer = 0; runBtn.textContent = 'Play'; };
+  runBtn.addEventListener('click', () => (timer ? stop() : start()));
+  if (params.has('manual')) stop(); else start();
+
+  window.__renkoLive = { chart, main, vol, inc, bars, tick, stop };
+</script>
+</body>
+</html>

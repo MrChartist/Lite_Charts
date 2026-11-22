@@ -273,6 +273,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       mainData = r.data as readonly Record<string, unknown>[];
       main.setData(r.data as never);
       syncVolume();
+      syncCompare();
       return;
     }
     if (main) { chart.removeSeries(main); main = null; }
@@ -282,7 +283,17 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     mainData = r.data as readonly Record<string, unknown>[];
     main.setData(r.data as never);
     syncVolume();
+    syncCompare();
     if (hadMain) rehomeAlerts();
+  }
+  /**
+   * The rows indicators are computed on: the bricks on an ordinal (brick) axis, where every series must share the
+   * brick rows; the source bars otherwise (Heikin Ashi included: one candle per bar, true prices).
+   */
+  const indRows = (): readonly WidgetBar[] => (chart.timeScale().isOrdinal() ? mainData as unknown as readonly WidgetBar[] : rows);
+  /** Compare symbols have their own times: shown on a calendar axis, emptied (kept) on a brick axis. */
+  function syncCompare(): void {
+    for (const c of compareSyms) { try { c.series?.setData((chart.timeScale().isOrdinal() ? [] : c.rows.map(b => ({ time: b.time, value: b.close }))) as never); } catch { /* replaced */ } }
   }
   function syncVolume(): void {
     // A transform (bricks, lines) has its own times: its rows carry their summed volume, or no volume is shown.
@@ -374,7 +385,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
         if (st && !st.visible) return;
         const vr = scope.visibleLogicalRange;
         if (!vr) return;
-        const n = Math.min(a.length, b.length, rows.length);
+        const n = Math.min(a.length, b.length, indRows().length);
         const from = Math.max(0, Math.floor(vr.from) - 1), to = Math.min(n - 1, Math.ceil(vr.to) + 1);
         const ctx = scope.ctx;
         const xs: number[] = [], yu: number[] = [], yl: number[] = [];
@@ -433,22 +444,26 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
 
   function computeIndicator(ind: Ind): void {
     let res: Record<string, { time: unknown; value?: number }[]> = {};
-    try { res = ind.spec.compute(rows as never, ind.params) as never; } catch { res = {}; }
+    const src = indRows();
+    try { res = ind.spec.compute(src as never, ind.params) as never; } catch { res = {}; }
     ind.last = res;
-    ind.empty = rows.length > 0 && ind.spec.outputs.every(o => !(res[o.key] ?? []).some(p => typeof p.value === 'number' && Number.isFinite(p.value)));
+    ind.empty = src.length > 0 && ind.spec.outputs.every(o => !(res[o.key] ?? []).some(p => typeof p.value === 'number' && Number.isFinite(p.value)));
     const c = colors();
     for (const o of ind.spec.outputs) {
       const s = ind.series.get(o.key);
       if (!s) continue;
       const arr = res[o.key] ?? [];
-      if (o.kind === 'histogram') {
-        const st = ind.styles[o.key];
-        // The catalog's rule: a histogram with the accent tone ('line') is coloured by sign; any other tone is one colour.
-        const signed = (o.tone ?? 'line') === 'line' && !ind.custom.has(o.key);
-        s.setData(arr.map(p => (typeof p.value === 'number' && Number.isFinite(p.value)
+      const st = ind.styles[o.key];
+      // The catalog's rule: a histogram with the accent tone ('line') is coloured by sign; any other tone is one colour.
+      const signed = (o.tone ?? 'line') === 'line' && !ind.custom.has(o.key);
+      const data = o.kind === 'histogram'
+        ? arr.map(p => (typeof p.value === 'number' && Number.isFinite(p.value)
           ? { time: p.time, value: p.value, color: signed ? alpha(p.value >= 0 ? c.up : c.down, 0.6) : alpha(st.color, 0.75) }
-          : { time: p.time })) as never);
-      } else s.setData(arr.map(p => (typeof p.value === 'number' && Number.isFinite(p.value) ? { time: p.time, value: p.value } : { time: p.time })) as never);
+          : { time: p.time }))
+        : arr.map(p => (typeof p.value === 'number' && Number.isFinite(p.value) ? { time: p.time, value: p.value } : { time: p.time }));
+      // An output whose rows do not line up with the bricks (a brick axis needs every series on the brick rows) is
+      // left empty rather than breaking the chart.
+      try { s.setData(data as never); } catch { s.setData([] as never); }
     }
   }
 
@@ -776,7 +791,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       else got = demoBars(c.symbol, interval, Math.max(rows.length, 300), rows.length ? rows[rows.length - 1].time : undefined);
       if (destroyed || !compareSyms.includes(c)) return;
       c.rows = got;
-      c.series?.setData(got.map(b => ({ time: b.time, value: b.close })) as never);
+      syncCompare();
     } catch (e) { emit('error', e); }
   }
   function addCompare(sym: string): void {
@@ -1890,7 +1905,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     },
     setChartType(id) {
       if (id === chartType || !chartTypes().some(c => c.id === id)) return;
-      record(() => { chartType = id; buildMain(); if (tools) { dropTools(); void ensureTools(); } for (const ind of inds) for (const b of ind.bands) main?.attachPrimitive(b); });
+      // Indicators follow the rows the new type draws (bricks on an ordinal axis); drawings are kept by time.
+      record(() => { chartType = id; buildMain(); for (const ind of inds) computeIndicator(ind); if (tools) { dropTools(); void ensureTools(); } for (const ind of inds) for (const b of ind.bands) main?.attachPrimitive(b); paintLegend(null); });
       syncTop();
       emit('chartType', chartType);
     },

@@ -338,8 +338,9 @@ export function createSessionBreaks(chart: ChartApi, options: Partial<SessionBre
     detached() { host = null; },
     draw(s) {
       const vr = s.visibleLogicalRange;
-      if (!vr) return;
       const ts = chart.timeScale();
+      // Off on an ordinal (brick) axis: bricks have no sessions.
+      if (!vr || ts.isOrdinal?.()) return;
       const from = Math.max(0, Math.floor(vr.from));
       const to = Math.ceil(vr.to);
       // Too many bars to tell days apart: skip rather than paint a wall.

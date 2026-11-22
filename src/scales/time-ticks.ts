@@ -55,6 +55,8 @@ export interface TimeTickInput {
    * visits only those slots for the day, month and year cadences, so 100k bars in view cost a few thousand checks.
    */
   starts?: { day: Int32Array; dayCount: number; month: Int32Array; monthCount: number };
+  /** Ordinal (brick) axes: rewrite each label for the brick it sits on (`OrdinalAxis.tickText`). */
+  tickText?: (level: TickLevel, text: string, date: { year: number; month: number; day: number }, opts: TimeTextOptions) => string;
 }
 
 type Axis = 'time' | 'day' | 'month' | 'year';
@@ -139,7 +141,7 @@ export function planTimeTicks(input: TimeTickInput): TimeTick[] {
     for (const rung of ladders[axis]) {
       let n = 0;
       each(list, listCount, j => { if (isBoundary(f, rung, j)) n++; return n <= limit; });
-      if (n > 0 && n > limit) break; // finer rungs only get denser
+      if (n > 1 && n > limit) break; // finer rungs only get denser; a lone boundary (one bar, one brick) has room
       pick = rung;
     }
     if (pick && axis === 'time') timeRung = true;
@@ -168,6 +170,7 @@ export function planTimeTicks(input: TimeTickInput): TimeTick[] {
     else if (dc && kind === 'intraday' && dayRung && isBoundary(f, dayRung, j)) { text = formatDayMonth(f.month[j], f.day[j], txt.dateOrder); level = 2; }
     else if (kind === 'intraday') { text = formatClock(Math.floor(f.minute[j] / 60), f.minute[j] % 60, txt.hours12); level = 1; }
     else { text = String(f.day[j]); level = 1; }
+    if (input.tickText) text = input.tickText(level, text, { year: f.year[j], month: f.month[j], day: f.day[j] }, txt);
     cands.push({ j, x: input.xOf(j), text, level, w: measure(text, WEIGHT[level]), owns: 0 });
     return true;
   });

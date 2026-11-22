@@ -84,7 +84,7 @@ describe('incremental equals batch on 2000 bars', () => {
     const rows = walk(50, 6);
     const inc = createRenko(rows.slice(0, 10), { brick: 0.5 });
     const before = inc.rows.slice();
-    expect(inc.update({ ...rows[3], close: 1 })).toEqual({ from: before.length, rows: [] });
+    expect(inc.update({ ...rows[3], close: 1 })).toEqual({ from: before.length, rows: [], removed: 0 });
     expect(inc.rows).toEqual(before);
 
     const inc2 = createRenko([], { brick: 5 });

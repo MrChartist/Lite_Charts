@@ -57,15 +57,16 @@ export type TimeKind = 'intraday' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 /**
  * The bar granularity of a sorted run of times (seconds), from the median gap of up to the last 256 gaps.
- * The median ignores weekends and holidays (a 3-day gap among 1-day gaps) and the odd missing bar.
+ * The median ignores weekends and holidays (a 3-day gap among 1-day gaps) and the odd missing bar. `ordinal` (bricks:
+ * times repeat and are unevenly spaced) reads the smallest positive gap instead, the closest thing to the source bars'
+ * interval that the bricks still show.
  */
-export function inferTimeKind(times: ArrayLike<number>, count: number): TimeKind {
-  if (count < 2) return 'daily';
-  const from = Math.max(1, count - 256);
+export function inferTimeKind(times: ArrayLike<number>, count: number, ordinal = false): TimeKind {
   const gaps: number[] = [];
-  for (let i = from; i < count; i++) gaps.push(times[i] - times[i - 1]);
+  for (let i = Math.max(1, count - 256); i < count; i++) { const g = times[i] - times[i - 1]; if (g > 0) gaps.push(g); }
+  if (!gaps.length) return 'daily';
   gaps.sort((a, b) => a - b);
-  const median = gaps[Math.floor(gaps.length / 2)];
+  const median = gaps[ordinal ? 0 : gaps.length >> 1];
   if (median < DAY_S * 0.9) return 'intraday';
   if (median < DAY_S * 5) return 'daily';
   if (median < DAY_S * 20) return 'weekly';

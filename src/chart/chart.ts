@@ -28,7 +28,7 @@ import { PriceScaleModel, type PriceScaleOptions } from '../scales/price-scale';
 import { planTimeTicks, tickWeight, type TimeTick } from '../scales/time-ticks';
 import { TimeScaleModel, type LogicalRange } from '../scales/time-scale';
 import type { RowBase, SeriesCommonOptions, SeriesDefinition, SeriesDrawScope } from '../series/definition';
-import { SeriesModel } from '../series/series-model';
+import { OFF, SeriesModel } from '../series/series-model';
 import { InputController, type HitArea, type InputTarget } from './input';
 import { describeRow, isOhlc, LegendBox, type LegendEntry } from './legend';
 import { layoutPanes, moveSeparator, paneAt, stretchForHeight } from './pane-layout';
@@ -95,7 +95,8 @@ class SeriesHandle<D extends AnySeriesDefinition> implements SeriesApi<D> {
   seriesType(): string { return this.model.def.type; }
   private subs = new Set<(kind: 'set' | 'update', row?: unknown) => void>();
   setData(data: readonly unknown[]): void { this.chart.setSeriesData(this.model, data as never); this.emit('set'); }
-  update(row: unknown): void { this.chart.updateSeries(this.model, row as never); this.emit('update', row); }
+  update(row: unknown, o?: { append?: boolean }): void { this.chart.updateSeries(this.model, row as never, !!o?.append); this.emit('update', row); }
+  pop(n = 1): void { this.chart.popSeries(this.model, n); this.emit('set'); }
   private emit(kind: 'set' | 'update', row?: unknown): void { for (const f of this.subs) { try { f(kind, row); } catch { /* a plugin's handler */ } } }
   subscribeDataChanged(f: (kind: 'set' | 'update', row?: unknown) => void): void { this.subs.add(f); }
   unsubscribeDataChanged(f: (kind: 'set' | 'update', row?: unknown) => void): void { this.subs.delete(f); }
@@ -542,6 +543,7 @@ export class Chart implements ChartApi, InputTarget {
     model.paneIndex = this.claimPane(paneIndex);
     this.series.push(model);
     this.scaleFor(model);
+    if (def.ordinal && this.lead === model) this.rebuildIndex();
     const handle = new SeriesHandle<D>(this, model);
     this.handles.set(model, handle as unknown as SeriesHandle<AnySeriesDefinition>);
     this.invalidate(LAYOUT | MAIN | OVERLAY);
@@ -566,16 +568,39 @@ export class Chart implements ChartApi, InputTarget {
     return null;
   }
 
+  /**
+   * The series that makes an ordinal (brick) axis: the first one whose definition has `ordinal`; null for a calendar
+   * axis. Every other series of an ordinal chart is placed row for row (row i at slot i) while its times match.
+   */
+  get lead(): AnyModel | null {
+    for (const s of this.series) if (s.def.ordinal) return s;
+    return null;
+  }
+
   setSeriesData(model: AnyModel, data: readonly (Record<string, unknown> & { time: Time })[]): void {
     if (!Array.isArray(data)) throw new TypeError('Chartist Lite: setData needs an array of rows');
-    model.setData(data, this.kindOf(model));
+    const lead = this.lead;
+    model.setData(data, this.kindOf(model), !!lead, lead && lead !== model ? this.index : null);
     this.rebuildIndex();
   }
 
-  updateSeries(model: AnyModel, row: Record<string, unknown> & { time: Time }): void {
-    const { kind, t } = model.update(row, this.kindOf(model));
-    if (kind === 'replace') { this.invalidate(MAIN | OVERLAY); return; }
+  updateSeries(model: AnyModel, row: Record<string, unknown> & { time: Time }, append = false): void {
+    const lead = this.lead;
     const idx = this.index;
+    const { kind, t } = model.update(row, this.kindOf(model), append, !!lead, lead && lead !== model ? idx : null);
+    const i = model.count - 1;
+    if (lead && kind === 'append') {
+      if (model === lead) {
+        if (!idx.count) { idx.businessDays = !!model.businessDays; idx.setZone(this.zone()); }
+        model.pos[i] = idx.append(t);
+        // Rows another series already holds past the old end line up now.
+        for (const s of this.series) if (s !== lead && s.count > i && s.pos[i] === OFF && (!i || s.pos[i - 1] === i - 1) && s.times[i] === t) s.pos[i] = i;
+        this.ts.count = idx.count;
+        this.ts.onAppend(1);
+        if (idx.count === 1) this.needsInitialView = true;
+      } else model.pos[i] = i < idx.count && (!i || model.pos[i - 1] === i - 1) ? i : OFF;
+    }
+    if (kind === 'replace' || lead) { this.invalidate(MAIN | OVERLAY); return; }
     if (idx.count === 0 || t > idx.times[idx.count - 1]) {
       if (idx.count === 0) { idx.businessDays = !!model.businessDays; idx.setZone(this.zone()); }
       model.pos[model.count - 1] = idx.append(t);
@@ -590,12 +615,29 @@ export class Chart implements ChartApi, InputTarget {
     this.invalidate(MAIN | OVERLAY);
   }
 
+  /** Remove the last `n` rows of a series: O(n) on an ordinal axis, an axis rebuild on a calendar one. */
+  popSeries(model: AnyModel, n: number): void {
+    const before = model.count;
+    model.pop(n);
+    const lead = this.lead;
+    if (!lead) { this.rebuildIndex(); return; }
+    if (model === lead) {
+      this.index.truncate(model.count);
+      for (const s of this.series) for (let i = model.count; i < s.count; i++) s.pos[i] = OFF;
+      this.ts.count = this.index.count;
+      this.ts.onAppend(model.count - before);
+      this.cross = null;
+    }
+    this.invalidate(MAIN | OVERLAY);
+  }
+
   private rebuildIndex(): void {
     const hadData = this.index.count > 0;
     const prevCount = this.index.count;
     const business = this.series.some(s => s.businessDays === true);
+    const lead = this.lead;
     this.index.setZone(this.zone());
-    this.index.rebuild(this.series.map(s => ({ times: s.times, count: s.count })), business);
+    this.index.rebuild((lead ? [lead] : this.series).map(s => ({ times: s.times, count: s.count })), business, !!lead);
     for (const s of this.series) s.remap(this.index);
     this.ts.count = this.index.count;
     if (!hadData && this.index.count > 0) this.needsInitialView = true;
@@ -791,6 +833,7 @@ export class Chart implements ChartApi, InputTarget {
         measure: (text, weight) => this.mainText.measure(text, weight),
         text: { hours12: this.opts.localization.hours12, dateOrder: this.opts.localization.dateOrder },
         starts: { day: idx.dayStarts, dayCount: idx.dayStartCount, month: idx.monthStarts, monthCount: idx.monthStartCount },
+        tickText: this.lead?.def.ordinal?.tickText,
       });
     }
     this.paneList.forEach((p, i) => {
@@ -1395,6 +1438,7 @@ export class Chart implements ChartApi, InputTarget {
   /** Median gap of the last bars (seconds), for extrapolating times past the data. */
   private barStep(): number {
     const { times, count } = this.index;
+    if (this.index.ordinal) return this.index.span(() => (this.index.businessDays ? 86_400 : 60));
     if (count < 2) return 60;
     const gaps: number[] = [];
     for (let i = Math.max(1, count - 64); i < count; i++) gaps.push(times[i] - times[i - 1]);
@@ -1403,24 +1447,12 @@ export class Chart implements ChartApi, InputTarget {
   }
 
   timeToLogical(time: Time | number): number | null {
-    const { times, count } = this.index;
-    if (count === 0) return null;
-    const t = typeof time === 'number' ? time : timeToSeconds(time);
-    if (!Number.isFinite(t)) return null;
-    const i = this.index.lowerBound(t);
-    if (i < count && times[i] === t) return i;
-    if (i === 0) return (t - times[0]) / this.barStep();
-    if (i === count) return count - 1 + (t - times[count - 1]) / this.barStep();
-    return i - 1 + (t - times[i - 1]) / (times[i] - times[i - 1]);
+    if (this.index.count === 0) return null;
+    return this.index.logicalOf(typeof time === 'number' ? time : timeToSeconds(time), () => this.barStep());
   }
 
   logicalToTime(logical: number): number | null {
-    const { times, count } = this.index;
-    if (count === 0 || !Number.isFinite(logical)) return null;
-    if (logical <= 0) return times[0] + logical * this.barStep();
-    if (logical >= count - 1) return times[count - 1] + (logical - (count - 1)) * this.barStep();
-    const i = Math.floor(logical);
-    return times[i] + (logical - i) * (times[i + 1] - times[i]);
+    return this.index.timeOf(logical, () => this.barStep());
   }
 
   // ── input target ──
@@ -1553,9 +1585,8 @@ export class Chart implements ChartApi, InputTarget {
     }
     else {
       const a = this.index.lowerBound(timeToSeconds(v.range.from));
-      const toS = timeToSeconds(v.range.to);
-      let b = this.index.lowerBound(toS);
-      if (b >= this.index.count || this.index.times[b] > toS) b -= 1;
+      // Every slot dated in [from, to] (on a brick axis all bricks of a repeated time).
+      const b = this.index.lowerBound(timeToSeconds(v.range.to), true) - 1;
       if (b >= a) ts.setVisibleLogicalRange({ from: a, to: b });
     }
   }
@@ -1593,6 +1624,7 @@ export class Chart implements ChartApi, InputTarget {
         request({ kind: 'span', span: p });
       },
       isAtRealTime: () => chart.atRealTime(),
+      isOrdinal: () => chart.index.ordinal,
       subscribeRealTimeChange(h: (atRealTime: boolean) => void) { chart.rtSubs.add(h); },
       unsubscribeRealTimeChange(h: (atRealTime: boolean) => void) { chart.rtSubs.delete(h); },
       scrollPosition: () => ts.rightOffset,

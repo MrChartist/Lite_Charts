@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const BUDGET_GZIP = { index: 34 * 1024 };
+// 34 KB until 2026-11-22; +0.6 KB for the ordinal (brick) time axis in the core (ARCHITECTURE.md, "Ordinal (brick) time axis").
+const BUDGET_GZIP = { index: 34.6 * 1024 };
 const ENTRIES = {
   index: 'src/index.ts',
   indicators: 'src/indicators/index.ts',
@@ -45,7 +46,7 @@ for (const [name, entry] of Object.entries(ENTRIES)) {
   const gz = gzipSync(code, { level: 9 }).length;
   const budget = BUDGET_GZIP[name];
   if (budget && gz > budget) failed = true;
-  rows.push(`${name.padEnd(12)} min ${(code.length / 1024).toFixed(1).padStart(6)} KB   gzip ${(gz / 1024).toFixed(1).padStart(5)} KB${budget ? `   budget ${(budget / 1024).toFixed(0)} KB ${gz > budget ? 'OVER' : 'ok'}` : ''}`);
+  rows.push(`${name.padEnd(12)} min ${(code.length / 1024).toFixed(1).padStart(6)} KB   gzip ${(gz / 1024).toFixed(1).padStart(5)} KB${budget ? `   budget ${(budget / 1024).toFixed(1)} KB ${gz > budget ? 'OVER' : 'ok'}` : ''}`);
 }
 for (const [name, file] of Object.entries(IIFES)) {
   const p = join(root, file);

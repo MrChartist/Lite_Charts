@@ -241,7 +241,7 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     const rows = s.data();
     const hit = kinds.get(rows);
     if (hit && hit.n === rows.length) return hit.kind;
-    const kind = rows.length ? kindOfRows(rows) : 'daily';
+    const kind = rows.length ? kindOfRows(rows, chart.timeScale().isOrdinal?.()) : 'daily';
     kinds.set(rows, { n: rows.length, kind });
     return kind;
   };
@@ -251,13 +251,22 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     return o.visible && (!!o.title || !!readoutOf(s));
   }));
 
-  const info = (time: Time, st: Style): TooltipInfo | null => {
+  // The row of `s` at the hovered bar. On an ordinal (brick) axis several rows share a time: `rep` is how many bricks
+  // of that time come before the hovered one (0 on a calendar axis).
+  const rowOf = (s: AnySeries, seconds: number, rep: number): number => {
+    const rows = s.data() as readonly { time: Time }[];
+    const i = rowIndexAt(rows, seconds);
+    return i < 0 || !rep ? i : i + rep < rows.length && timeToSeconds(rows[i + rep].time) === seconds ? i + rep : i;
+  };
+  const repOf = (time: Time, l: number): number => Math.max(0, l - Math.round(chart.timeScale().timeToLogical(time) ?? l));
+
+  const info = (time: Time, st: Style, rep = 0): TooltipInfo | null => {
     const seconds = timeToSeconds(time);
     const entries: TooltipEntry[] = [];
     let lead: AnySeries | null = null;
     for (const s of picked()) {
       const rows = s.data() as readonly { time: Time }[];
-      const idx = rowIndexAt(rows, seconds);
+      const idx = rowOf(s, seconds, rep);
       if (idx < 0) continue;
       const row = rows[idx];
       const prev = idx > 0 ? rows[idx - 1] : null;
@@ -282,10 +291,11 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     css(dot, { display: 'none' });
   };
 
-  /** Draw the card for a bar; `p` is the pointer in chart CSS px. */
-  const show = (time: Time, p: Pt, touch: boolean): void => {
+  /** Draw the card for a bar (`l`: its logical index); `p` is the pointer in chart CSS px. */
+  const show = (time: Time, l: number, p: Pt, touch: boolean): void => {
     const st: Style = { colors: ui.state().colors, ui: ui.state() };
-    const data = info(time, st);
+    const rep = repOf(time, l);
+    const data = info(time, st, rep);
     if (!data) { hide(); return; }
     const plot = ui.state().plot;
     const mode = opts.mode;
@@ -315,9 +325,9 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     if (mode === 'magnifier') at = { x: plot.x, y: plot.y };
     else if (mode === 'floating') at = placeFloating(p, size, bounds, touch ? 28 : 14, touch);
     else {
-      const lead = picked().find(s => rowIndexAt(s.data() as readonly { time: Time }[], timeToSeconds(time)) >= 0);
-      const bx = barX(time);
-      const row = lead ? (lead.data() as readonly object[])[rowIndexAt(lead.data() as readonly { time: Time }[], timeToSeconds(time))] as Record<string, number> : null;
+      const lead = picked().find(s => rowOf(s, timeToSeconds(time), rep) >= 0);
+      const bx = barX(l);
+      const row = lead ? (lead.data() as readonly object[])[rowOf(lead, timeToSeconds(time), rep)] as Record<string, number> : null;
       const top = lead ? paneTopOf(chart, lead.paneIndex()) : 0;
       const yOf = (v: number): number | null => { const y = lead ? lead.priceToCoordinate(v) : null; return y === null ? null : top + y; };
       const hi = row ? yOf(typeof row.high === 'number' ? row.high : numberOf(row)) : null;
@@ -344,7 +354,7 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     if (touchX !== null) return;
     if (params.time === undefined || !params.point) { hide(); return; }
     const plot = ui.state().plot;
-    show(params.time, { x: plot.x + params.point.x, y: paneTopOf(chart, params.paneIndex ?? 0) + params.point.y }, false);
+    show(params.time, params.logical ?? 0, { x: plot.x + params.point.x, y: paneTopOf(chart, params.paneIndex ?? 0) + params.point.y }, false);
   };
   chart.subscribeCrosshairMove(fromCrosshair);
 
@@ -352,8 +362,8 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
   const root = chart.element();
   const MOVE_SLOP = 8;
   let press: { id: number; sx: number; sy: number; x: number; y: number; timer: number; active: boolean } | null = null;
-  const barX = (time: Time): number | null => {
-    const x = chart.timeScale().timeToCoordinate(time);
+  const barX = (l: number): number | null => {
+    const x = chart.timeScale().logicalToCoordinate(l);
     return x === null ? null : x + ui.state().plot.x;
   };
   const clearPress = (): void => {
@@ -372,10 +382,11 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     const plot = ui.state().plot;
     if (x < plot.x || x > plot.x + plot.width) { endTouch(); return; }
     const time = chart.timeScale().coordinateToTime(x - plot.x);
+    const l = Math.round(chart.timeScale().coordinateToLogical(x - plot.x) ?? 0);
     if (time === null) { endTouch(); return; }
-    touchX = barX(time);
+    touchX = barX(l);
     primHost?.requestOverlay?.();
-    show(time, { x, y }, true);
+    show(time, l, { x, y }, true);
   };
   const onDown = (e: PointerEvent): void => {
     if (e.pointerType !== 'touch' || !e.isTrusted) return;

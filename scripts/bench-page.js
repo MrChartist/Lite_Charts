@@ -9,6 +9,7 @@
   let live = null;
   let liveTick = null;
   let liveClock = 0;
+  let renko = null;
 
   function makeBars(n) {
     const out = [];
@@ -27,7 +28,31 @@
   window.__setup = async (kind, n) => {
     if (widget) { widget.destroy(); widget = null; chart = null; }
     if (chart) { drawings && drawings.destroy(); live && live.disconnect(); chart.remove(); drawings = null; live = null; }
+    renko = null;
     bars = makeBars(n);
+    if (kind === 'renko') {
+      // n Renko bricks on an ordinal (brick) axis, made by the incremental transform from one-minute bars, with the
+      // transform's own volume on an overlay scale. The live tick feeds the forming bar through createRenko and
+      // applyDelta (bricks appended and rolled back), as a live brick chart does.
+      const T = window.ChartistLiteTransforms;
+      if (!T) return false;
+      const src = makeBars(Math.ceil(n * 1.6));
+      const inc = T.createRenko([], { brick: 0.05 });
+      let i = 0;
+      while (inc.rows.length < n && i < src.length) inc.update({ ...src[i++], volume: 100 });
+      if (inc.rows.length < n) return false;
+      bars = src.slice(0, i);
+      chart = L.createChart('c', { timeScale: { timeZone: 'America/New_York' } });
+      candles = chart.addSeries(T.ordinalSeries(L.CandlestickSeries), { title: 'BENCH Renko' });
+      const vol = chart.addSeries(L.HistogramSeries, { priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false });
+      chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+      candles.setData(inc.rows);
+      vol.setData(inc.rows.map(b => ({ time: b.time, value: b.volume })));
+      renko = { T, inc, vol, forming: { ...bars[bars.length - 1] } };
+      chart.paint();
+      window.__flush();
+      return chart.timeScale().isOrdinal() && candles.data().length >= n;
+    }
     if (kind === 'widget') {
       // The whole widget (top bar, range bar, legend rows) with three indicators: SMA and Bollinger on price, RSI in a pane.
       const Wd = window.ChartistLiteWidget;
@@ -128,6 +153,18 @@
     const H = chart.panes()[0].getHeight();
     let k = 0;
     const tick = () => {
+      if (renko) {
+        // A new bar every 30 frames; in between, ticks that cross brick edges both ways (appends and rollbacks).
+        const f = renko.forming;
+        if (k % 30 === 0) { renko.forming = { ...f, time: f.time + 60, open: f.close, high: f.close, low: f.close }; }
+        const g = renko.forming;
+        const close = g.open + Math.sin(k * 0.7) * 0.12;
+        renko.forming = { ...g, close, high: Math.max(g.high, close), low: Math.min(g.low, close) };
+        const d = renko.inc.update(renko.forming);
+        renko.T.applyDelta(candles, d);
+        renko.T.applyDelta(renko.vol, d, b => ({ time: b.time, value: b.volume }));
+        return;
+      }
       const lastBar = bars[bars.length - 1];
       const close = lastBar.close * (1 + Math.sin(k) * 0.001);
       candles.update(Object.assign({}, lastBar, { close, high: Math.max(lastBar.high, close), low: Math.min(lastBar.low, close) }));

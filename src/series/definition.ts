@@ -3,6 +3,7 @@
 // validates rows and draws the visible ones. See ARCHITECTURE.md "Adding a series type".
 
 import type { Time } from '../core/time';
+import type { TimeTextOptions } from '../core/format';
 import type { ThemeColors } from '../core/theme';
 import type { ColumnAccess, Columns } from '../render/decimate';
 
@@ -84,9 +85,27 @@ export interface SeriesDrawScope<R extends RowBase, O> {
   valueBlocks?: { size: number; min: Float64Array; max: Float64Array };
 }
 
+/**
+ * An ordinal time axis (bricks): rows are placed by row order, one slot per row, and keep their true source times,
+ * which may repeat and be unevenly spaced. See `SeriesDefinition.ordinal`.
+ */
+export interface OrdinalAxis {
+  /**
+   * Rewrite a time-axis label on a brick. `level`: 1 clock time or day number, 2 session date, 3 month, 4 year; `text`
+   * is what a calendar axis prints there; `date` the brick's date in the chart's zone. The transforms entry's
+   * `brickTickText` names the month in a year label and the day in a month label that do not open their period.
+   */
+  tickText?(level: 1 | 2 | 3 | 4, text: string, date: { year: number; month: number; day: number }, opts: TimeTextOptions): string;
+}
+
 export interface SeriesDefinition<R extends RowBase = RowBase, O extends object = object> {
   /** Unique name, e.g. 'candlestick'. */
   readonly type: string;
+  /**
+   * Set: a series of this type puts the chart's time axis in ordinal mode while it is on the chart (the first such
+   * series makes the axis; every other series must share its rows). `applyChartType` sets it for the brick types.
+   */
+  readonly ordinal?: OrdinalAxis;
   /** Type-specific option defaults (common options are added by the chart). */
   readonly defaults: Readonly<O>;
   /**

@@ -1,8 +1,9 @@
 // Entry `lite-charts/transforms` (IIFE global `ChartistLiteTransforms`): pure transforms from rows to
 // rows (Renko, line break, Kagi, point and figure, range bars, Heikin-Ashi), their incremental forms, the series
 // definitions for the looks that are not transforms (hollow candles, step line, HLC area, columns, high-low, Kagi,
-// point and figure), and the chart-type registry (`CHART_TYPES`, `applyChartType`). No chart import: the transforms
-// are plain functions, the series definitions are plain objects handed to `chart.addSeries`.
+// point and figure), the chart-type registry (`CHART_TYPES`, `applyChartType`) and the brick time axis
+// (`ordinalSeries`, `brickTickText`, `applyDelta`). No chart import: the transforms are plain functions, the series
+// definitions are plain objects handed to `chart.addSeries`.
 
 export type { BrickRow, PriceSource, SizeSpec, TransformRow } from './shared';
 export { autoBoxSize, measureSize, resolveSize } from './shared';
@@ -23,6 +24,8 @@ export type { PointFigureOptions, PointFigureResult, PointFigureRow } from './po
 
 export type { IncrementalTransform, TransformDelta } from './incremental';
 export { spreadTimes } from './time-spread';
+export { applyDelta, brickTickText, ordinalSeries, BRICK_AXIS, BRICK_MONTH_OPEN_DAYS } from './brick-axis';
+export type { DeltaTarget } from './brick-axis';
 
 export { HollowCandlestickSeries } from '../series/hollow-candlestick';
 export type { HollowCandlestickData, HollowCandlestickOptions } from '../series/hollow-candlestick';

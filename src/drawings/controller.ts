@@ -337,18 +337,21 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
   const alive = (d: Drawing): boolean => { const s = anchors.get(d.id); return !!s && paneOf(s) >= 0; };
 
   // Read access to the series' bars, for tools that use them (rebuilt when the rows change).
-  let barCache: { rows: readonly unknown[]; vol: readonly unknown[] | null; access: BarAccess } | null = null;
+  let barCache: { rows: readonly unknown[]; vol: readonly unknown[] | null; access: BarAccess; ord: boolean } | null = null;
   let barVersion = 0;
   function bars(): BarAccess | null {
     let rows: readonly Record<string, unknown>[];
     try { rows = series.data() as unknown as readonly Record<string, unknown>[]; } catch { return null; }
     const volRows = options.volumeSeries ? (() => { try { return options.volumeSeries.data() as unknown as readonly Record<string, unknown>[]; } catch { return null; } })() : null;
-    if (barCache && barCache.rows === rows && barCache.vol === volRows) return barCache.access;
+    const ord = !!ts.isOrdinal?.();
+    if (barCache && barCache.rows === rows && barCache.vol === volRows && barCache.ord === ord) return barCache.access;
     const n = rows.length;
     const times = new Float64Array(n);
-    for (let i = 0; i < n; i++) times[i] = timeToSeconds(rows[i].time as Time);
+    // On an ordinal (brick) axis bricks share times: tools read each row at its own one-to-one time (the chart's
+    // virtual time of that slot), so a range, regression or VWAP anchored on the third brick of a bar starts there.
+    for (let i = 0; i < n; i++) times[i] = ord ? ts.logicalToTime(i) ?? Number.NaN : timeToSeconds(rows[i].time as Time);
     let volByTime: Map<number, number> | null = null;
-    if (volRows) { volByTime = new Map(); for (const r of volRows) { const v = r.value; if (typeof v === 'number') volByTime.set(timeToSeconds(r.time as Time), v); } }
+    if (volRows) { volByTime = new Map(); volRows.forEach((r, i) => { const v = r.value; if (typeof v === 'number') volByTime!.set(ord ? times[i] : timeToSeconds(r.time as Time), v); }); }
     const num = (v: unknown): number => (typeof v === 'number' ? v : Number.NaN);
     const access: BarAccess = {
       count: n, times, version: ++barVersion,
@@ -361,7 +364,7 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
       },
       indexAtOrAfter(t) { let lo = 0, hi = n; while (lo < hi) { const m = (lo + hi) >> 1; if (times[m] < t) lo = m + 1; else hi = m; } return lo; },
     };
-    barCache = { rows, vol: volRows, access };
+    barCache = { rows, vol: volRows, access, ord };
     return access;
   }
 
@@ -438,6 +441,8 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
   }
 
   function rowAt(s: AnySeries, logical: number): Record<string, unknown> | null {
+    // Ordinal axis: row i is slot i (bricks have no whitespace rows).
+    if (ts.isOrdinal?.()) return (s.data()[Math.round(logical)] as unknown as Record<string, unknown>) ?? null;
     const t = ts.logicalToTime(Math.round(logical));
     if (t === null) return null;
     if (s === series) {

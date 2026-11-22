@@ -8,6 +8,8 @@ import type { Core, TransformRow } from './shared';
 export interface TransformDelta<Out> {
   from: number;
   rows: Out[];
+  /** Rows the update took back (the output had `from + removed` rows before): pop them, then append `rows`. */
+  removed: number;
 }
 
 export interface IncrementalTransform<Out> {
@@ -29,15 +31,16 @@ export function makeIncremental<Out>(core: Core<Out>, size: number, history: rea
     const t = row && typeof row === 'object' ? timeNum(row.time) : Number.NaN;
     let replace = false;
     if (Number.isFinite(t) && fed > 0 && Number.isFinite(lastT)) {
-      if (t < lastT) return { from: core.out.length, rows: [] };
+      if (t < lastT) return { from: core.out.length, rows: [], removed: 0 };
       replace = t === lastT;
     }
+    const before = core.out.length;
     let index: number;
     if (replace) { core.rollback(); index = fed - 1; } else { core.mark(); index = fed; fed++; }
     if (Number.isFinite(t)) lastT = t;
     const from = core.out.length;
     core.step(row, index);
-    return { from, rows: core.out.slice(from) };
+    return { from, rows: core.out.slice(from), removed: before - from };
   };
   // History is fed as it is (a repeated time in it is a bar of its own, as in the batch function).
   for (let i = 0; i < history.length; i++) {

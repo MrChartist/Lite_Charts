@@ -8,9 +8,11 @@
 //
 // Rows in are candlesticks (or `{ time, value }`, which the line looks accept). Rows are cleaned first (a row whose
 // time cannot be read is dropped, an older time is dropped, a repeated time keeps the last row), so `setData` never
-// throws on them. The transform types (`kind: 'transform'`) make one bar per brick, line, segment or column; several
-// of those can be dated by one source bar, so their times are spread to be unique (see `spreadTimes`): each keeps its
-// source bar's time, or the next second (day, for business days) after the previous row. `info.shifted` counts them.
+// throws on them. The transform types (`kind: 'transform'`) make one bar per brick, line, segment or column, dated by
+// the source bar that completed it, so several can share a time. The irregular ones (`irregularTime: true`) get a
+// definition with an ordinal time axis (`ordinalSeries`): the chart places them by row order, keeps every true time
+// and labels the axis on the bricks (`brickTickText`). `calendarTime: true` keeps the old fallback instead: the
+// plain definition and times spread to be unique (`spreadTimes`), counted in `info.shifted`.
 
 import { heikinAshi } from '../indicators/heikin-ashi';
 import { BarSeries } from '../series/bar';
@@ -34,6 +36,7 @@ import { rangeBars } from './range-bars';
 import { renko } from './renko';
 import { isNum, priceOf, timeOk, type PriceSource, type SizeSpec, type TransformRow } from './shared';
 import { spreadTimes, timeNum } from './time-spread';
+import { ordinalSeries } from './brick-axis';
 
 export type ChartTypeId =
   | 'candles' | 'hollow' | 'bars' | 'highLow' | 'line' | 'stepLine' | 'area' | 'hlcArea' | 'baseline' | 'columns'
@@ -109,6 +112,11 @@ export interface ChartTypeOptions {
   source?: PriceSource;
   /** Extra series options, merged over the ones the chart type sets (e.g. `{ title: 'DEMO' }`). */
   series?: Record<string, unknown>;
+  /**
+   * Irregular types only. Default false: an ordinal definition, true times (the chart's axis labels the bricks). True:
+   * the plain definition and times spread to be unique (`spreadTimes`), for a host that keeps a calendar axis.
+   */
+  calendarTime?: boolean;
 }
 
 export interface ChartTypeData {
@@ -128,7 +136,10 @@ export interface ChartTypeInfo {
   reversalMode?: 'percent' | 'price';
   /** Line break: lines used. */
   lines?: number;
-  /** Transform types: rows whose time had to move off their source bar's time to stay unique. */
+  /**
+   * Irregular types: rows whose time had to move off their source bar's time to stay unique. Always 0 on the default
+   * ordinal axis (no time moves); counts the `spreadTimes` moves with `calendarTime: true`.
+   */
   shifted?: number;
 }
 
@@ -180,7 +191,8 @@ function percentOf(spec: number | SizeSpec | undefined): SizeSpec | undefined {
   return typeof spec === 'number' ? (spec > 0 ? { percent: spec } : undefined) : spec;
 }
 
-function toBricks(rows: readonly { time: Time }[], extra: Partial<ChartTypeInfo>): { data: ChartTypeData[]; info: ChartTypeInfo } {
+function toBricks(rows: readonly { time: Time }[], extra: Partial<ChartTypeInfo>, calendar: boolean): { data: ChartTypeData[]; info: ChartTypeInfo } {
+  if (!calendar) return { data: rows as ChartTypeData[], info: { ...extra, shifted: 0 } };
   const spread = spreadTimes(rows as readonly ChartTypeData[]);
   let shifted = 0;
   for (let i = 0; i < spread.length; i++) if (spread[i] !== (rows as readonly unknown[])[i]) shifted++;
@@ -202,6 +214,11 @@ export function applyChartType(id: ChartTypeId, rows: readonly TransformRow[], o
     return res;
   };
   const source = options.source ?? 'close';
+  const cal = !!options.calendarTime;
+  const brick = (definition: SeriesDefinition<any, any>, rows: readonly { time: Time }[], extra: Partial<ChartTypeInfo>, own?: Record<string, unknown>): AppliedChartType => {
+    const { data, info } = toBricks(rows, extra, cal);
+    return make(cal ? definition : ordinalSeries(definition), data, own, info);
+  };
 
   switch (id) {
     case 'candles': return make(CandlestickSeries, mapRows(clean, ohlc));
@@ -230,29 +247,24 @@ export function applyChartType(id: ChartTypeId, rows: readonly TransformRow[], o
     case 'heikinAshi': return make(CandlestickSeries, heikinAshi(clean) as ChartTypeData[]);
     case 'renko': {
       const res = renko(clean, { brick: options.brick, source });
-      const { data, info } = toBricks(res.rows, { brick: res.brick });
-      return make(CandlestickSeries, data, {}, info);
+      return brick(CandlestickSeries, res.rows, { brick: res.brick });
     }
     case 'lineBreak': {
       const res = lineBreak(clean, { lines: options.lines, source });
-      const { data, info } = toBricks(res.rows, { lines: res.lines });
-      return make(CandlestickSeries, data, {}, info);
+      return brick(CandlestickSeries, res.rows, { lines: res.lines });
     }
     case 'rangeBars': {
       const res = rangeBars(clean, { range: options.range, source });
-      const { data, info } = toBricks(res.rows, { range: res.range });
-      return make(CandlestickSeries, data, {}, info);
+      return brick(CandlestickSeries, res.rows, { range: res.range });
     }
     case 'kagi': {
       const res = kagi(clean, { reversal: percentOf(options.reversal), source });
-      const { data, info } = toBricks(res.rows, { reversal: res.reversal, reversalMode: res.mode });
-      return make(KagiSeries, data, {}, info);
+      return brick(KagiSeries, res.rows, { reversal: res.reversal, reversalMode: res.mode });
     }
     case 'pointFigure': {
       const rev = typeof options.reversal === 'number' ? options.reversal : undefined;
       const res = pointFigure(clean, { box: options.box, reversal: rev, source });
-      const { data, info } = toBricks(res.rows, { box: res.box, reversal: res.reversal });
-      return make(PointFigureSeries, data, { box: res.box }, info);
+      return brick(PointFigureSeries, res.rows, { box: res.box, reversal: res.reversal }, { box: res.box });
     }
   }
 }

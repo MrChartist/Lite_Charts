@@ -21,10 +21,10 @@ const FRAMES = 200;
 const WARM = 20;
 const SIZES = quick ? [1000, 100000] : [1000, 10000, 100000];
 const DPRS = quick ? [1] : [1, 2];
-const CHARTS = ['plain', 'indicators', 'drawings', 'live', 'widget'];
-const SCENARIOS = { plain: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], indicators: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], drawings: ['crosshair', 'pan', 'zoom', 'tick', 'fit', 'drag'], live: ['crosshair', 'trades'], widget: ['crosshair', 'pan', 'zoom', 'tick'] };
-/** The widget is measured at 10k bars (its scenario: three indicators, pan and crosshair). */
-const SIZES_FOR = { widget: [10000] };
+const CHARTS = ['plain', 'indicators', 'drawings', 'live', 'widget', 'renko'];
+const SCENARIOS = { plain: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], indicators: ['crosshair', 'pan', 'zoom', 'tick', 'fit'], drawings: ['crosshair', 'pan', 'zoom', 'tick', 'fit', 'drag'], live: ['crosshair', 'trades'], widget: ['crosshair', 'pan', 'zoom', 'tick'], renko: ['crosshair', 'pan', 'zoom', 'tick', 'fit'] };
+/** The widget is measured at 10k bars (its scenario: three indicators, pan and crosshair); renko at 10k bricks. */
+const SIZES_FOR = { widget: [10000], renko: [10000] };
 
 const stat = xs => {
   const s = [...xs].sort((a, b) => a - b);
@@ -128,7 +128,9 @@ ${doc.summary.over144} over 6.94 ms.
   GPU (headless has none), canvas rasterisation and compositing (they run after the frame's script; on real hardware on
   the GPU), and input latency. Treat these numbers as budgets for our own work per frame, measured on one machine.
 - **Charts:** widget (the whole \`createWidget\` workspace at 10k bars: top bar, range bar, legend rows, volume, SMA and
-  Bollinger with its band fill on price, RSI in a pane), plain (candles), indicators (candles with SMA 20 and two Bollinger lines, an RSI pane and a MACD pane with
+  Bollinger with its band fill on price, RSI in a pane), renko (10k Renko bricks on the ordinal brick axis with their
+  own volume; the live tick feeds the forming bar through \`createRenko\` and \`applyDelta\`, so bricks append and roll
+  back), plain (candles), indicators (candles with SMA 20 and two Bollinger lines, an RSI pane and a MACD pane with
   histogram and two lines: three indicators, two extra panes), drawings (candles with 20 drawings of every tool).
 - **Gestures:** crosshair (pointer moves), pan (a held drag), wheel zoom (ctrl + wheel, in and out), live tick
   (\`update()\` of the last bar at the opening zoom), live tick with the whole series in view (\`fitContent()\` first, the

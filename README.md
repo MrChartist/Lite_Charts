@@ -501,7 +501,7 @@ What three typical pages load:
 | Candles, two averages and RSI (`sma`, `ema`, `rsi`) | 30.1 KB | 26.6 KB |
 | The full terminal, one script tag | 132.7 KB | 112.3 KB |
 
-The core has a 34 KB gzip budget that `npm run size` enforces.
+The core has a 34.6 KB gzip budget that `npm run size` enforces.
 
 ## How it compares
 
@@ -614,7 +614,7 @@ How the pieces fit: [ARCHITECTURE.md](ARCHITECTURE.md).
 | `npm run build` | Builds `dist/`: ES modules per entry, type declarations and the minified script-tag files |
 | `npm test` | Runs the unit tests (Vitest) |
 | `npm run typecheck` | Type-checks the source |
-| `npm run size` | Prints each entry's size, gzipped, and fails when the core goes over 34 KB |
+| `npm run size` | Prints each entry's size, gzipped, and fails when the core goes over 34.6 KB |
 | `npm run bench` | Builds, then measures frame cost against 120 Hz and 144 Hz; writes `docs/PERFORMANCE.md` |
 | `npm run screenshots` | Builds, then shoots every screenshot in `docs/screenshots/` |
 | `npm run site` | Builds the documentation site into `site/dist/` (needs `npm run build` first) |
