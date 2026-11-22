@@ -165,4 +165,6 @@ export interface WorkspaceJSON {
   drawings: string | null;
   /** The drawing bar is open (saved with the workspace; absent in older saves: open when there are drawings). */
   drawingsOpen?: boolean;
+  /** "Hide drawings" (the eye on the rail) is on. Absent in older saves (off). */
+  drawingsHidden?: boolean;
 }

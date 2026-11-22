@@ -174,6 +174,8 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
 
   const buttons: Btn[] = [];
   const seps: HTMLElement[] = [];
+  /** The rail is shown (`setRailVisible`); hidden, the style bar and the editor still work. */
+  let railShown = true;
   let confirmClear = false;
   /** Last tool used in each group: what its rail button shows and arms. */
   const current = new Map<string, ToolId>(TOOL_GROUPS.map(g => [g.id, g.tools[0]]));
@@ -521,8 +523,9 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
         'border-radius': '0', 'box-shadow': 'none', [vertical ? 'overflow-y' : 'overflow-x']: 'auto', [vertical ? 'overflow-x' : 'overflow-y']: 'hidden',
         'scrollbar-width': 'none', 'pointer-events': 'auto', 'box-sizing': 'border-box',
       });
+      if (!railShown) css(rail, { display: 'none' });
     } else cssReset(rail, {
-      position: 'absolute', display: 'flex', 'flex-direction': vertical ? 'column' : 'row', 'align-items': 'center', gap: `${GAP}px`,
+      position: 'absolute', display: railShown ? 'flex' : 'none', 'flex-direction': vertical ? 'column' : 'row', 'align-items': 'center', gap: `${GAP}px`,
       padding: `${PAD}px`, background: c.background, border: `1px solid ${c.paneSeparator}`,
       // Concentric with the buttons: the button radius plus the padding.
       'border-radius': `${size / 2 + PAD}px`,
@@ -709,6 +712,12 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
   sync();
   return {
     sync,
+    setRailVisible(on: boolean) {
+      if (on === railShown) return;
+      railShown = on;
+      if (!on) closeMenu(false);
+      sync();
+    },
     editText,
     destroy() { editor?.remove(); doc.removeEventListener('pointerdown', outside, true); host.remove(); railMount?.host.remove(); styleMount?.host.remove(); },
   };

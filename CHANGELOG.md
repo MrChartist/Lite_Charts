@@ -41,6 +41,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   chooses (`<chartist-terminal drawings="basic">`). Drawing code still loads only when drawing is first turned on.
   The indicator legend rows no longer make room for a floating rail. Crossing the breakpoint remakes the rail for the
   other place (drawings kept, selection cleared).
+- Widget: closing the drawing rail keeps the drawings. They stay painted and can be selected, moved, restyled from
+  the top bar and deleted; no tool can be armed and the letter keys go back to the widget (symbol search) until the
+  rail opens again. A workspace with drawings (`persist`, `load(json)`, `drawings` JSON) shows them at start with the
+  rail closed, loading the drawing module for them only; a failed load shows a short tip. The eye (hide all drawings)
+  is saved in the workspace (`drawingsHidden`). Undo and redo of drawing actions work with the rail closed, in order
+  with widget changes (one history entry per drawing action, also for delete all).
+- Drawings: `shortcuts` option and `setShortcuts(on)` / `shortcuts()` (the single-letter tool keys and Shift + H);
+  `setToolbarVisible(on)` / `toolbarVisible()` (hide the rail without destroying the tools); a `'hidden'` event when
+  hide all changes; `setHidden(true)` now emits `'selected'` (null) when it clears a selection. Defaults unchanged.
 - `<chartist-terminal>` and `<chartist-chart widget>`: the whole widget with no JavaScript, from the one-tag terminal
   build (`chartist-lite.terminal.iife.min.js`, live data and drawings bundled).
 - Core (additive): `timeScale().setVisibleSpan(span)`, `isAtRealTime()`, `subscribeRealTimeChange()`;

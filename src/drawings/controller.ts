@@ -51,9 +51,15 @@ export interface DrawingToolsOptions {
   volumeSeries?: AnySeries;
   /** Opt-in persistence: drawings are saved under `key` after every change and loaded at start. */
   persist?: { key: string; storage?: Pick<Storage, 'getItem' | 'setItem'> };
+  /**
+   * The single-letter tool keys (`TOOL_KEYS`) and Shift + H on the focused chart. Default true. Off, those keys go on
+   * to the page; Escape, Delete, the arrows on a selected drawing and ctrl / cmd + Z keep working. See `setShortcuts`.
+   */
+  shortcuts?: boolean;
 }
 
-export type DrawingEvent = 'created' | 'changed' | 'removed' | 'selected' | 'error';
+/** 'hidden': `setHidden` changed the state (the handler gets null; read `hidden()`). */
+export type DrawingEvent = 'created' | 'changed' | 'removed' | 'selected' | 'hidden' | 'error';
 
 export interface DrawingToolsController {
   setTool(id: ToolId | null): void;
@@ -86,6 +92,16 @@ export interface DrawingToolsController {
   keepDrawing(): boolean;
   setHidden(on: boolean): void;
   hidden(): boolean;
+  /** Turn the single-letter tool keys and Shift + H on or off (the `shortcuts` option). */
+  setShortcuts(on: boolean): void;
+  shortcuts(): boolean;
+  /**
+   * Show or hide the toolbar's rail (and close its flyout) without destroying anything: drawings stay painted and can
+   * still be selected, moved and deleted, and the selected drawing's style bar still shows. A host that closes its
+   * drawing panel uses this with `setTool(null)` and `setShortcuts(false)`. No effect without a toolbar.
+   */
+  setToolbarVisible(on: boolean): void;
+  toolbarVisible(): boolean;
   /** Theme colours in use (from the last paint): for a toolbar or legend of your own. */
   colors(): Readonly<ThemeColors> | null;
   destroy(): void;
@@ -94,6 +110,8 @@ export interface DrawingToolsController {
 /** What the toolbar module provides to the controller. */
 export interface DrawingToolsUi {
   sync(): void;
+  /** Show or hide the rail (the style bar and the text editor are not affected). */
+  setRailVisible(on: boolean): void;
   /** Edit a note's text; `done` gets the text, or null when cancelled or left empty. */
   editText(d: Drawing, at: Pt, done?: (text: string | null) => void): void;
   destroy(): void;
@@ -217,6 +235,8 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
   let magnet = options.magnet !== false;
   let keep = options.keepDrawing === true;
   let hidden = false;
+  let shortcuts = options.shortcuts !== false;
+  let toolbarShown = true;
   let colors: Readonly<ThemeColors> | null = null;
   let past: string[] = [];
   let future: string[] = [];
@@ -792,8 +812,8 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
         if (t?.open && creating.placed >= (t.minPoints ?? 2)) { finishCreate(); return true; }
         if (k === 'Escape') { creating = null; repaintOverlay(); return true; }
       }
-      // Single-key tool shortcuts, only without modifiers.
-      if (!e.shiftKey && !e.altKey && k.length === 1) {
+      // Single-key tool shortcuts, only without modifiers (and only while they are on).
+      if (shortcuts && !e.shiftKey && !e.altKey && k.length === 1) {
         const id = (Object.keys(keys) as ToolId[]).find(t => keys[t] === k.toUpperCase());
         if (id) { ctl.setTool(tool === id ? null : id); return true; }
       }
@@ -803,7 +823,7 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
         return false;
       }
       // Shift + H: a horizontal line at the crosshair's bar close (inspect mode or hover), else the last close.
-      if (e.shiftKey && (k === 'H' || k === 'h') && defs.has('horizontal')) {
+      if (shortcuts && e.shiftKey && (k === 'H' || k === 'h') && defs.has('horizontal')) {
         const row = lastCross?.seriesData.get(series) as Record<string, unknown> | undefined;
         const all = series.data() as readonly Record<string, unknown>[];
         const last = all[all.length - 1];
@@ -974,8 +994,19 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
     magnet: () => magnet,
     setKeepDrawing(on) { keep = on; ui?.sync(); },
     keepDrawing: () => keep,
-    setHidden(on) { hidden = on; if (on) { selectedId = null; hoveredId = null; syncTouch(); } repaint(); ui?.sync(); },
+    setHidden(on) {
+      const was = hidden;
+      hidden = !!on;
+      if (hidden && selectedId) { selectedId = null; emit('selected', null); }
+      if (hidden) { hoveredId = null; syncTouch(); }
+      repaint(); ui?.sync();
+      if (was !== hidden) emit('hidden', null);
+    },
     hidden: () => hidden,
+    setShortcuts(on) { shortcuts = !!on; },
+    shortcuts: () => shortcuts,
+    setToolbarVisible(on) { toolbarShown = !!on; ui?.setRailVisible(toolbarShown); },
+    toolbarVisible: () => toolbarShown && !!ui,
     colors: () => colors,
     destroy() {
       if (destroyed) return;

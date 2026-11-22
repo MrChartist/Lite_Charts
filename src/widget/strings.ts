@@ -42,6 +42,7 @@ export const DEFAULT_STRINGS = {
   settings: 'Settings',
   more: 'More',
   draw: 'Drawing tools',
+  drawingsUnavailable: 'Drawings could not be loaded',
   alerts: 'Price alert',
   replay: 'Replay',
   close: 'Close',

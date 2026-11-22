@@ -281,7 +281,7 @@ Entry `lite-charts/drawings` (`src/drawings/`, IIFE global `ChartistLiteDrawings
 |---|---|
 | `geometry.ts` | pure: distances, line clipping (segment / ray / extended), simplification, arrow heads, 45-degree constraint, Fibonacci, measure and position figures, magnet (nearest O/H/L/C) |
 | `tools.ts` | the catalogue (`TOOLS`), `renderDrawing` / `renderLabels` (CSS px, crisp axis-aligned edges), `hitDrawing` (handle index, `BODY` or -1), `handlePoints`, `paintBox` (culling) |
-| `controller.ts` | `createDrawingTools`: state, pointer and key handling through the hooks above, one series primitive per pane (main layer for settled drawings, overlay for hover, selection, the drawing being created and the one being dragged), undo / redo (snapshots, 100 deep), events, versioned JSON, opt-in `persist` |
+| `controller.ts` | `createDrawingTools`: state, pointer and key handling through the hooks above, one series primitive per pane (main layer for settled drawings, overlay for hover, selection, the drawing being created and the one being dragged), undo / redo (snapshots, 100 deep), events (`hidden` when hide all changes), versioned JSON, opt-in `persist`; `setShortcuts(on)` (option `shortcuts`, default on) turns the letter keys and Shift + H off and on, `setToolbarVisible(on)` hides the rail without destroying anything (a host's closed drawing panel) |
 | `toolbar.ts` | the optional rail, style bar and text editor (shadow DOM, CSSOM styles, roving tab index). One rail button per `TOOL_GROUPS` entry (cursor; Lines; Shapes; Fibonacci; Measure; Positions; Annotate), then switches (keep drawing, magnet, hide), then history and delete all, set apart; a multi-tool group opens a `role="menu"` flyout (press and hold, the corner mark, or the arrow away from the rail) and shows its last used tool. 28 px controls, 4 px gaps, 6 px padding, radius concentric; one column (or row) that scrolls inside itself with edge fades. It re-lays out when the top pane's box changes. Single-key shortcuts: `TOOL_KEYS` in `tools.ts` |
 
 **Writing a tool of your own** (outside this entry): a `ChartPrimitive` attached to a series paints it (main layer in
@@ -386,13 +386,22 @@ buttons on the top bar's 8 px line, the card's left edge 6 px past them), on the
 12 px above the bottom bar that scrolls sideways (the grid shortens the plot). The bar has no surface of its own (the
 `.w` tone shows through); class switches only (`.rail`, `.tray`, fade in / out by opacity), so opening costs one resize
 of the chart and no per-frame layout. Pencil on: load the module (first time), show the bar, create the tools with
-`ALL_TOOLS` (or `drawings.tools`); pencil off: fade, then destroy (the drawings JSON is kept). A breakpoint flip seen
-by `relayout` destroys and recreates them for the other place. The style bar of the selected drawing mounts in the top
+`ALL_TOOLS` (or `drawings.tools`), or show them again (`setToolbarVisible(true)`, `setShortcuts(true)`). Pencil off:
+`setTool(null)`, `setShortcuts(false)`, fade, `setToolbarVisible(false)`; the tools stay, so drawings stay painted,
+selectable, movable and deletable (Delete, arrows, Ctrl/Cmd+Z in the one widget stack; letters go back to the widget;
+touch is blocked only while one is selected). The tools are also made with the rail closed when the workspace holds
+drawings to show (saved, `persist` or `load(json)`, not hidden): the module loads for them, and only then; if it fails,
+a tip says so and the pencil turns off. The eye (hide all) is `drawingsHidden` in the workspace, applied to new tools. A
+breakpoint flip seen by `relayout` with the rail open destroys and recreates them for the other place (closed: when it
+next opens). Drawing events push one widget history entry per synchronous turn (a delete-all emits one event per
+drawing but is one undo step of the tools). The style bar of the selected drawing mounts in the top
 bar's spacer; while a drawing is selected the collapse reserves room for its compact form (and the pencil's priority
 rises to 89 while drawing, so it stays in sight). Flyouts open in the chart's own shadow root, at the chart's left edge
 beside the column (`placeFlyout` for a button outside the chart) or upwards from the phone row. Tab order: top bar, the
 rail (one stop, roving index), the chart. The widget's `pointerdown` listener runs in the capture phase (the rail stops
 bubbling so the chart does not pan; open menus must still close). The open state is `drawingsOpen` in the workspace.
+Cost with the rail closed: the same primitives and pointer handler as open, minus the toolbar's DOM (checked per pointer
+step with 20 drawings in `scripts/screenshots-widget.cjs`).
 
 **Indicators.** Specs from the catalog; outputs become line or histogram series (a histogram with tone 'line' is
 coloured by sign), `band-upper` / `band-lower` pairs get a shaded fill primitive on price, guides become dotted price

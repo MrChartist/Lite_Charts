@@ -245,4 +245,51 @@ describe('toolbar groups and shortcuts', () => {
     expect(tools.drawings()[0].tool).toBe('horizontal');
     expect(tools.tool()).toBeNull();
   });
+
+  it('shortcuts off: letters and Shift + H go on to the page; selection, Delete, arrows and undo keep working', () => {
+    const f = fakeChart();
+    const tools = createDrawingTools(f.chart as never, f.series as never, { shortcuts: false, magnet: false });
+    const key = (k: string, mods: Partial<KeyboardEvent> = {}) => f.handler().keyDown?.({ key: k, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...mods } as KeyboardEvent);
+    expect(tools.shortcuts()).toBe(false);
+    expect(key('t')).toBe(false);
+    expect(tools.tool()).toBeNull();
+    expect(key('H', { shiftKey: true })).toBe(false);
+    expect(tools.drawings()).toHaveLength(0);
+    const d = tools.add({ tool: 'trend', points: [{ time: 1000 + 10 * 60, price: 300 }, { time: 1000 + 40 * 60, price: 250 }] });
+    // A press on the drawing selects it (and starts a drag): the chart does not pan.
+    expect(f.handler().pointerDown?.(f.ev(250, 225))).toBe(true);
+    f.handler().pointerUp?.(f.ev(250, 225), false);
+    expect(tools.selected()?.id).toBe(d.id);
+    expect(f.handler().blocksTouch?.()).toBe(true);
+    expect(key('ArrowUp')).toBe(true);
+    expect(key('Delete')).toBe(true);
+    expect(tools.drawings()).toHaveLength(0);
+    expect(key('z', { ctrlKey: true })).toBe(true);
+    expect(tools.drawings()).toHaveLength(1);
+    // Nothing selected, nothing armed: touch is the chart's.
+    tools.select(null);
+    expect(f.handler().blocksTouch?.()).toBe(false);
+    tools.setShortcuts(true);
+    expect(key('t')).toBe(true);
+    expect(tools.tool()).toBe('trend');
+  });
+
+  it('setToolbarVisible without a toolbar is harmless; the hidden event fires once per change and clears the selection', () => {
+    const f = fakeChart();
+    const tools = createDrawingTools(f.chart as never, f.series as never);
+    tools.setToolbarVisible(false);
+    expect(tools.toolbarVisible()).toBe(false);
+    tools.setToolbarVisible(true);
+    expect(tools.toolbarVisible()).toBe(false); // no toolbar to show
+    const d = tools.add({ tool: 'trend', points: [{ time: 1000, price: 300 }, { time: 1600, price: 250 }] });
+    tools.select(d.id);
+    const seen: string[] = [];
+    tools.on('hidden', () => seen.push(`hidden:${tools.hidden()}`));
+    tools.on('selected', x => seen.push(`selected:${x ? x.id : null}`));
+    tools.setHidden(true);
+    tools.setHidden(true);
+    tools.setHidden(false);
+    expect(seen).toEqual(['selected:null', 'hidden:true', 'hidden:false']);
+    expect(tools.selected()).toBeNull();
+  });
 });

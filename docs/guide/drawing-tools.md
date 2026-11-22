@@ -54,8 +54,11 @@ createDrawingTools(chart, candles, { toolbar: true, tools: ALL_TOOLS });
 | `keepDrawing` | Stay on the tool after a drawing is finished | `false` |
 | `defaultStyle` | `{ color, width: 1 \| 2 \| 3, dash: 'solid' \| 'dashed' }` for new drawings | the theme's line colour, width 2, solid |
 | `persist` | `{ key, storage? }`: save after every change and load at start (`localStorage` unless you pass a storage) | off |
+| `shortcuts` | The single-letter tool keys and Shift + H on the focused chart; off, those keys go on to your page (Escape, Delete, the arrows and ctrl or cmd + Z still work) | `true` |
 
 With `container`, the rail is mounted in an element of your page (a left bar, a bottom sheet) with no card look of its own, as a column (`variant: 'rail'`) or a row (`'bar'`), scrolling inside it; flyouts still open over the chart, and `styleContainer` places the style bar of the selected drawing. The rail is one column of grouped buttons: the cursor, then Lines, Shapes, Fibonacci, Measure, Positions and Annotate. A group with more than one tool opens a flyout menu that lists each tool with its key; the menu works with the arrow keys, Home, End, Enter and Escape. Below the groups sit keep drawing, magnet and hide all, then undo, redo and delete all. Selecting a drawing shows a small style bar for its colour, width and dash. The toolbar lives in a shadow root and writes its styles through the CSSOM, so page CSS cannot reach it and a strict `style-src 'self'` policy does not block it.
+
+To close a drawing panel of your own without losing anything, call `setToolbarVisible(false)` (the rail and its flyout hide; drawings stay painted and can still be selected, moved and deleted, and the selected one's style bar still shows), `setTool(null)` and `setShortcuts(false)`; `setToolbarVisible(true)` and `setShortcuts(true)` bring them back. The widget's pencil does exactly this.
 
 ## The tools
 
@@ -123,7 +126,7 @@ Draw something, then use the buttons: Export JSON shows the text, Clear empties 
 
 ## Events
 
-`on(event, handler)` returns a function that removes the handler. Events are `'created'`, `'changed'`, `'removed'` and `'selected'`, whose handler receives a copy of the drawing (or `null` when a selection is cleared), and `'error'`, whose handler receives an `Error`, for instance when an import goes past the limits.
+`on(event, handler)` returns a function that removes the handler. Events are `'created'`, `'changed'`, `'removed'` and `'selected'`, whose handler receives a copy of the drawing (or `null` when a selection is cleared), `'hidden'` when hide all changes (read `hidden()`), and `'error'`, whose handler receives an `Error`, for instance when an import goes past the limits.
 
 ```js live height=360 output
 const chart = createChart('chart');

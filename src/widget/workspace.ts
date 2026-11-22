@@ -125,5 +125,6 @@ export function readWorkspace(input: unknown, catalog: readonly IndicatorSpec[],
     settings,
     drawings: typeof m.drawings === 'string' ? m.drawings : null,
     ...(typeof m.drawingsOpen === 'boolean' ? { drawingsOpen: m.drawingsOpen } : {}),
+    ...(typeof m.drawingsHidden === 'boolean' ? { drawingsHidden: m.drawingsHidden } : {}),
   };
 }

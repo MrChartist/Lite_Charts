@@ -5,6 +5,8 @@
 // drawn from the left bar with real pointer input, a flyout pick (pitchfork), the style bar in the top bar, keyboard
 // (tab order, roving index, flyout by arrows, Escape), the phone row (scroll, touch picks), the breakpoint flip, the
 // open state saved with the workspace, no per-frame layout, no overlap at 1280 / 1024 / 768 / 390 and 420 px tall.
+// The rail closed: drawings stay painted, selectable, draggable and deletable; T reaches the widget; undo order; the
+// eye saved; reload with drawings loads the module once, without none; a failing module; touch not blocked; cost.
 // Writes docs/screenshots/widget-*.png. Needs Playwright and `npm run build`.
 const { chromium } = require('playwright');
 const path = require('node:path');
@@ -399,6 +401,268 @@ const COUNT_LISTENERS = () => {
   const shut = await page.evaluate(GEO);
   check(!shut.lbar && Math.abs(shut.card.w - geoClosed.card.w) < 1, 'the pencil closes the bar and the card takes the room back', { card: shut.card.w, closed: geoClosed.card.w });
   await page.context().close();
+
+  // ── the rail closed: drawings stay painted and editable; the letter keys go back to the widget ──
+  {
+    page = await newPage(1280, 800);
+    const reqs = [];
+    page.on('request', r => { if (/drawings/.test(r.url())) reqs.push(r.url()); });
+    await page.goto(url('widget.html', '?persist'));
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await ready(page);
+    const D = () => page.evaluate(() => JSON.parse(window.__widget.save().drawings || '{"drawings":[]}').drawings);
+    // Screen point of a drawing's two first anchors' midpoint (pane 0).
+    const mid = i => page.evaluate(i => {
+      const w = window.__widget, ts = w.chart.timeScale(), s = w.chart.panes()[0].getSeries().find(x => x.seriesType() === 'candlestick');
+      const d = JSON.parse(w.save().drawings).drawings[i];
+      const r = w.chart.element().getBoundingClientRect();
+      const xy = p => ({ x: ts.logicalToCoordinate(ts.timeToLogical(p.time)), y: s.priceToCoordinate(p.price) });
+      const a = xy(d.points[0]), b = xy(d.points[1]);
+      return { x: r.left + (a.x + b.x) / 2, y: r.top + (a.y + b.y) / 2 };
+    }, i);
+    // Is the orange of the style bar painted on a chart canvas within 3 px of a point?
+    const orangeAt = pt => page.evaluate(pt => {
+      for (const c of window.__widget.chart.element().querySelectorAll('canvas')) {
+        const r = c.getBoundingClientRect();
+        if (pt.x < r.left || pt.x > r.right || pt.y < r.top || pt.y > r.bottom) continue;
+        const k = c.width / r.width, ctx = c.getContext('2d');
+        const px = ctx.getImageData(Math.round((pt.x - r.left) * k) - 6, Math.round((pt.y - r.top) * k) - 6, 13, 13).data;
+        for (let i = 0; i < px.length; i += 4) if (px[i] > 170 && px[i + 1] > 30 && px[i + 1] < 90 && px[i + 2] < 30 && px[i + 3] > 200) return true;
+      }
+      return false;
+    }, pt);
+    const railShown = () => page.evaluate(() => { const l = document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.lbar'); return getComputedStyle(l).display !== 'none'; });
+    const styleBarShown = () => page.evaluate(() => { const h = document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.top .sp [data-chartist-drawing-ui]'); const b = h && h.shadowRoot && h.shadowRoot.querySelector('[aria-label="Drawing style"]'); return !!b && getComputedStyle(b).display !== 'none'; });
+    await toggleDraw(page);
+    await railReady(page);
+    let card = (await page.evaluate(GEO)).card;
+    // Two tools with the pointer: a trend line (made orange from the style bar) and a rectangle.
+    await page.locator(inRail('button[aria-label^="Lines"]')).click();
+    await page.mouse.move(card.l + 360, card.t + 300); await page.mouse.down(); await page.mouse.move(card.l + 760, card.t + 180, { steps: 10 }); await page.mouse.up();
+    await page.locator(`${W} .top .sp button[aria-label="Colour, width and dash"], ${W} .top .sp button[aria-label="Orange"]`).first().click();
+    const orange = page.locator('[data-chartist-drawing-ui] button[aria-label="Orange"]').first();
+    if (await orange.isVisible()) await orange.click();
+    await page.locator(inRail('button[aria-label^="Shapes"]')).click();
+    await page.mouse.move(card.l + 900, card.t + 380); await page.mouse.down(); await page.mouse.move(card.l + 1050, card.t + 460, { steps: 10 }); await page.mouse.up();
+    await page.keyboard.press('Escape');
+    const two = (await D()).map(d => d.tool);
+    check(two.join() === 'trend,rectangle', 'closed rail: two tools drawn from the rail first', two);
+    // A widget change between the drawing actions (for the undo order below).
+    await page.evaluate(() => window.__widget.addIndicator('sma'));
+    await toggleDraw(page);
+    await page.waitForTimeout(300);
+    card = (await page.evaluate(GEO)).card;
+    let m = await mid(0);
+    check(!(await railShown()) && (await D()).length === 2 && await orangeAt(m), 'closed rail: rail hidden, both drawings kept and still painted', { rail: await railShown(), n: (await D()).length });
+    // Select by click, drag it, and the style bar shows in the top bar.
+    await page.mouse.click(m.x, m.y);
+    await page.waitForTimeout(100);
+    check(await styleBarShown(), 'closed rail: a click selects a drawing; its style bar shows in the top bar');
+    const beforeDrag = JSON.stringify((await D())[0].points);
+    await page.mouse.move(m.x, m.y); await page.mouse.down(); await page.mouse.move(m.x + 80, m.y + 40, { steps: 8 }); await page.mouse.up();
+    await page.waitForTimeout(100);
+    const afterDrag = JSON.stringify((await D())[0].points);
+    check(afterDrag !== beforeDrag, 'closed rail: the selected drawing is dragged');
+    await calm(page);
+    // Re-select for the picture (calm blurred, the selection stays).
+    m = await mid(0);
+    if (!(await styleBarShown())) await page.mouse.click(m.x, m.y);
+    await page.mouse.move(2, 2);
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: path.join(out, 'widget-drawings-closed.png') });
+    // Undo order with the rail closed: the drag, then the indicator, then redo both.
+    await page.evaluate(() => window.__widget.chart.element().focus());
+    const nInd = await page.evaluate(() => window.__widget.indicators().length);
+    await page.keyboard.press('Control+z'); await page.waitForTimeout(80);
+    const u1 = { pts: JSON.stringify((await D())[0].points), inds: await page.evaluate(() => window.__widget.indicators().length) };
+    await page.keyboard.press('Control+z'); await page.waitForTimeout(120);
+    const u2 = { n: (await D()).length, inds: await page.evaluate(() => window.__widget.indicators().length) };
+    await page.keyboard.press('Control+Shift+z'); await page.waitForTimeout(120);
+    await page.keyboard.press('Control+Shift+z'); await page.waitForTimeout(80);
+    const r2 = { pts: JSON.stringify((await D())[0].points), inds: await page.evaluate(() => window.__widget.indicators().length) };
+    check(u1.pts === beforeDrag && u1.inds === nInd && u2.n === 2 && u2.inds === nInd - 1 && r2.pts === afterDrag && r2.inds === nInd, 'closed rail: undo and redo keep their order (drag, then the indicator, and back)', { u1: u1.inds, u2, r2: r2.inds });
+    // Delete the selected drawing.
+    m = await mid(0);
+    await page.mouse.click(m.x, m.y);
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(100);
+    check((await D()).map(d => d.tool).join() === 'rectangle', 'closed rail: Delete removes the selected drawing', (await D()).map(d => d.tool));
+    // T does not arm the trend tool: it reaches the widget (symbol search with "t"); Shift+H adds nothing.
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.__widget.chart.element().focus());
+    await page.keyboard.press('t');
+    await page.waitForTimeout(150);
+    const searchOpen = await openLayer(page);
+    const typed = await page.evaluate(() => document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.dlg input, .menu input')?.value ?? null);
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.__widget.chart.element().focus());
+    await page.keyboard.press('Shift+H');
+    await page.mouse.click(card.l + 300, card.t + 420);
+    await page.mouse.click(card.l + 500, card.t + 440);
+    await page.waitForTimeout(100);
+    check(searchOpen === 1 && typed === 't' && (await D()).length === 1, 'closed rail: T opens the symbol search (no trend tool armed), Shift+H and clicks add nothing', { searchOpen, typed, n: (await D()).length });
+    // Touch: nothing selected, the chart's touch-action is the plain chart's (no blocking).
+    check(await page.evaluate(() => getComputedStyle(window.__widget.chart.element()).touchAction !== 'none'), 'closed rail: nothing selected, touch is not blocked');
+    // Reopen: state intact; the eye hides the drawings and stays on through a close and a reopen.
+    await toggleDraw(page);
+    await railReady(page);
+    const reopenedN = (await D()).length;
+    const eye = page.locator(inRail('button[aria-label="Hide drawings"]'));
+    await eye.click();
+    await toggleDraw(page);
+    await toggleDraw(page);
+    const eyeKept = await eye.getAttribute('aria-pressed');
+    check(reopenedN === 1 && (await railShown()) && eyeKept === 'true' && (await page.evaluate(() => window.__widget.save().drawingsHidden)) === true, 'reopen: drawings intact; the eye stays on through close and reopen', { reopenedN, eyeKept });
+    await eye.click();
+    // Persist with the rail closed: on reload the drawings are painted, the drawings script requested exactly once.
+    await toggleDraw(page);
+    await page.waitForTimeout(700);
+    reqs.length = 0;
+    await page.reload();
+    await ready(page);
+    await page.waitForFunction(() => !!window.__widget.chart.element().querySelector('[data-chartist-drawing-ui]'), null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const reload1 = await page.evaluate(() => ({ open: window.__widget.save().drawingsOpen, n: JSON.parse(window.__widget.save().drawings).drawings.length, painted: !!window.__widget.chart.element().querySelector('[data-chartist-drawing-ui]') }));
+    check(!reload1.open && reload1.n === 1 && reload1.painted && !(await railShown()) && reqs.length === 1, 'persist, rail closed: reload paints the drawings, the drawings script requested once', { ...reload1, requests: reqs.length });
+    // The eye state is saved too.
+    await toggleDraw(page); await railReady(page);
+    await page.locator(inRail('button[aria-label="Hide drawings"]')).click();
+    await toggleDraw(page);
+    await page.waitForTimeout(700);
+    await page.reload();
+    await ready(page);
+    await page.waitForTimeout(300);
+    const eyeSaved = await page.evaluate(() => window.__widget.save().drawingsHidden);
+    await toggleDraw(page); await railReady(page);
+    check(eyeSaved === true && (await page.locator(inRail('button[aria-label="Hide drawings"]')).getAttribute('aria-pressed')) === 'true', 'persist: the eye (hide drawings) is saved and restored', { eyeSaved });
+    // A workspace with no drawings and the rail closed: the drawings script is not requested.
+    await page.evaluate(() => { localStorage.clear(); });
+    await page.reload();
+    await ready(page);
+    await page.evaluate(() => window.__widget.setTheme('light'));
+    await page.waitForTimeout(700);
+    reqs.length = 0;
+    await page.reload();
+    await ready(page);
+    await page.waitForTimeout(600);
+    check(reqs.length === 0 && (await page.evaluate(() => window.__widget.save().drawings)) === null, 'persist without drawings, rail closed: the drawings script is not requested', reqs);
+    // load(json) with drawings and the rail closed: they show (module loaded for them).
+    const ws = await page.evaluate(() => { const s = window.__widget.save(); s.drawingsOpen = false; s.drawings = JSON.stringify({ format: 'chartist-lite-drawings', version: 2, drawings: [{ tool: 'horizontal', points: (r => [{ time: r[r.length - 5].time, price: r[r.length - 1].close }])(window.__widget.chart.panes()[0].getSeries().find(x => x.seriesType() === 'candlestick').data()) }] }); return s; });
+    await page.evaluate(ws => window.__widget.load(ws), ws);
+    await page.waitForFunction(() => !!window.__widget.chart.element().querySelector('[data-chartist-drawing-ui]'), null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    const loadedN = (await D()).length;
+    check(reqs.length === 1 && loadedN === 1 && !(await railShown()) && (await page.evaluate(() => !!window.__widget.chart.element().querySelector('[data-chartist-drawing-ui]'))), 'load(json) with drawings, rail closed: the drawings show', { requests: reqs.length, drawings: loadedN });
+    await page.evaluate(() => localStorage.clear());
+    await page.context().close();
+  }
+
+  // ── a drawings module that fails to load: a quiet word, the chart keeps working ──
+  {
+    page = await newPage(1280, 800);
+    await page.route(/chartist-lite-drawings\.iife\.min\.js/, r => r.abort());
+    const errs0 = errors.length;
+    await page.goto(url('widget.html'));
+    await ready(page);
+    await toggleDraw(page);
+    await page.waitForTimeout(400);
+    const tip = await page.evaluate(() => document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.tip')?.textContent ?? null);
+    await page.locator(`${W} .bot button[role="radio"]:text-is("1M")`).click();
+    await page.waitForTimeout(300);
+    check(tip === 'Drawings could not be loaded' && !!(await visibleRange(page)), 'drawings fail to load: a quiet tip, the chart keeps working', tip);
+    errors.length = errs0; // the aborted request is the point of this check
+    await page.context().close();
+  }
+
+  // ── cost per frame: 20 drawings, rail open versus closed (the same but the toolbar) ──
+  {
+    page = await newPage(1280, 800);
+    await page.goto(url('widget.html'));
+    await ready(page);
+    await toggleDraw(page);
+    await railReady(page);
+    await page.evaluate(async () => {
+      const w = window.__widget, rows = w.chart.panes()[0].getSeries().find(x => x.seriesType() === 'candlestick').data();
+      const tools = ['trend', 'ray', 'extended', 'horizontal', 'rectangle', 'fib', 'channel', 'measure', 'long', 'text'];
+      const drawings = [];
+      for (let i = 0; i < 20; i++) {
+        const k = rows.length - 130 + i * 5, a = rows[k], b = rows[k + 15], c = rows[k + 25];
+        const t = tools[i % tools.length];
+        drawings.push({ tool: t, text: t === 'text' ? 'Note' : undefined, points: [{ time: a.time, price: a.close }, { time: b.time, price: b.close * 1.01 }, { time: c.time, price: c.close * 0.99 }] });
+      }
+      const s = w.save(); s.drawings = JSON.stringify({ format: 'chartist-lite-drawings', version: 2, drawings });
+      await w.load(s);
+    });
+    await page.waitForTimeout(300);
+    const n20 = await page.evaluate(() => JSON.parse(window.__widget.save().drawings).drawings.length);
+    const cost = async () => {
+      const c = await page.context().newCDPSession(page); await c.send('Performance.enable');
+      const get = async () => { const m = (await c.send('Performance.getMetrics')).metrics; const g = n => m.find(x => x.name === n)?.value ?? 0; return g('ScriptDuration') + g('LayoutDuration') + g('RecalcStyleDuration'); };
+      const card = (await page.evaluate(GEO)).card;
+      const a = await get();
+      for (let i = 0; i < 80; i++) await page.mouse.move(card.l + 150 + i * 9, card.t + 150 + (i % 9) * 25);
+      const b = await get();
+      await c.detach();
+      await page.mouse.move(2, 2);
+      return ((b - a) * 1000) / 80;
+    };
+    await cost(); // warm
+    const open = Math.min(await cost(), await cost());
+    await toggleDraw(page);
+    await page.waitForTimeout(300);
+    const closed = Math.min(await cost(), await cost());
+    check(n20 === 20 && closed <= open * 1.25 + 0.1, '20 drawings: a pointer step costs no more with the rail closed than open', { drawings: n20, openMsPerStep: +open.toFixed(3), closedMsPerStep: +closed.toFixed(3) });
+    await page.context().close();
+  }
+
+  // ── phone, touch, rail closed with drawings: page scroll over the chart not trapped; a tap selects ──
+  {
+    page = await newPage(390, 844, { hasTouch: true, isMobile: true });
+    await page.goto(url('widget.html', '?persist'));
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await ready(page);
+    const plainTouch = await page.evaluate(() => getComputedStyle(window.__widget.chart.element()).touchAction);
+    await page.evaluate(async () => {
+      const w = window.__widget, rows = w.chart.panes()[0].getSeries().find(x => x.seriesType() === 'candlestick').data();
+      const a = rows[rows.length - 30], b = rows[rows.length - 8];
+      const s = w.save(); s.drawingsOpen = false;
+      s.drawings = JSON.stringify({ format: 'chartist-lite-drawings', version: 2, drawings: [{ tool: 'trend', points: [{ time: a.time, price: a.low }, { time: b.time, price: b.high }] }] });
+      await w.load(s);
+    });
+    await page.waitForFunction(() => !!window.__widget.chart.element().querySelector('[data-chartist-drawing-ui]'), null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    const closedTouch = await page.evaluate(() => getComputedStyle(window.__widget.chart.element()).touchAction);
+    // A one-finger swipe over the chart pans it (the chart's own gesture, as without drawings).
+    const vr0 = await visibleRange(page);
+    const box = (await page.evaluate(GEO)).card;
+    const cdpT = await page.context().newCDPSession(page);
+    const tp = (type, x, y) => cdpT.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+    await tp('touchStart', box.l + 120, box.t + 420);
+    for (let i = 1; i <= 8; i++) await tp('touchMove', box.l + 120 + i * 20, box.t + 420);
+    await tp('touchEnd');
+    await page.waitForTimeout(300);
+    const vr1 = await visibleRange(page);
+    // A tap on the drawing selects it: touch then belongs to the drawing (as with the rail open).
+    await page.evaluate(() => window.__widget.chart.timeScale().scrollToRealTime());
+    await page.waitForTimeout(300);
+    const m = await page.evaluate(() => {
+      const w = window.__widget, ts = w.chart.timeScale(), s = w.chart.panes()[0].getSeries().find(x => x.seriesType() === 'candlestick');
+      const d = JSON.parse(w.save().drawings).drawings[0], r = w.chart.element().getBoundingClientRect();
+      const xy = p => ({ x: ts.logicalToCoordinate(ts.timeToLogical(p.time)), y: s.priceToCoordinate(p.price) });
+      const a = xy(d.points[0]), b = xy(d.points[1]);
+      return { x: r.left + (a.x + b.x) / 2, y: r.top + (a.y + b.y) / 2 };
+    });
+    await page.touchscreen.tap(m.x, m.y);
+    await page.waitForTimeout(200);
+    const selTouch = await page.evaluate(() => getComputedStyle(window.__widget.chart.element()).touchAction);
+    check(closedTouch === plainTouch && closedTouch !== 'none' && vr0 && vr1 && Math.abs(vr1.from - vr0.from) > 1, 'phone, rail closed: touch-action as without drawings, a swipe pans the chart', { plainTouch, closedTouch, moved: vr0 && vr1 ? +(vr1.from - vr0.from).toFixed(1) : null });
+    check(selTouch === 'none', 'phone, rail closed: a tap selects the drawing and touch belongs to it', selTouch);
+    await cdpT.detach();
+    await page.evaluate(() => localStorage.clear());
+    await page.context().close();
+  }
 
   // ── sizes with the bar open: 1280, 1024, 768 and a 420 px tall widget; light and dark ──
   for (const [vw, vh, theme] of [[1280, 800, 'dark'], [1024, 768, 'light'], [768, 900, 'dark'], [1280, 452, 'light'], [1024, 452, 'dark']]) {

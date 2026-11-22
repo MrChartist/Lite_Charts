@@ -220,7 +220,11 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   let mainDef: AnySeriesDefinition | null = null;
   let mainKind: 'series' | 'transform' = 'series';
   let volume: AnySeries | null = null;
-  type ToolsLike = { destroy(): void; undo(): boolean; redo(): boolean; canUndo(): boolean; canRedo(): boolean; exportJSON(): string; importJSON(j: string): number; on(e: string, f: (d?: unknown) => void): () => void; colors(): unknown };
+  type ToolsLike = {
+    destroy(): void; undo(): boolean; redo(): boolean; canUndo(): boolean; canRedo(): boolean; exportJSON(): string; importJSON(j: string): number;
+    on(e: string, f: (d?: unknown) => void): () => void; colors(): unknown; setTool(id: string | null): void; setHidden(on: boolean): void; hidden(): boolean;
+    setShortcuts?(on: boolean): void; setToolbarVisible?(on: boolean): void;
+  };
   let tools: ToolsLike | null = null;
   let toolsLoading: Promise<void> | null = null;
   const drawOpt = typeof options.drawings === 'object' && options.drawings ? options.drawings : null;
@@ -228,6 +232,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   let drawingsOn = drawOpt ? !!drawOpt.open : !!options.drawings;
   /** A drawing is selected (its style bar is shown in the top bar). */
   let drawSel = false;
+  /** "Hide drawings" (the eye on the rail): saved with the workspace, kept while the rail is closed. */
+  let drawingsHidden = false;
   /** The tools were made for the phone row (else the desk column); a flip of the breakpoint recreates them. */
   let toolsPhone = false;
 
@@ -870,27 +876,50 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     w.classList.toggle('tray', open && toolsPhone);
     for (const el of [lbar, tbar]) { el.classList.remove('out'); el.classList.toggle('in', fadeIn); }
   }
+  /** Saved drawings worth showing with the rail closed: at least one, and not hidden with the eye. */
+  function hasDrawingsToShow(): boolean {
+    if (!drawingsJSON || drawingsHidden) return false;
+    try { const d = (JSON.parse(drawingsJSON) as { drawings?: unknown[] }).drawings; return Array.isArray(d) && d.length > 0; } catch { return false; }
+  }
+  /**
+   * Create the drawing tools: when drawing is turned on, or (rail closed) when there are saved drawings to show. With
+   * the rail closed they paint and edit drawings, but the rail is hidden, no tool is armed and the letter keys stay
+   * the widget's. The module loads here the first time (a page that never draws, with nothing saved, never loads it).
+   */
   async function ensureTools(fadeIn = false): Promise<void> {
     if (tools || !main) return;
     if (toolsLoading) return toolsLoading;
     toolsLoading = (async () => {
       const mod = await getModule('drawings') as DrawingsModule | null;
-      if (destroyed || !mod || typeof mod.createDrawingTools !== 'function' || !main || !drawingsOn || tools) return;
+      if (destroyed || !main || tools || (!drawingsOn && !hasDrawingsToShow())) return;
+      if (!mod || typeof mod.createDrawingTools !== 'function') { drawingsUnavailable(); return; }
       // The column or row must have its size before the rail measures itself.
       toolsPhone = sheets();
-      syncDrawChrome(fadeIn, true);
+      if (drawingsOn) syncDrawChrome(fadeIn, true);
       const list = toolList(mod);
       let t: ToolsLike;
       try {
         t = (mod.createDrawingTools as (...a: unknown[]) => unknown)(chart, main, {
           toolbar: { container: toolsPhone ? tbar : lbar, variant: toolsPhone ? 'bar' : 'rail', styleContainer: styleSlot },
-          ...(list ? { tools: list } : {}), magnet: true,
+          ...(list ? { tools: list } : {}), magnet: true, shortcuts: drawingsOn,
         }) as ToolsLike;
       } catch (e) { syncDrawChrome(false, false); throw e; }
       tools = t;
+      if (!drawingsOn) t.setToolbarVisible?.(false);
+      if (drawingsHidden) t.setHidden(true);
       if (drawingsJSON) { try { t.importJSON(drawingsJSON); } catch { /* bad saved drawings are dropped */ } }
-      const onChange = (): void => { if (!applyingHistory) { pushHistory({ kind: 'draw' }); } drawingsJSON = tools?.exportJSON() ?? null; schedulePersist(); };
+      // One widget history entry per drawing action (a delete-all or an import emits an event per drawing).
+      let sameTurn = false;
+      const onChange = (): void => {
+        drawingsJSON = tools?.exportJSON() ?? null;
+        schedulePersist();
+        if (applyingHistory || sameTurn) return;
+        sameTurn = true;
+        queueMicrotask(() => { sameTurn = false; });
+        pushHistory({ kind: 'draw' });
+      };
       for (const e of ['created', 'changed', 'removed']) t.on(e, onChange);
+      t.on('hidden', () => { drawingsHidden = t.hidden(); schedulePersist(); });
       // A selected drawing's style bar takes the top bar's free area: the collapse makes room for it, then gives it back.
       t.on('selected', (d?: unknown) => { const on = !!d; if (on !== drawSel) { drawSel = on; relayout(); } });
       syncTop();
@@ -909,7 +938,18 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     redoStack = redoStack.filter(e => e.kind !== 'draw');
     syncHistoryButtons();
   }
+  function drawingsUnavailable(): void {
+    // Quiet: a word in the live region and a short tip; the chart keeps working without drawings.
+    showTip(S.drawingsUnavailable);
+    later(() => showTip(null), 4000);
+    if (drawingsOn) { drawingsOn = false; syncDrawChrome(false, false); syncTop(); relayout(); }
+  }
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The pencil. Open: show the rail (made the first time, or again for the other place when the breakpoint flipped
+   * while it was closed). Close: the rail fades and hides; the tools stay (drawings painted, selectable, movable,
+   * deletable), no tool armed, the letter keys back to the widget.
+   */
   async function setDrawings(on: boolean): Promise<void> {
     drawingsOn = on;
     if (closeTimer) { clearTimeout(closeTimer); timers.delete(closeTimer); closeTimer = null; }
@@ -917,13 +957,17 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     schedulePersist();
     relayout();
     if (on) {
-      if (tools) syncDrawChrome(true); else await ensureTools(true);
+      if (tools && sheets() !== toolsPhone && !toolsLoading) dropTools();
+      if (tools) { tools.setShortcuts?.(true); tools.setToolbarVisible?.(true); syncDrawChrome(true); relayout(); }
+      else await ensureTools(true);
       return;
     }
     if (!tools) { syncDrawChrome(false); return; }
+    tools.setTool(null);
+    tools.setShortcuts?.(false);
     // A short fade of the bar, then it goes (the card takes the room at once: no width animation).
     for (const el of [lbar, tbar]) { el.classList.remove('in'); el.classList.add('out'); }
-    closeTimer = later(() => { closeTimer = null; if (drawingsOn) return; dropTools(); syncDrawChrome(false); relayout(); }, 120);
+    closeTimer = later(() => { closeTimer = null; if (drawingsOn) return; tools?.setToolbarVisible?.(false); syncDrawChrome(false); relayout(); }, 120);
   }
 
   // ── undo / redo: widget changes as workspace snapshots, drawing changes through the drawing tools ──
@@ -963,6 +1007,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       indicators: inds.map(indState), compare: compareSyms.map(c => c.symbol), settings: { ...settings },
       drawings: tools ? tools.exportJSON() : drawingsJSON,
       drawingsOpen: drawingsOn,
+      drawingsHidden: tools ? tools.hidden() : drawingsHidden,
     };
   }
   async function applyWorkspace(ws: WorkspaceJSON, reload: boolean): Promise<void> {
@@ -986,11 +1031,14 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const t = tools as ToolsLike | null;
       if (t && ws.drawings) { try { t.importJSON(ws.drawings); } catch { /* ignore */ } }
     }
+    if (reload && typeof ws.drawingsHidden === 'boolean') { drawingsHidden = ws.drawingsHidden; if (tools && tools.hidden() !== drawingsHidden) tools.setHidden(drawingsHidden); }
     if (reload && (symbolChanged || intervalChanged) && (feed || liveOpt)) await loadData();
     else buildMain();
     rebuildIndicators();
     // A loaded workspace opens or closes the drawing bar as it was saved (undo and redo leave it alone).
     if (reload && typeof ws.drawingsOpen === 'boolean' && ws.drawingsOpen !== drawingsOn && (modules.drawings || options.load?.drawings)) void setDrawings(ws.drawingsOpen);
+    // Loaded drawings show with the rail closed too (the module loads for them, and only for them).
+    else if (reload && !tools && hasDrawingsToShow() && (modules.drawings || options.load?.drawings)) void ensureTools();
     for (const s of ws.compare) addCompare(s);
     applySettings();
     syncTop();
@@ -1220,6 +1268,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     const width = w.clientWidth;
     if (!(width > 0)) return;
     // The sheet breakpoint flipped while drawing: make the rail again for the other place (drawings kept).
+    // (With the rail closed its place does not matter: it is made again when the rail opens.)
     if (tools && drawingsOn && !toolsLoading && sheets() !== toolsPhone) { dropTools(); void ensureTools(); return; }
     for (const [defs, partMap, bar, more, overflow] of [[topDef, partOf, top, moreBtn, overflowTop], [botDef, botPart, bottom, botMore, overflowBot]] as const) {
       for (const d of defs) {
@@ -1235,7 +1284,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const list: BarItem[] = [];
       for (const d of defs) {
         if (!(d.el as HTMLElement & { _en?: boolean })._en || d.el === more) continue;
-        const wd = d.id === 'bspacer' ? 8 : d.id === 'spacer' ? (drawingsOn && tools && drawSel ? styleRoom() : 8) : d.el.offsetWidth + 2 + (d.el.classList.contains('sep') ? 12 : 0);
+        const wd = d.id === 'bspacer' ? 8 : d.id === 'spacer' ? (tools && drawSel ? styleRoom() : 8) : d.el.offsetWidth + 2 + (d.el.classList.contains('sep') ? 12 : 0);
         measured.set(d.id, wd);
         // While drawing, the pencil (which closes the bar) stays in sight.
         list.push({ id: d.id, width: wd, priority: d.id === 'draw' && drawingsOn ? 89 : d.pri });
@@ -1795,8 +1844,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       return true;
     }
     if (e.key === 'Escape' && digits) { digits = ''; showTip(null); return true; }
-    // Letters open the symbol search, except on the chart while the drawing tools own the letter keys.
-    if (canSearch() && e.key.length === 1 && /[a-z]/i.test(e.key) && !e.shiftKey && !(fromChart && tools)) { openSymbolSearch(symBtn, e.key); return true; }
+    // Letters open the symbol search, except on the chart while the drawing rail is open (its tools own the letters).
+    if (canSearch() && e.key.length === 1 && /[a-z]/i.test(e.key) && !e.shiftKey && !(fromChart && tools && drawingsOn)) { openSymbolSearch(symBtn, e.key); return true; }
     return false;
   }
   const removeKeyHandler = chart.addPointerHandler({ keyDown: e => shortcut(e, true) });
@@ -1841,7 +1890,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     },
     setChartType(id) {
       if (id === chartType || !chartTypes().some(c => c.id === id)) return;
-      record(() => { chartType = id; buildMain(); if (tools) { dropTools(); if (drawingsOn) void ensureTools(); } for (const ind of inds) for (const b of ind.bands) main?.attachPrimitive(b); });
+      record(() => { chartType = id; buildMain(); if (tools) { dropTools(); void ensureTools(); } for (const ind of inds) for (const b of ind.bands) main?.attachPrimitive(b); });
       syncTop();
       emit('chartType', chartType);
     },
@@ -1952,6 +2001,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     symbol = restored.symbol; interval = restored.interval; chartType = restored.chartType; theme = restored.theme; tz = restored.timeZone; settings = restored.settings;
     if (restored.drawings) drawingsJSON = restored.drawings;
     drawingsOn = restored.drawingsOpen ?? !!restored.drawings;
+    drawingsHidden = restored.drawingsHidden ?? false;
     chart.applyOptions({ theme, timeScale: { timeZone: tz } } as never);
     applyTheme();
     for (const st of restored.indicators) { const spec = catalog.find(s => s.id === st.id); if (spec) addIndicatorRaw(spec, st); }
@@ -1975,7 +2025,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     await loadData();
     if (destroyed) return;
     if (restored) for (const s of restored.compare) addCompare(s);
-    if (drawingsOn) await ensureTools();
+    // The rail open, or saved drawings to show with it closed: the drawing module loads (else it never does).
+    if ((drawingsOn || hasDrawingsToShow()) && (modules.drawings || options.load?.drawings)) await ensureTools();
     relayout();
   })().catch(e => { if (!destroyed) { showOverlay('error', e instanceof Error ? e.message : String(e)); emit('error', e); } });
   return api;
