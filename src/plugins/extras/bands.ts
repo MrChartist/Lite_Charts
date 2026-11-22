@@ -6,7 +6,7 @@ import type { ChartApi } from '../../api';
 import type { Time } from '../../core/time';
 import { timeToSeconds } from '../../core/time';
 import { readableTextOn } from '../../core/theme';
-import { zoneDayNumber } from '../../core/zone';
+import { localTimeZone, zoneDayNumber } from '../../core/zone';
 import type { ChartPrimitive, PriceAxisLabel, PrimitiveDrawScope, PrimitiveHost } from '../primitive';
 import type { PriceLineStyle } from '../price-line';
 import { dashPattern } from '../price-line';
@@ -348,7 +348,7 @@ export function createSessionBreaks(chart: ChartApi, options: Partial<SessionBre
       const gaps: number[] = [];
       for (let i = from + 1; i <= Math.min(to, from + 40); i++) gaps.push(sec(i) - sec(i - 1));
       if (!isIntraday(gaps)) return;
-      const zone = opts.timeZone === undefined ? zoneOf(chart) : opts.timeZone === 'local' ? zoneOf({ options: () => ({ timeScale: { timeZone: 'local' } }) } as unknown as ChartApi) : opts.timeZone;
+      const zone = opts.timeZone === undefined ? zoneOf(chart) : opts.timeZone === 'local' ? localTimeZone() : opts.timeZone;
       const spacing = s.logicalToX(1) - s.logicalToX(0);
       const starts = dayStarts(i => zoneDayNumber(zone, sec(i) * 1000), from, to);
       if (!starts.length) return;

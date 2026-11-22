@@ -226,8 +226,13 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
   /** `p`, rejected with a timeout error after `ms` (and `ac` aborted), whether or not the request honours the signal. */
   function timed<T>(p: Promise<T>, ac: AbortController, ms: number, what: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const t = env.setTimeout(() => { ac.abort(); reject(new LiveError(`${what} timed out after ${Math.round(ms / 1000)} s`)); }, ms);
-      p.then(v => { env.clearTimeout(t); resolve(v); }, e => { env.clearTimeout(t); reject(e); });
+      let done = false;
+      const settle = (f: () => void): void => { if (done) return; done = true; env.clearTimeout(t); ac.signal.removeEventListener('abort', onAbort); f(); };
+      // Aborted from outside (disconnect, restart, pause): settle at once even if the request ignores its signal.
+      const onAbort = (): void => settle(() => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      const t = env.setTimeout(() => settle(() => { ac.abort(); reject(new LiveError(`${what} timed out after ${Math.round(ms / 1000)} s`)); }), ms);
+      ac.signal.addEventListener('abort', onAbort);
+      p.then(v => settle(() => resolve(v)), e => settle(() => reject(e)));
     });
   }
 
@@ -422,6 +427,7 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
   }
 
   async function loadOlder(): Promise<number> {
+    const g0 = gen;
     try {
       if (destroyed || loadingOlder || noOlder || !current || !current.canPageBack || !bars.length || !fetchFn || !WS) return 0;
       loadingOlder = true;
@@ -442,7 +448,7 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
       try { options.onBars?.('history', bars); } catch { /* ignore */ }
       return add.length;
     } catch (e) {
-      report(e);
+      if (g0 === gen && !destroyed) report(e);
       return 0;
     }
   }

@@ -7,6 +7,7 @@ import { TREND } from './catalog-trend';
 import { MOMENTUM } from './catalog-momentum';
 import { VOLATILITY } from './catalog-volatility';
 import { VOLUME } from './catalog-volume';
+import { OTHER } from './catalog-other';
 import type { IndicatorSpec } from './catalog-kit';
 
 export type {
@@ -14,8 +15,8 @@ export type {
 } from './catalog-kit';
 export { legendLabel, resolveParams } from './catalog-kit';
 
-/** Every indicator, by category: trend, momentum, volatility, volume. */
-export const INDICATORS: IndicatorSpec[] = [...TREND, ...MOMENTUM, ...VOLATILITY, ...VOLUME];
+/** Every indicator, by category: trend, momentum, volatility, volume, other. */
+export const INDICATORS: IndicatorSpec[] = [...TREND, ...MOMENTUM, ...VOLATILITY, ...VOLUME, ...OTHER];
 
 const BY_ID = new Map(INDICATORS.map(s => [s.id, s]));
 

@@ -335,8 +335,9 @@ describe('connectLive: review of 2026-11-22', () => {
     const rest = w.calls.length;
     // Backoff 1, 2, 4, 8, 16, then 30 s (+/- 30%, here exactly): about 25 sockets in 10 minutes, not 600.
     expect(sockets).toBeLessThan(30);
-    // History only when the last load is 10 s old or more (each Coinbase load is 1 request for 50 bars).
-    expect(rest).toBeLessThanOrEqual(sockets);
+    // History only when the last load is 10 s old or more (a Coinbase load here is at most 2 requests).
+    expect(rest).toBeLessThanOrEqual(2 * sockets);
+    expect(rest).toBeLessThan(60); // was 1201 before the fix
     live.disconnect();
   });
 
@@ -529,7 +530,11 @@ describe('connectLive: review of 2026-11-22', () => {
     const p2 = live2.loadOlder();
     await w.advance(10_000);
     expect(await p2).toBe(0);
-    expect(await live2.loadOlder()).toBe(0); // not stuck: it ran (and hung) again rather than returning at once
+    // Not stuck: a second call runs (and times out) again.
+    const p3 = live2.loadOlder();
+    await w.advance(10_000);
+    expect(await p3).toBe(0);
+    expect(w.errors.filter(e => /older history timed out/.test(e)).length).toBe(2);
     void p;
     live2.disconnect();
   });
