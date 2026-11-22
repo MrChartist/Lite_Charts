@@ -99,7 +99,8 @@ export function placeFlyout(button: { left: number; top: number; right: number; 
   if (vertical) {
     left = button.right + 6;
     if (left + width > chartBox.width - M) left = button.left - 6 - width; // flip to the left of the button
-    if (left < M) left = Math.max(M, chartBox.width - M - width); // no room either side: overlap, inside the box
+    // No room either side: overlap, inside the box; a button left of the chart (a host's left bar): at the chart's edge.
+    if (left < M) left = button.right < M ? M : Math.max(M, chartBox.width - M - width);
     top = button.top - 4;
     if (top + height > chartBox.height - M) top = chartBox.height - M - height; // open upwards
   } else {
@@ -534,8 +535,9 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
       const apart = (s as HTMLElement & { _apart?: boolean })._apart;
       cssReset(s, {
         display: 'block', 'flex-shrink': '0', background: c.paneSeparator,
-        [vertical ? 'width' : 'height']: `${size - 8}px`, [vertical ? 'height' : 'width']: '1px',
-        margin: vertical ? `${apart ? 6 : 2}px 0` : `0 ${apart ? 6 : 2}px`,
+        // In a host's bar: the length of a chrome separator (16 px), even space on both sides.
+        [vertical ? 'width' : 'height']: `${external ? 16 : size - 8}px`, [vertical ? 'height' : 'width']: '1px',
+        margin: vertical ? `${external ? 4 : apart ? 6 : 2}px 0` : `0 ${external ? 4 : apart ? 6 : 2}px`,
       });
     }
     buttons.forEach((b, i) => {

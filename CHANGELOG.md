@@ -31,6 +31,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`live: true`, BTC-USD and seven more pairs, demo data if no exchange answers). Opt-in, versioned `persist`;
   `save()` / `load()`; events; `destroy()` leaves no node or listener. Every word through `strings`. Responsive to
   320 px (priority collapse into More, bottom sheets on phones), light and dark, full keyboard access.
+- Widget drawing bar: the drawing rail now lives in the widget's own chrome, a flat left bar in the tone of the top and
+  bottom bars with the plot card inset beside it (`toolbar.container`, variant 'rail'); on phone widths (the sheet
+  breakpoint) a horizontally scrolling row above the bottom bar (variant 'bar'), the plot shortened to make room. The
+  pencil opens and closes it with a short fade (no width animation); the open state is saved with the workspace
+  (`drawingsOpen`, optional; older saves open it when they hold drawings). Flyouts open over the chart beside the bar
+  (upwards from the phone row); the selected drawing's style bar sits in the top bar's free area (`styleContainer`).
+  The widget offers all 53 tools by default; `drawings: { tools: 'basic' | 'all' | ToolDefinition[], open, saved }`
+  chooses (`<chartist-terminal drawings="basic">`). Drawing code still loads only when drawing is first turned on.
+  The indicator legend rows no longer make room for a floating rail. Crossing the breakpoint remakes the rail for the
+  other place (drawings kept, selection cleared).
 - `<chartist-terminal>` and `<chartist-chart widget>`: the whole widget with no JavaScript, from the one-tag terminal
   build (`chartist-lite.terminal.iife.min.js`, live data and drawings bundled).
 - Core (additive): `timeScale().setVisibleSpan(span)`, `isAtRealTime()`, `subscribeRealTimeChange()`;
@@ -46,6 +56,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The package is named `lite-charts` (still private, not published). ESM only: no CommonJS build.
 - Core size budget lowered to 34 KB gzip.
+- Drawing toolbar: a flyout of a rail mounted in a host's left bar opens at the chart's left edge (it opened at the
+  far right); separators of a mounted rail are 16 px, the length of chrome separators.
+- Widget: the top bar's collapse counts the separators' margins (at 1024 px the bar overflowed by about 25 px).
 
 ## 0.1.0 - 2026-11-21
 

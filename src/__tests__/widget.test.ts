@@ -171,6 +171,12 @@ describe('workspace', () => {
     expect(back.drawings).toBe('{"x":1}');
     expect(readWorkspace(back, INDICATORS, base)).toEqual(back);
   });
+  it('keeps the drawing bar open state; leaves it out when absent or malformed', () => {
+    expect(readWorkspace({ ...base, drawingsOpen: true }, INDICATORS, base)!.drawingsOpen).toBe(true);
+    expect(readWorkspace({ ...base, drawingsOpen: false }, INDICATORS, base)!.drawingsOpen).toBe(false);
+    expect('drawingsOpen' in readWorkspace(base, INDICATORS, base)!).toBe(false);
+    expect('drawingsOpen' in readWorkspace({ ...base, drawingsOpen: 'yes' }, INDICATORS, base)!).toBe(false);
+  });
   it('migrates version 1 (studies, type, dark, plain symbol)', () => {
     const v1 = { version: 1, symbol: 'ETH-USD', type: 'line', dark: true, interval: '1d', studies: [{ name: 'RSI', inputs: { period: 9 } }, { name: 'gone' }] };
     const m = migrateWorkspace(v1)!;

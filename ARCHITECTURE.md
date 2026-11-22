@@ -373,13 +373,26 @@ the first time the part is needed: the pencil key, the bell, Replay, a tooltip o
 that never draws never downloads the drawing code (checked in the browser test).
 
 **Chrome.** All DOM in one open shadow root on a host div; `:host { all: initial }`; one tone of flat bars (top bar,
-bottom bar) around the plot, a rounded card inset 6 px. The drawing rail is the drawings entry's own rail, inside the
-card at the plot's left (a rail in the chrome would need the drawings toolbar to accept a mount point). Controls 28 px
+bottom bar) around the plot, a rounded card inset 6 px. Controls 28 px
 (44 px on a coarse pointer), capsules, inverted ink for the selected state, plain-text interval / range / scale keys
 (selected in full ink at 600). Responsive: each bar measures its items on a resize (never per frame) and `collapseBar`
 moves the lowest priority into More (top: compare 20, redo 29, undo 30, alert 32, theme 35, screenshot 40, full screen
-42, draw 60, settings 70, chart type 85, indicators 88, interval keys 90; with the keys hidden the menu button names the
-interval); under 560 px (or a narrow coarse pointer) menus and dialogs are bottom sheets.
+42, draw 60 (89 while drawing), settings 70, chart type 85, indicators 88, interval keys 90; with the keys hidden the
+menu button names the interval); under 560 px (or a narrow coarse pointer) menus and dialogs are bottom sheets.
+
+**Drawing bar** (`.lbar` in the stage, `.tbar` a grid row between the stage and the bottom bar). The drawings entry's rail mounted in the chrome
+through `toolbar: { container, variant, styleContainer }`: on a desk a flat left column (`--h` + 16 px wide, the
+buttons on the top bar's 8 px line, the card's left edge 6 px past them), on the sheet breakpoint a row of `--h` +
+12 px above the bottom bar that scrolls sideways (the grid shortens the plot). The bar has no surface of its own (the
+`.w` tone shows through); class switches only (`.rail`, `.tray`, fade in / out by opacity), so opening costs one resize
+of the chart and no per-frame layout. Pencil on: load the module (first time), show the bar, create the tools with
+`ALL_TOOLS` (or `drawings.tools`); pencil off: fade, then destroy (the drawings JSON is kept). A breakpoint flip seen
+by `relayout` destroys and recreates them for the other place. The style bar of the selected drawing mounts in the top
+bar's spacer; while a drawing is selected the collapse reserves room for its compact form (and the pencil's priority
+rises to 89 while drawing, so it stays in sight). Flyouts open in the chart's own shadow root, at the chart's left edge
+beside the column (`placeFlyout` for a button outside the chart) or upwards from the phone row. Tab order: top bar, the
+rail (one stop, roving index), the chart. The widget's `pointerdown` listener runs in the capture phase (the rail stops
+bubbling so the chart does not pan; open menus must still close). The open state is `drawingsOpen` in the workspace.
 
 **Indicators.** Specs from the catalog; outputs become line or histogram series (a histogram with tone 'line' is
 coloured by sign), `band-upper` / `band-lower` pairs get a shaded fill primitive on price, guides become dotted price

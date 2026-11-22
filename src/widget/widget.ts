@@ -190,9 +190,13 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   const legendLayer = h(doc, 'div', '');
   const bottom = h(doc, 'div', 'bar bot', { role: 'toolbar', 'aria-label': S.ranges });
   const live = h(doc, 'div', 'sr', { 'aria-live': 'polite' });
+  // The drawing bar: a flat column of the chrome at the left of the card (desk), or a row above the bottom bar (phone).
+  // The drawings entry mounts its rail there (`toolbar.container`); empty and hidden until drawing is turned on.
+  const lbar = h(doc, 'div', 'lbar');
+  const tbar = h(doc, 'div', 'tbar');
   card.append(plot, legendLayer);
-  stage.append(card);
-  w.append(top, stage, bottom, live);
+  stage.append(lbar, card);
+  w.append(top, stage, tbar, bottom, live);
   shadow.appendChild(w);
   parent.appendChild(host);
   if (!options.height && host.clientHeight < 160) host.style.setProperty('height', '560px', 'important');
@@ -216,11 +220,16 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   let mainDef: AnySeriesDefinition | null = null;
   let mainKind: 'series' | 'transform' = 'series';
   let volume: AnySeries | null = null;
-  type ToolsLike = { destroy(): void; undo(): boolean; redo(): boolean; canUndo(): boolean; canRedo(): boolean; exportJSON(): string; importJSON(j: string): number; on(e: string, f: () => void): () => void; colors(): unknown };
+  type ToolsLike = { destroy(): void; undo(): boolean; redo(): boolean; canUndo(): boolean; canRedo(): boolean; exportJSON(): string; importJSON(j: string): number; on(e: string, f: (d?: unknown) => void): () => void; colors(): unknown };
   let tools: ToolsLike | null = null;
   let toolsLoading: Promise<void> | null = null;
-  let drawingsJSON: string | null = typeof options.drawings === 'string' ? options.drawings : null;
-  let drawingsOn = !!options.drawings;
+  const drawOpt = typeof options.drawings === 'object' && options.drawings ? options.drawings : null;
+  let drawingsJSON: string | null = typeof options.drawings === 'string' ? options.drawings : drawOpt?.saved ?? null;
+  let drawingsOn = drawOpt ? !!drawOpt.open : !!options.drawings;
+  /** A drawing is selected (its style bar is shown in the top bar). */
+  let drawSel = false;
+  /** The tools were made for the phone row (else the desk column); a flip of the breakpoint recreates them. */
+  let toolsPhone = false;
 
   const isDark = (): boolean => theme === 'dark' || (theme === 'auto' && !!darkQ?.matches);
   const colors = (): ThemeColors => ({ ...(isDark() ? darkTheme : lightTheme), ...((options.chartOptions as { colors?: Partial<ThemeColors> } | undefined)?.colors ?? {}) });
@@ -577,17 +586,11 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     placeLegend(true);
     paintLegend(lastCross);
   }
-  /** Left edge of the top pane's legend rows: right of the drawing rail when it is shown (read on layout only). */
+  /** Left edge of the legend rows (the drawing rail is in the chrome, outside the card: nothing to make room for). */
   let legendLeftCached = 6;
   function legendLeft(): number {
-    let left = chart.priceScale('left').width() + 6;
-    if (tools && drawingsOn) {
-      const ui = chart.element().querySelector('[data-chartist-drawing-ui]') as HTMLElement | null;
-      const rail = ui?.shadowRoot?.querySelector('[role="toolbar"]') as HTMLElement | null;
-      left = rail && rail.offsetWidth ? rail.offsetLeft + rail.offsetWidth + 6 : left + 54;
-    }
-    legendLeftCached = left;
-    return left;
+    legendLeftCached = chart.priceScale('left').width() + 6;
+    return legendLeftCached;
   }
   function placeLegend(force = false): void {
     const tops = paneTops();
@@ -854,36 +857,73 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   }
   let replayHandle: { exit(): void; destroy?(): void; pick(on?: boolean): void; start(at: number): void; info(): { active: boolean } } | null = null;
 
-  // ── drawings ──
-  async function ensureTools(): Promise<void> {
+  // ── drawings: the rail lives in the chrome (left column on a desk, a row above the bottom bar on a phone) ──
+  type DrawingsModule = NonNullable<WidgetModules['drawings']>;
+  function toolList(mod: DrawingsModule): readonly unknown[] | undefined {
+    const want = drawOpt?.tools ?? 'all';
+    if (Array.isArray(want)) return want.length ? want : undefined;
+    return want === 'basic' ? mod.BASIC_TOOLS : mod.ALL_TOOLS;
+  }
+  /** Show the column or the row that holds the rail (class switches only; the chart follows its box once). */
+  function syncDrawChrome(fadeIn: boolean, open = drawingsOn && !!tools): void {
+    w.classList.toggle('rail', open && !toolsPhone);
+    w.classList.toggle('tray', open && toolsPhone);
+    for (const el of [lbar, tbar]) { el.classList.remove('out'); el.classList.toggle('in', fadeIn); }
+  }
+  async function ensureTools(fadeIn = false): Promise<void> {
     if (tools || !main) return;
     if (toolsLoading) return toolsLoading;
     toolsLoading = (async () => {
-      const mod = await getModule('drawings') as { createDrawingTools?: (...a: unknown[]) => unknown } | null;
-      if (destroyed || !mod || typeof mod.createDrawingTools !== 'function' || !main) return;
-      const t = mod.createDrawingTools(chart, main, { toolbar: { position: 'left' }, magnet: true }) as ToolsLike;
+      const mod = await getModule('drawings') as DrawingsModule | null;
+      if (destroyed || !mod || typeof mod.createDrawingTools !== 'function' || !main || !drawingsOn || tools) return;
+      // The column or row must have its size before the rail measures itself.
+      toolsPhone = sheets();
+      syncDrawChrome(fadeIn, true);
+      const list = toolList(mod);
+      let t: ToolsLike;
+      try {
+        t = (mod.createDrawingTools as (...a: unknown[]) => unknown)(chart, main, {
+          toolbar: { container: toolsPhone ? tbar : lbar, variant: toolsPhone ? 'bar' : 'rail', styleContainer: styleSlot },
+          ...(list ? { tools: list } : {}), magnet: true,
+        }) as ToolsLike;
+      } catch (e) { syncDrawChrome(false, false); throw e; }
       tools = t;
       if (drawingsJSON) { try { t.importJSON(drawingsJSON); } catch { /* bad saved drawings are dropped */ } }
       const onChange = (): void => { if (!applyingHistory) { pushHistory({ kind: 'draw' }); } drawingsJSON = tools?.exportJSON() ?? null; schedulePersist(); };
       for (const e of ['created', 'changed', 'removed']) t.on(e, onChange);
-      placeLegend(true);
+      // A selected drawing's style bar takes the top bar's free area: the collapse makes room for it, then gives it back.
+      t.on('selected', (d?: unknown) => { const on = !!d; if (on !== drawSel) { drawSel = on; relayout(); } });
       syncTop();
+      relayout();
     })();
-    await toolsLoading;
-    toolsLoading = null;
+    try { await toolsLoading; } finally { toolsLoading = null; }
   }
   function dropTools(): void {
     if (!tools) return;
     drawingsJSON = tools.exportJSON();
     tools.destroy();
     tools = null;
-    placeLegend(true);
+    drawSel = false;
+    // The drawing tools' own history went with them.
+    undoStack = undoStack.filter(e => e.kind !== 'draw');
+    redoStack = redoStack.filter(e => e.kind !== 'draw');
+    syncHistoryButtons();
   }
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
   async function setDrawings(on: boolean): Promise<void> {
     drawingsOn = on;
-    if (on) await ensureTools(); else dropTools();
+    if (closeTimer) { clearTimeout(closeTimer); timers.delete(closeTimer); closeTimer = null; }
     syncTop();
     schedulePersist();
+    relayout();
+    if (on) {
+      if (tools) syncDrawChrome(true); else await ensureTools(true);
+      return;
+    }
+    if (!tools) { syncDrawChrome(false); return; }
+    // A short fade of the bar, then it goes (the card takes the room at once: no width animation).
+    for (const el of [lbar, tbar]) { el.classList.remove('in'); el.classList.add('out'); }
+    closeTimer = later(() => { closeTimer = null; if (drawingsOn) return; dropTools(); syncDrawChrome(false); relayout(); }, 120);
   }
 
   // ── undo / redo: widget changes as workspace snapshots, drawing changes through the drawing tools ──
@@ -922,6 +962,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       format: WORKSPACE_FORMAT, version: WORKSPACE_VERSION, symbol: { ...symbol }, interval, chartType, theme, timeZone: tz,
       indicators: inds.map(indState), compare: compareSyms.map(c => c.symbol), settings: { ...settings },
       drawings: tools ? tools.exportJSON() : drawingsJSON,
+      drawingsOpen: drawingsOn,
     };
   }
   async function applyWorkspace(ws: WorkspaceJSON, reload: boolean): Promise<void> {
@@ -948,6 +989,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if (reload && (symbolChanged || intervalChanged) && (feed || liveOpt)) await loadData();
     else buildMain();
     rebuildIndicators();
+    // A loaded workspace opens or closes the drawing bar as it was saved (undo and redo leave it alone).
+    if (reload && typeof ws.drawingsOpen === 'boolean' && ws.drawingsOpen !== drawingsOn && (modules.drawings || options.load?.drawings)) void setDrawings(ws.drawingsOpen);
     for (const s of ws.compare) addCompare(s);
     applySettings();
     syncTop();
@@ -1031,6 +1074,9 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   });
 
   const sep = (): HTMLElement => h(doc, 'span', 'sep', { 'aria-hidden': 'true' });
+  // The top bar's free area holds the selected drawing's style bar (`toolbar.styleContainer`): a fixed place, never
+  // over the candles. While a drawing is selected, the collapse keeps room in it for the compact form.
+  const styleSlot = h(doc, 'span', 'sp');
   const topDef: { id: string; el: HTMLElement; pri: number; label?: string; icon?: string; run?: (opener: HTMLElement) => void; on?: () => boolean }[] = [
     { id: 'symbol', el: symBtn, pri: KEEP },
     { id: 'status', el: statusEl, pri: 50 },
@@ -1043,7 +1089,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     { id: 'compare', el: cmpBtn, pri: 20, label: S.compare, icon: 'compare', run: o => openSymbolSearch(o, '', true) },
     { id: 'alerts', el: alertBtn, pri: 32, label: S.alerts, icon: 'bell', run: () => void addAlert() },
     { id: 'draw', el: drawBtn, pri: 60, label: S.draw, icon: 'pencil', run: () => void setDrawings(!drawingsOn), on: () => drawingsOn },
-    { id: 'spacer', el: h(doc, 'span', 'sp'), pri: KEEP },
+    { id: 'spacer', el: styleSlot, pri: KEEP },
     { id: 'undo', el: undoBtn, pri: 30, label: S.undo, icon: 'undo', run: () => void undo() },
     { id: 'redo', el: redoBtn, pri: 29, label: S.redo, icon: 'redo', run: () => void redo() },
     { id: 'screenshot', el: shotBtn, pri: 40, label: S.screenshot, icon: 'camera', run: () => void api.screenshot(true) },
@@ -1167,10 +1213,14 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   }
 
   let measured = new Map<string, number>();
+  /** Room for the compact style bar (colour, more, delete) plus a margin. */
+  const styleRoom = (): number => 3 * ((coarseQ?.matches ? 44 : 28) + 2) + 10 + 12;
   function relayout(): void {
     if (destroyed) return;
     const width = w.clientWidth;
     if (!(width > 0)) return;
+    // The sheet breakpoint flipped while drawing: make the rail again for the other place (drawings kept).
+    if (tools && drawingsOn && !toolsLoading && sheets() !== toolsPhone) { dropTools(); void ensureTools(); return; }
     for (const [defs, partMap, bar, more, overflow] of [[topDef, partOf, top, moreBtn, overflowTop], [botDef, botPart, bottom, botMore, overflowBot]] as const) {
       for (const d of defs) {
         const p = (partMap as Record<string, keyof typeof parts | null>)[d.id];
@@ -1185,9 +1235,10 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const list: BarItem[] = [];
       for (const d of defs) {
         if (!(d.el as HTMLElement & { _en?: boolean })._en || d.el === more) continue;
-        const wd = d.id === 'spacer' || d.id === 'bspacer' ? 8 : d.el.offsetWidth + 2;
+        const wd = d.id === 'bspacer' ? 8 : d.id === 'spacer' ? (drawingsOn && tools && drawSel ? styleRoom() : 8) : d.el.offsetWidth + 2 + (d.el.classList.contains('sep') ? 12 : 0);
         measured.set(d.id, wd);
-        list.push({ id: d.id, width: wd, priority: d.pri });
+        // While drawing, the pencil (which closes the bar) stays in sight.
+        list.push({ id: d.id, width: wd, priority: d.id === 'draw' && drawingsOn ? 89 : d.pri });
       }
       const avail = bar.clientWidth - 16;
       const res = collapseBar(list, avail, more.offsetWidth + 2);
@@ -1756,7 +1807,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if ((e.composedPath?.() ?? []).includes(chart.element())) return;
     if (shortcut(e, false)) e.preventDefault();
   });
-  listen(w, 'pointerdown', ev => layers.pointerDown((ev as PointerEvent).composedPath()));
+  // Capture: the drawing rail stops its presses from bubbling (so the chart does not pan), menus must still close.
+  listen(w, 'pointerdown', ev => layers.pointerDown((ev as PointerEvent).composedPath()), true);
 
   // ── the API ──
   const api: Widget = {
@@ -1898,7 +1950,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   }
   if (restored) {
     symbol = restored.symbol; interval = restored.interval; chartType = restored.chartType; theme = restored.theme; tz = restored.timeZone; settings = restored.settings;
-    if (restored.drawings) { drawingsJSON = restored.drawings; drawingsOn = true; }
+    if (restored.drawings) drawingsJSON = restored.drawings;
+    drawingsOn = restored.drawingsOpen ?? !!restored.drawings;
     chart.applyOptions({ theme, timeScale: { timeZone: tz } } as never);
     applyTheme();
     for (const st of restored.indicators) { const spec = catalog.find(s => s.id === st.id); if (spec) addIndicatorRaw(spec, st); }

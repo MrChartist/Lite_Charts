@@ -471,5 +471,7 @@ describe('toolbar placement', () => {
     const tiny = placeFlyout({ left: 10, top: 10, right: 38, bottom: 38 }, { width: 260, height: 220 }, { width: 300, height: 500 }, true);
     expect(tiny.left + tiny.width).toBeLessThanOrEqual(256);
     expect(tiny.top + tiny.height).toBeLessThanOrEqual(216);
+    // A rail in the host's left bar (the button is left of the chart): the flyout opens at the chart's left edge.
+    expect(placeFlyout({ left: -34, top: 50, right: -6, bottom: 78 }, { width: 900, height: 600 }, { width: 220, height: 200 }, true)).toEqual({ left: 4, top: 46, width: 220, height: 200 });
   });
 });

@@ -64,6 +64,8 @@
     symbol: SYMBOLS[0], interval: '1D', theme, feed,
     indicators: params.has('bare') ? [] : ['ema', { id: 'rsi' }],
     persist: params.has('persist') ? { key: 'widget-demo' } : undefined,
+    // ?tools=basic: the first fifteen tools only (default: all of them).
+    drawings: params.get('tools') === 'basic' ? { tools: 'basic' } : undefined,
     load: {
       drawings: () => loadScript('../dist/chartist-lite-drawings.iife.min.js', 'ChartistLiteDrawings'),
       extras: () => loadScript('../dist/chartist-lite-extras.iife.min.js', 'ChartistLiteExtras').catch(() => null),

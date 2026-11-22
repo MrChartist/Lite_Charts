@@ -4,7 +4,7 @@
 //   <chartist-terminal src="/prices.json" symbol="ACME" theme="dark" height="560"></chartist-terminal>
 //
 // Attributes: symbol, description, interval, intervals (comma list), chart-type, theme, time-zone, live, provider,
-// indicators (comma list of catalog ids), drawings, src (JSON or CSV rows), height, persist (a storage key), and
+// indicators (comma list of catalog ids), drawings (empty, or 'basic' / 'all' for the tool set), src (JSON or CSV rows), height, persist (a storage key), and
 // toolbar-off (comma list of parts to hide). A change of any attribute rebuilds the widget, except symbol, interval,
 // chart-type and theme, which switch in place. Events: `chartist-ready` (detail.widget, detail.chart),
 // `chartist-error` (detail.message). Nothing registers until `defineTerminalElement()` is called; the one-tag build
@@ -36,7 +36,7 @@ export function terminalOptions(get: (name: string) => string | null, has: (name
   if (get('time-zone')) o.timeZone = get('time-zone') as string;
   if (has('live')) o.live = { symbol: sym ?? 'BTC-USD', ...(get('provider') ? { provider: get('provider') as string } : {}) };
   if (list(get('indicators')).length) o.indicators = list(get('indicators'));
-  if (has('drawings')) o.drawings = true;
+  if (has('drawings')) { const d = get('drawings'); o.drawings = d === 'basic' || d === 'all' ? { open: true, tools: d } : true; }
   const h = Number(get('height'));
   if (get('height') && h > 0) o.height = h;
   if (get('persist')) o.persist = { key: get('persist') as string };

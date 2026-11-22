@@ -2,6 +2,7 @@
 
 import type { ChartApi } from '../api';
 import type { IndicatorSpec } from '../indicators/catalog';
+import type { ToolDefinition } from '../drawings/contract';
 import type { WidgetStrings } from './strings';
 
 export type { IndicatorSpec };
@@ -59,9 +60,18 @@ export type ToolbarPart =
   | 'symbol' | 'intervals' | 'chartType' | 'indicators' | 'compare' | 'alerts' | 'draw' | 'undo' | 'screenshot'
   | 'fullscreen' | 'theme' | 'settings' | 'ranges' | 'goto' | 'clock' | 'scale' | 'status';
 
+export interface WidgetDrawingsOptions {
+  /** 'all' (default: `ALL_TOOLS` of the drawings module), 'basic' (`BASIC_TOOLS`) or tool definitions of your own. */
+  tools?: 'basic' | 'all' | readonly ToolDefinition[];
+  /** Open the drawing bar at start. Default false. */
+  open?: boolean;
+  /** Saved drawings JSON (`exportJSON` of the drawing tools) to restore. */
+  saved?: string;
+}
+
 /** Modules the widget can use when given (or loaded on demand through `load`). */
 export interface WidgetModules {
-  drawings?: { createDrawingTools: (...args: never[]) => unknown };
+  drawings?: { createDrawingTools: (...args: never[]) => unknown; ALL_TOOLS?: readonly ToolDefinition[]; BASIC_TOOLS?: readonly ToolDefinition[] };
   live?: { connectLive: (...args: never[]) => unknown };
   extras?: Record<string, unknown>;
   transforms?: { CHART_TYPES?: readonly ChartTypeInfo[]; applyChartType?: (...args: never[]) => unknown };
@@ -92,8 +102,12 @@ export interface WidgetOptions {
   /** Real crypto from public exchange APIs (needs the live module): `true` starts on BTC-USD. */
   live?: boolean | { provider?: string | object; symbol?: string };
   indicators?: readonly (string | ({ id: string } & Partial<Omit<IndicatorState, 'id'>>))[];
-  /** Drawing tools: true, or saved drawings JSON to restore. Needs the drawings module (given or loaded). */
-  drawings?: boolean | string;
+  /**
+   * Drawing tools: true (the drawing bar open at start), saved drawings JSON to restore, or `{ tools, open, saved }`:
+   * `tools` is 'all' (default, every built-in tool), 'basic' (the first fifteen) or your own list of definitions.
+   * Needs the drawings module (given or loaded); it is loaded the first time drawing is turned on.
+   */
+  drawings?: boolean | string | WidgetDrawingsOptions;
   /** Parts of the chrome on (true) or off (false). */
   toolbar?: Partial<Record<ToolbarPart, boolean>>;
   /** Opt-in: keep the workspace in localStorage under `key` (versioned). Nothing is stored without it. */
@@ -149,4 +163,6 @@ export interface WorkspaceJSON {
   compare: string[];
   settings: WidgetSettings;
   drawings: string | null;
+  /** The drawing bar is open (saved with the workspace; absent in older saves: open when there are drawings). */
+  drawingsOpen?: boolean;
 }

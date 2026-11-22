@@ -20,5 +20,5 @@ export { CRYPTO_SYMBOLS, demoBars } from './demo';
 export { WIDGET_ICONS } from './icons';
 export type {
   Widget, WidgetOptions, WidgetEvent, WidgetFeed, WidgetModules, WidgetSettings, WidgetBar, WidgetRowInput, SymbolInfo,
-  BarsRequest, ChartTypeInfo, IndicatorHandle, IndicatorState, OutputStyle, ToolbarPart, WorkspaceJSON,
+  BarsRequest, ChartTypeInfo, IndicatorHandle, IndicatorState, OutputStyle, ToolbarPart, WorkspaceJSON, WidgetDrawingsOptions,
 } from './types';

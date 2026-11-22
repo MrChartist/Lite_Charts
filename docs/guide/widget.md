@@ -43,7 +43,7 @@ With a script tag, load `chartist-lite-widget.iife.min.js` and use the global `C
 | `feed` | A data source of your own (next chapter) |
 | `live` | `true` or `{ provider, symbol }`: real crypto from public exchanges, with the live module |
 | `indicators` | Catalogue ids, or `{ id, params, visible, placement, styles }` |
-| `drawings` | `true`, or saved drawings JSON to restore; needs the drawings module |
+| `drawings` | `true`, saved drawings JSON to restore, or `{ tools: 'basic' \| 'all' \| ToolDefinition[], open, saved }`; needs the drawings module |
 | `toolbar` | Parts on or off, such as `{ compare: false, alerts: false }` |
 | `persist` | `{ key, storage? }`: keep the workspace in `localStorage`; nothing is stored without it |
 | `strings` | Every visible word |
@@ -120,7 +120,7 @@ Top bar: `symbol`, `status`, `intervals`, `chartType`, `indicators`, `compare`, 
 
 - **Responsive.** Each bar measures its items on a resize, never per frame, and moves the lowest priority ones into a More menu (compare first, then redo, undo, alert, theme, screenshot, full screen, draw, settings, chart type, indicators, and last the interval keys). Under 560 px, or on a narrow touch screen, menus and dialogs open as bottom sheets.
 - **Indicators dialog.** Searchable, grouped by category, with settings per indicator: inputs, colour, width, visibility, and on price or in its own pane. Legend rows show the values of the hovered bar; hover or tap a row to hide, edit or remove it, and on a pane's first row move the pane, maximise it or close it.
-- **Drawing tools.** The pencil key turns on the drawings entry's own rail, inside the chart card at the plot's left. Today the widget passes no tool list, so the rail offers the drawings entry's default {{basicTools}} tools; a host that wants all {{drawingTools}} tools uses the drawings entry directly (see [Drawing tools](drawing-tools.md)).
+- **Drawing tools.** The pencil key opens the drawing rail in the widget's left bar (a scrolling row above the bottom bar on phone widths), and the controls for a selected drawing appear in the top bar. The rail offers all {{drawingTools}} tools by default; `drawings: { tools: 'basic' }` keeps the default {{basicTools}}. Closing the rail hides the drawings until it is opened again; they are kept. See [Drawing tools](drawing-tools.md).
 - **Screenshot** downloads a PNG with the legend painted in; **full screen** uses the browser's full-screen mode, and the chart follows its container.
 
 ## Persistence, save and load

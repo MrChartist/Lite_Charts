@@ -124,5 +124,6 @@ export function readWorkspace(input: unknown, catalog: readonly IndicatorSpec[],
     compare: Array.isArray(m.compare) ? m.compare.filter((x): x is string => typeof x === 'string').slice(0, 8) : [],
     settings,
     drawings: typeof m.drawings === 'string' ? m.drawings : null,
+    ...(typeof m.drawingsOpen === 'boolean' ? { drawingsOpen: m.drawingsOpen } : {}),
   };
 }
