@@ -93,6 +93,9 @@ async function bundles() {
     await sleep(page, 80);
     check(!(await tip()).shown, 'the card hides when the pointer leaves');
 
+    await page.mouse.move(o.x + p.w * 0.45, o.y + 150, { steps: 4 });
+    await sleep(page, 80);
+    await page.screenshot({ path: path.join(out, '.floating.png'), clip: { x: o.x - 8, y: o.y - 8, width: o.w + 16, height: o.h + 16 } });
     // Tracking: pinned over the bar, with a marker dot.
     await page.click('#card-tooltip [data-mode="tracking"]');
     await page.mouse.move(o.x + p.w * 0.45, o.y + 150, { steps: 4 });
@@ -129,7 +132,6 @@ async function bundles() {
     await page.keyboard.press('Escape');
     await sleep(page, 100);
     check(!(await tip()).shown, 'Escape ends inspect mode and hides the tooltip');
-    await page.screenshot({ path: path.join(out, '.floating.png'), clip: { x: o.x - 8, y: o.y - 8, width: o.w + 16, height: o.h + 16 } }).catch(() => {});
   }
 
   // ── 3. go to realtime ──

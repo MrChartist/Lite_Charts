@@ -1,12 +1,33 @@
 {
-  "name": "@mrchartist/chartist-lite",
+  "name": "lite-charts",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "A small, fast canvas financial chart with no runtime dependencies.",
+  "description": "Chartist Lite: a small, fast canvas financial chart with no runtime dependencies. ESM only.",
+  "keywords": [
+    "chart",
+    "charting",
+    "financial-chart",
+    "candlestick",
+    "canvas",
+    "trading",
+    "stocks",
+    "crypto",
+    "indicators",
+    "technical-analysis",
+    "ohlc",
+    "zero-dependency"
+  ],
+  "homepage": "https://mrchartist.github.io/Lite_Charts/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrChartist/Lite_Charts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MrChartist/Lite_Charts/issues"
+  },
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/types/index.d.ts",
   "unpkg": "./dist/chartist-lite.iife.min.js",
@@ -56,11 +77,14 @@
     "README.md",
     "LICENSE",
     "NOTICE",
-    "CHANGELOG.md",
-    "PROVENANCE.md"
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -70,7 +94,11 @@
     "site": "node site/build.mjs",
     "check": "npm run typecheck && npm test && npm run build && npm run size",
     "screenshots": "npm run build && node scripts/screenshots-all.mjs",
-    "bench": "npm run build && node scripts/bench.cjs"
+    "bench": "npm run build && node scripts/bench.cjs",
+    "prepack": "npm run build",
+    "smoke": "node scripts/smoke-browsers.cjs",
+    "pack:check": "node scripts/pack-check.mjs",
+    "rename": "node scripts/rename-package.mjs"
   },
   "peerDependencies": {
     "react": ">=18"

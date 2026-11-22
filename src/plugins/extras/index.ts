@@ -1,4 +1,4 @@
-// Entry `@mrchartist/chartist-lite/extras` (script-tag global `ChartistLiteExtras`): optional plugins that sit on the
+// Entry `lite-charts/extras` (script-tag global `ChartistLiteExtras`): optional plugins that sit on the
 // chart's public hooks (primitives, pointer handlers, crosshair and range subscriptions). Every export is a small
 // function that returns a handle (`applyOptions`, `remove` / `destroy`); nothing is created until it is called.
 

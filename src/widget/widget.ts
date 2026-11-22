@@ -110,7 +110,10 @@ interface Ind {
   styles: Record<string, OutputStyle>;
   series: Map<string, AnySeries>;
   guides: PriceLine[];
-  band: ChartPrimitive | null;
+  bands: ChartPrimitive[];
+  /** Outputs whose colour the user picked (a sign-coloured histogram then takes that one colour). */
+  custom: Set<string>;
+  empty: boolean;
   last: Record<string, { time: unknown; value?: number }[]>;
   handle: IndicatorHandle;
   row: HTMLElement | null;
@@ -326,7 +329,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     let k = used;
     spec.outputs.forEach(o => {
       const tone = o.tone ?? 'line';
-      const color = tone === 'up' ? c.up : tone === 'down' ? c.down : tone === 'muted' ? (isDark() ? '#8E8E93' : '#8A8A8E') : typeof tone === 'number' ? acc[(used + tone) % acc.length] : acc[k++ % acc.length];
+      const color = o.kind === 'histogram' && tone === 'line' ? c.up : tone === 'up' ? c.up : tone === 'down' ? c.down : tone === 'muted' ? (isDark() ? '#8E8E93' : '#8A8A8E') : typeof tone === 'number' ? acc[(used + tone) % acc.length] : acc[k++ % acc.length];
       out[o.key] = { color, width: o.kind === 'line' ? 2 : 1, visible: true };
     });
     return out;
@@ -370,8 +373,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   function teardownIndicator(ind: Ind): void {
     for (const g of ind.guides) { try { g.remove(); } catch { /* gone with its series */ } }
     ind.guides = [];
-    if (ind.band && main) { try { main.detachPrimitive(ind.band); } catch { /* main was rebuilt */ } }
-    ind.band = null;
+    for (const b of ind.bands) { try { main?.detachPrimitive(b); } catch { /* main was rebuilt */ } }
+    ind.bands = [];
     for (const s of ind.series.values()) { try { chart.removeSeries(s); } catch { /* already removed */ } }
     ind.series.clear();
   }
@@ -394,8 +397,9 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if (first && own && ind.spec.guides) {
       for (const g of ind.spec.guides) ind.guides.push(createPriceLine(first, { price: g, lineStyle: 'dotted', axisLabelVisible: false, color: colors().mutedText } as never));
     }
-    const up = ind.spec.outputs.find(o => o.kind === 'band-upper'), lo = ind.spec.outputs.find(o => o.kind === 'band-lower');
-    if (up && lo && main && !own) { ind.band = bandPrimitive(ind, up.key, lo.key); main.attachPrimitive(ind.band); }
+    // Upper and lower band edges pair up in list order; each pair gets a shaded fill (on the price pane).
+    const ups = ind.spec.outputs.filter(o => o.kind === 'band-upper'), los = ind.spec.outputs.filter(o => o.kind === 'band-lower');
+    if (main && !own) for (let k = 0; k < Math.min(ups.length, los.length); k++) { const b = bandPrimitive(ind, ups[k].key, los[k].key); ind.bands.push(b); main.attachPrimitive(b); }
     computeIndicator(ind);
   }
 
@@ -403,6 +407,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     let res: Record<string, { time: unknown; value?: number }[]> = {};
     try { res = ind.spec.compute(rows as never, ind.params) as never; } catch { res = {}; }
     ind.last = res;
+    ind.empty = rows.length > 0 && ind.spec.outputs.every(o => !(res[o.key] ?? []).some(p => typeof p.value === 'number' && Number.isFinite(p.value)));
     const c = colors();
     for (const o of ind.spec.outputs) {
       const s = ind.series.get(o.key);
@@ -410,7 +415,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const arr = res[o.key] ?? [];
       if (o.kind === 'histogram') {
         const st = ind.styles[o.key];
-        const signed = st.color === c.up || st.color === c.down;
+        // The catalog's rule: a histogram with the accent tone ('line') is coloured by sign; any other tone is one colour.
+        const signed = (o.tone ?? 'line') === 'line' && !ind.custom.has(o.key);
         s.setData(arr.map(p => (typeof p.value === 'number' && Number.isFinite(p.value)
           ? { time: p.time, value: p.value, color: signed ? alpha(p.value >= 0 ? c.up : c.down, 0.6) : alpha(st.color, 0.75) }
           : { time: p.time })) as never);
@@ -441,7 +447,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       visible: () => ind.visible,
       setPlacement(pl) { if (pl !== ind.placement) { record(() => { ind.placement = pl; rebuildIndicators(); }); emit('indicators', api.indicators()); } },
       placement: () => ind.placement,
-      setOutputStyle(key, st) { const cur = ind.styles[key]; if (!cur) return; record(() => { ind.styles[key] = { ...cur, ...st }; buildIndicator(ind); renderLegend(); }); emit('indicators', api.indicators()); },
+      setOutputStyle(key, st) { const cur = ind.styles[key]; if (!cur) return; if (st.color) ind.custom.add(key); record(() => { ind.styles[key] = { ...cur, ...st }; buildIndicator(ind); renderLegend(); }); emit('indicators', api.indicators()); },
       remove() { api.removeIndicator(ind.uid); },
     };
   }
@@ -453,7 +459,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     for (const o of spec.outputs) styles[o.key] = { ...base[o.key], ...(state.styles?.[o.key] ?? {}) };
     const ind: Ind = {
       uid: `i${++seq}`, spec, params: validateParams(spec, state.params ?? {}).params, visible: state.visible !== false,
-      placement: state.placement ?? (spec.overlay ? 'overlay' : 'pane'), styles, series: new Map(), guides: [], band: null, last: {},
+      placement: state.placement ?? (spec.overlay ? 'overlay' : 'pane'), styles, series: new Map(), guides: [], bands: [], custom: new Set(Object.keys(state.styles ?? {}).filter(k => state.styles?.[k]?.color)), last: {}, empty: false,
       handle: null as unknown as IndicatorHandle, row: null, values: new Map(),
     };
     ind.handle = makeHandle(ind);
@@ -595,6 +601,10 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
         const t = v === undefined ? '' : formatValue(v);
         if (el.textContent !== t) el.textContent = t;
       }
+      // An indicator with no value anywhere (it needs intraday or longer data) says so instead of an empty pane.
+      const none = ind.empty;
+      const first = ind.values.values().next().value as HTMLElement | undefined;
+      if (none && first && first.textContent !== S.noValues) { first.textContent = S.noValues; first.style.setProperty('color', 'var(--muted)'); }
     }
   }
   const onCross = (p: MouseEventParams): void => paintLegend(p.time !== undefined ? p : null);
@@ -1439,7 +1449,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       for (const c of palette.includes(st.color) ? palette : [st.color, ...palette].slice(0, 9)) {
         const s = h(doc, 'button', 'cs', { type: 'button', role: 'radio', 'aria-checked': String(c === st.color), 'aria-label': `${S.colour} ${c}`, title: c });
         s.style.setProperty('background', c);
-        s.addEventListener('click', () => { st.color = c; for (const x of Array.from(cl.children)) x.setAttribute('aria-checked', String(x === s)); });
+        s.addEventListener('click', () => { st.color = c; ind.custom.add(o.key); for (const x of Array.from(cl.children)) x.setAttribute('aria-checked', String(x === s)); });
         cl.append(s);
       }
       const wsel = h(doc, 'select', 'f', { 'aria-label': `${o.label} ${S.lineWidth}` });
@@ -1742,7 +1752,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     },
     setChartType(id) {
       if (id === chartType || !chartTypes().some(c => c.id === id)) return;
-      record(() => { chartType = id; buildMain(); if (tools) { dropTools(); if (drawingsOn) void ensureTools(); } for (const ind of inds) if (ind.band && main) { main.attachPrimitive(ind.band); } });
+      record(() => { chartType = id; buildMain(); if (tools) { dropTools(); if (drawingsOn) void ensureTools(); } for (const ind of inds) for (const b of ind.bands) main?.attachPrimitive(b); });
       syncTop();
       emit('chartType', chartType);
     },

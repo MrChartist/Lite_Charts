@@ -1,6 +1,6 @@
-// Entry `@mrchartist/chartist-lite/drawings`: drawing tools on top of the chart's primitive and pointer hooks.
+// Entry `lite-charts/drawings`: drawing tools on top of the chart's primitive and pointer hooks.
 //
-//   import { createDrawingTools } from '@mrchartist/chartist-lite/drawings';
+//   import { createDrawingTools } from 'lite-charts/drawings';
 //   const tools = createDrawingTools(chart, candles, { toolbar: true });
 //   tools.setTool('trend');
 //

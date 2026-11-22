@@ -1,5 +1,5 @@
 // Custom series examples: importable definitions that prove the series contract and serve as templates.
-//   import { StackedAreaSeries } from '@mrchartist/chartist-lite/extras';
+//   import { StackedAreaSeries } from 'lite-charts/extras';
 //   chart.addSeries(StackedAreaSeries, { title: 'Mix' });
 
 export { StackedAreaSeries } from './stacked-area';

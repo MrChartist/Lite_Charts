@@ -173,7 +173,7 @@ Planned stage-2 plugins, one file each in `src/plugins/`, exported from `src/ind
 
 ### Indicators
 
-Entry `@mrchartist/chartist-lite/indicators` (`src/indicators/index.ts`). Pure functions, no chart import:
+Entry `lite-charts/indicators` (`src/indicators/index.ts`). Pure functions, no chart import:
 `sma(rows: readonly { time: Time; close: number }[], period: number): (LineData | WhitespaceData)[]`, and so on; the
 output is fed to a `LineSeries` (or a stage-2 histogram). Warm-up bars return whitespace rows `{ time }` so slots stay
 aligned. Same boundary rules; no import from `chart/`. Incremental (`next(row)`) forms are optional.
@@ -269,7 +269,7 @@ the modifier keys. `timeScale().timeToLogical(time)` / `logicalToTime(logical)` 
 past either end at the median bar interval, so anchors in time survive zoom, resize, time zone and data changes.
 `PrimitiveHost.requestOverlay()` repaints only the overlay; `PrimitiveDrawScope.seriesRowAt(time)` reads a row.
 
-Entry `@mrchartist/chartist-lite/drawings` (`src/drawings/`, IIFE global `ChartistLiteDrawings`):
+Entry `lite-charts/drawings` (`src/drawings/`, IIFE global `ChartistLiteDrawings`):
 
 | File | Role |
 |---|---|
@@ -288,7 +288,7 @@ not redrawn on every pointer move. Inside this entry, a new tool is one `TOOLS` 
 
 ## Live data (2026-11-21)
 
-Entry `@mrchartist/chartist-lite/live` (`src/live/`, IIFE `ChartistLiteLive`). The core never imports it and makes no
+Entry `lite-charts/live` (`src/live/`, IIFE `ChartistLiteLive`). The core never imports it and makes no
 network requests; the plain element build does not contain it (the element-live build does).
 
 | File | Role |

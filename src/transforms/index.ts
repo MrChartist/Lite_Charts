@@ -1,4 +1,4 @@
-// Entry `@mrchartist/chartist-lite/transforms` (IIFE global `ChartistLiteTransforms`): pure transforms from rows to
+// Entry `lite-charts/transforms` (IIFE global `ChartistLiteTransforms`): pure transforms from rows to
 // rows (Renko, line break, Kagi, point and figure, range bars, Heikin-Ashi), their incremental forms, the series
 // definitions for the looks that are not transforms (hollow candles, step line, HLC area, columns, high-low, Kagi,
 // point and figure), and the chart-type registry (`CHART_TYPES`, `applyChartType`). No chart import: the transforms

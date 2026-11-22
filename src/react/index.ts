@@ -2,7 +2,7 @@
 // test allows no foreign imports), so the component is built from the React you pass in, once:
 //
 //   import * as React from 'react';
-//   import { createChartistReact } from '@mrchartist/chartist-lite/react';
+//   import { createChartistReact } from 'lite-charts/react';
 //   export const { ChartistChart, useChartist } = createChartistReact(React);
 //
 // No JSX is used here, so no JSX build step is needed. The chart is created once per mount; new props are applied

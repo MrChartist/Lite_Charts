@@ -1,4 +1,4 @@
-// Entry `@mrchartist/chartist-lite/indicators`: pure functions from rows to series data, no chart import.
+// Entry `lite-charts/indicators`: pure functions from rows to series data, no chart import.
 // Each lives in its own file (tree-shakeable); the API and rules are in README.md next to this file.
 
 export type { IndicatorPoint, IndicatorRow, PriceSource, SourceOptions } from './shared';

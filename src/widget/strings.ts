@@ -28,6 +28,7 @@ export const DEFAULT_STRINGS = {
   lineWidth: 'Width',
   visible: 'Visible',
   done: 'Done',
+  noValues: 'No values for this data (needs intraday or longer history)',
   defaults: 'Defaults',
   compare: 'Compare',
   compareSymbol: 'Compare with a symbol',

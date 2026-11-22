@@ -200,7 +200,7 @@ function renderStrip(doc: Document, card: Elem, info: TooltipInfo, st: Style): v
     else { dotEl(doc, top, entry.color); text(doc, top, entry.title, c.mutedText, { 'font-weight': '500' }); }
     const big = make(doc, 'div', { display: 'flex', 'align-items': 'baseline', gap: '10px', 'white-space': 'nowrap' }, block);
     text(doc, big, entry.readout ?? entry.text.value, c.text, { 'font-size': lead ? '24px' : '16px', 'font-weight': '600', 'line-height': lead ? '30px' : '20px' });
-    changeLine(doc, big, entry, st);
+    if (lead) changeLine(doc, big, entry, st);
     if (lead && entry.text.kind === 'ohlc') {
       const cells = make(doc, 'div', { display: 'flex', gap: '14px', 'white-space': 'nowrap', 'flex-shrink': '0' }, card);
       for (const cell of entry.text.cells) {
@@ -296,13 +296,13 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
       css(card, {
         display: mode === 'magnifier' ? 'flex' : 'block', font: `400 ${ui.state().fontSize}px/${Math.round(ui.state().fontSize * 1.4)}px ${ui.state().fontFamily}`, color: c.text,
         'font-variant-numeric': 'tabular-nums', direction: 'ltr', 'text-align': 'left', 'box-sizing': 'border-box',
-        background: withAlpha(c.background, mode === 'magnifier' ? 0.97 : 0.95),
+        background: withAlpha(c.background, mode === 'magnifier' ? 1 : 0.96),
         border: mode === 'magnifier' ? '0' : `1px solid ${c.paneSeparator}`,
         'border-bottom': mode === 'magnifier' ? `1px solid ${c.paneSeparator}` : `1px solid ${c.paneSeparator}`,
         'border-radius': mode === 'magnifier' ? '0' : '10px',
         'box-shadow': mode === 'magnifier' ? 'none' : ui.state().dark ? '0 6px 20px rgba(0,0,0,0.5)' : '0 6px 20px rgba(0,0,0,0.12)',
         padding: mode === 'magnifier' ? '6px 14px' : mode === 'tracking' ? '6px 9px' : '8px 11px',
-        width: mode === 'magnifier' ? `${Math.round(plot.width)}px` : 'auto',
+        width: mode === 'magnifier' ? `${Math.round(plot.width)}px` : 'max-content',
         'min-width': mode === 'floating' ? '168px' : '0',
       });
       renderCard(doc, card, data, mode, st, opts.format);
@@ -325,7 +325,7 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
       const mark = row ? yOf(numberOf(row)) : null;
       if (bx === null || hi === null || lo === null) at = placeFloating(p, size, bounds, 14, false);
       else {
-        const t = placeTracking(bx, Math.min(hi, lo), Math.max(hi, lo), size, { x: plot.x, width: plot.width, height: bounds.h }, 16);
+        const t = placeTracking(bx, Math.min(hi, lo), Math.max(hi, lo), size, { x: plot.x, width: plot.width, height: plot.y + plot.height }, 16);
         at = t;
         if (mark !== null) dotAt = { x: bx, y: mark };
       }

@@ -1,6 +1,6 @@
 # Indicators entry
 
-`import { sma, rsi, macd } from '@mrchartist/chartist-lite/indicators'`. Pure functions from rows to data for
+`import { sma, rsi, macd } from 'lite-charts/indicators'`. Pure functions from rows to data for
 `LineSeries` / `HistogramSeries` / `CandlestickSeries`. No chart import, no DOM, no dependencies. One file per function,
 so a bundler keeps only what you import. The header comment of each file states the exact maths.
 
@@ -71,7 +71,7 @@ previous month, monthly the previous year), `'day'`, `'week'`, `'month'` or `'ye
 ## Catalog (the registry a UI is built on)
 
 ```ts
-import { INDICATORS, getIndicator, legendLabel } from '@mrchartist/chartist-lite/indicators';
+import { INDICATORS, getIndicator, legendLabel } from 'lite-charts/indicators';
 const rsi = getIndicator('rsi');                    // { id, name, shortName, category, overlay, inputs, outputs, guides, compute }
 legendLabel(rsi, { period: 14 });                   // 'RSI 14'
 rsi.compute(rows, { period: 9 });                   // { value: [{ time, value? }, ...] }, one row per input row

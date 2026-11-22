@@ -2,11 +2,14 @@
 // .d.ts files from tsc. Run from the package folder: `npm run build`.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+// A one-line licence notice on every built file (kept by minifiers: `/*!`).
+const banner = { js: `/*! Chartist Lite ${pkg.version} | Apache-2.0 | https://github.com/MrChartist/Lite_Charts */` };
 export const ENTRIES = {
   index: 'src/index.ts',
   indicators: 'src/indicators/index.ts',
@@ -40,7 +43,7 @@ await build({
   chunkNames: 'chunks/[name]-[hash]',
   target: 'es2020',
   sourcemap: true,
-  legalComments: 'none',
+  legalComments: 'none', banner,
   logLevel: 'warning',
 });
 
@@ -54,7 +57,7 @@ await build({
   minify: true,
   target: 'es2020',
   sourcemap: true,
-  legalComments: 'none',
+  legalComments: 'none', banner,
   logLevel: 'warning',
 });
 
@@ -74,9 +77,33 @@ for (const [entry, outfile, globalName] of [
   if (!existsSync(join(root, entry))) continue;
   await build({
     absWorkingDir: root, entryPoints: [entry], outfile, bundle: true, format: 'iife', globalName, minify: true,
-    target: 'es2020', sourcemap: true, legalComments: 'none', logLevel: 'warning',
+    target: 'es2020', sourcemap: true, legalComments: 'none', banner, logLevel: 'warning',
   });
 }
 
-execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.build.json'], { cwd: root, stdio: 'inherit' });
+let tscFailed = false;
+try { execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.build.json'], { cwd: root, stdio: 'inherit' }); }
+catch { tscFailed = true; }
+
+// The emitted declarations use the sources' extensionless relative imports, which TypeScript's node16 / nodenext
+// resolution refuses (and with skipLibCheck turns into silent `any`). Give every relative specifier in dist/types its
+// real file: './api' -> './api.js', './live' (a folder) -> './live/index.js'. Sources stay as they are.
+function fixDeclarations(dir) {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) { fixDeclarations(p); continue; }
+    if (!p.endsWith('.d.ts')) continue;
+    const text = readFileSync(p, 'utf8');
+    const fixed = text.replace(/(from\s+|import\(\s*)(['"])(\.{1,2}\/[^'"]*)\2/g, (all, lead, q, spec) => {
+      if (/\.(js|mjs|cjs|json)$/.test(spec)) return all;
+      const base = join(dirname(p), spec);
+      if (existsSync(`${base}.d.ts`)) return `${lead}${q}${spec}.js${q}`;
+      if (existsSync(join(base, 'index.d.ts'))) return `${lead}${q}${spec}/index.js${q}`;
+      return all;
+    });
+    if (fixed !== text) writeFileSync(p, fixed);
+  }
+}
+if (existsSync(join(root, 'dist', 'types'))) fixDeclarations(join(root, 'dist', 'types'));
+if (tscFailed) { console.error('declarations: tsc reported errors (see above)'); process.exit(1); }
 console.log('built dist/');

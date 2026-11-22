@@ -18,7 +18,7 @@ Chartist Lite runs in the browser. A report should describe the input or steps t
 
 - **The core makes no network requests and stores nothing.** Nor do the indicators, drawings (unless you opt in to
   `persist`, which writes to the visitor's own `localStorage`), React and plain element entries.
-- **The optional live entry** (`@mrchartist/chartist-lite/live`, `chartist-lite-live.iife.min.js`, and the
+- **The optional live entry** (`lite-charts/live`, `chartist-lite-live.iife.min.js`, and the
   `chartist-lite.element-live.iife.min.js` element build) connects only when you call `connectLive` (or use
   `<chartist-chart live>`), and then the **visitor's browser connects directly** to the chosen exchange's public API:
   `api.exchange.coinbase.com` and `ws-feed.exchange.coinbase.com`; `data-api.binance.vision` and

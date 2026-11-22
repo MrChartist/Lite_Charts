@@ -1,6 +1,6 @@
 // `<chartist-chart>`: the chart as a custom element, for pages with no build step.
 //
-//   import { defineChartistElement } from '@mrchartist/chartist-lite/element';
+//   import { defineChartistElement } from 'lite-charts/element';
 //   defineChartistElement();               // nothing registers until this is called
 //
 //   <chartist-chart type="candlestick" src="/data/prices.json" height="360"></chartist-chart>
