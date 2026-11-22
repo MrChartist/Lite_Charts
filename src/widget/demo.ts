@@ -29,17 +29,17 @@ export function demoBars(symbol: string, interval: string, count = 600, endSec =
   let s = seedOf(`${symbol}|${interval}`) || 1;
   const rnd = (): number => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
   const base = START[symbol.split(/[-/]/)[0].toUpperCase()] ?? 100;
-  const vol = 0.012 * Math.sqrt(step / 86_400) + 0.0015;
+  const vol = 0.022 * Math.sqrt(step / 86_400) + 0.0012;
   const end = Math.floor(endSec / step) * step;
   const out: WidgetBar[] = [];
   let p = base;
   let drift = 0;
   for (let i = 0; i < count; i++) {
-    drift = drift * 0.97 + (rnd() - 0.5) * vol * 0.25;
+    drift = drift * 0.92 + (rnd() - 0.5) * vol * 0.18;
     const o = p;
-    const c = Math.max(base * 0.05, o * (1 + drift + (rnd() - 0.5) * vol));
-    const hi = Math.max(o, c) * (1 + rnd() * vol * 0.6);
-    const lo = Math.min(o, c) * (1 - rnd() * vol * 0.6);
+    const c = Math.max(base * 0.05, o * (1 + drift + (rnd() + rnd() + rnd() - 1.5) * vol * 1.3));
+    const hi = Math.max(o, c) * (1 + rnd() * rnd() * vol * 1.2);
+    const lo = Math.min(o, c) * (1 - rnd() * rnd() * vol * 1.2);
     const dp = base < 1 ? 5 : base < 10 ? 4 : 2;
     const r = (x: number): number => Math.round(x * 10 ** dp) / 10 ** dp;
     out.push({ time: end - (count - 1 - i) * step, open: r(o), high: r(hi), low: r(lo), close: r(c), volume: Math.round((200 + rnd() * 800) * (1 + Math.abs(c - o) / o * 60)) });

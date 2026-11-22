@@ -668,6 +668,7 @@ export function createWidget(container: HTMLElement | string, options: WidgetOpt
         if (feed.subscribeBars) {
           const unsub = feed.subscribeBars({ symbol: symbol.symbol, interval }, bar => { if (token === loadToken && !destroyed) { const b = toBar(bar); if (b) updateRow(b); } });
           feedUnsub = typeof unsub === 'function' ? unsub : null;
+          setStatus('live');
         }
         for (const c of compareSyms) void loadCompare(c);
       } catch (e) {

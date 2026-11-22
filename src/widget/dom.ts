@@ -19,10 +19,10 @@ export function h<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, 
 
 /** A button: icon and/or text; `label` is its accessible name and tooltip. */
 export function btn(doc: Document, opts: { icon?: string; text?: string; label: string; cls?: string; attrs?: Attrs; onClick?: (ev: MouseEvent) => void; iconPx?: number }): HTMLButtonElement {
-  const iconOnly = !!opts.icon && !opts.text;
+  const iconOnly = !!opts.icon && opts.text === undefined;
   const b = h(doc, 'button', `b${iconOnly ? ' i' : ''}${opts.cls ? ` ${opts.cls}` : ''}`, { type: 'button', 'aria-label': opts.label, title: opts.label, ...opts.attrs });
   if (opts.icon) b.append(svgIcon(doc, opts.icon, opts.iconPx ?? 20));
-  if (opts.text) b.append(h(doc, 'span', 't', {}, [opts.text]));
+  if (opts.text !== undefined) b.append(h(doc, 'span', 't', {}, [opts.text]));
   if (opts.onClick) b.addEventListener('click', opts.onClick);
   return b;
 }
