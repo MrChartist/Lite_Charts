@@ -38,10 +38,17 @@ function loadScript(src) {
 function chartLibs() {
   const list = [`${ASSETS}chartist-lite.iife.min.js`, `${ASSETS}chartist-lite-indicators.iife.min.js`];
   if (root.hasAttribute('data-drawings')) list.push(`${ASSETS}chartist-lite-drawings.iife.min.js`);
+  if (root.hasAttribute('data-live-lib')) list.push(`${ASSETS}chartist-lite-live.iife.min.js`);
   if (root.hasAttribute('data-demos')) list.push(`${ASSETS}demos.js`);
   if (root.dataset.live) list.push(`${ASSETS}${root.dataset.live}`);
   return Promise.all(list.map(loadScript));
 }
+
+// The live entry, loaded only when a reader asks for live data (a click), or on a page whose examples use it.
+// Loading it makes no request to an exchange; connectLive does, and only the demos' Connect buttons call it.
+function liveLib() { return loadScript(`${ASSETS}chartist-lite-live.iife.min.js`).then(() => window.ChartistLiteLive); }
+window.__CL_LIVE_LIB = liveLib;
+const elementScript = () => `${ASSETS}${root.hasAttribute('data-element-live') ? 'chartist-lite.element-live.iife.min.js' : 'chartist-lite.element.iife.min.js'}`;
 
 // ---------- live charts ----------
 function liveApi(el, charts, tools) {
@@ -52,6 +59,7 @@ function liveApi(el, charts, tools) {
   const out = el.closest('[data-stage]') && el.closest('[data-stage]').querySelector('[data-out]');
   return {
     ...L, ...I, bars, intradayBars: makeIntraday(5, 37), benchmark: makeBenchmark(bars),
+    ...(window.ChartistLiteLive || {}),
     TOOLS: D.TOOLS, drawingsToJSON: D.drawingsToJSON,
     createDrawingTools(...args) { const t = D.createDrawingTools(...args); tools.push(t); return t; },
     // A helper of this site: write a line to the example's output panel.
@@ -106,7 +114,7 @@ function initCharts() {
   };
   for (const el of demos) near(el, () => { chartLibs().then(() => create(el)).catch(() => { el.textContent = 'The chart script could not be loaded.'; }); });
   if (elements.length) {
-    const load = () => loadScript(`${ASSETS}chartist-lite.element.iife.min.js`).catch(() => {});
+    const load = () => loadScript(elementScript()).catch(() => {});
     for (const el of elements) near(el, load);
   }
 }
@@ -142,6 +150,124 @@ function initControls() {
       else if (act === 'clear') { t.clear(); say('Cleared. Undo brings them back.'); }
       else if (act === 'export') { stage._saved = t.exportJSON(); say(JSON.stringify(JSON.parse(stage._saved), null, 1)); }
       else if (act === 'import') { if (!stage._saved) say('Export first, then import that text back.'); else say(`Imported ${t.importJSON(stage._saved)} drawings from the exported text, replacing what was there.`); }
+    }
+  });
+}
+
+// ---------- click-to-connect live demos ----------
+// A connect panel holds a card until the reader presses Connect; then the chart is made and connects to the exchange.
+// The bar under it shows the state as a dot and a word. When the exchange cannot be reached (status error, or not
+// live within 15 s) the chart is removed and the card comes back with one quiet line. Disconnect does the same.
+const LIVE_WORDS = { off: 'Off', connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
+function showLiveState(box, s, extra) {
+  const st = box._bar && $('.live-state', box._bar);
+  if (!st) return;
+  st.dataset.s = s;
+  $('.live-word', st).textContent = `${LIVE_WORDS[s] || s}${extra ? `, ${extra}` : ''}`;
+}
+function connectParts(box) {
+  if (!box._card) {
+    box._card = $('.connect-card', box);
+    const host = box.closest('[data-stage]') || box.parentElement;
+    box._bar = $('.connect-bar', host);
+  }
+  return box;
+}
+function stopConnect(box, message) {
+  const c = box._conn;
+  box._conn = null;
+  if (c) {
+    clearTimeout(c.timer);
+    for (const l of c.lives) { try { l.disconnect(); } catch (e) { /* already closed */ } }
+    if (c.observer) c.observer.disconnect();
+    if (c.entry) { for (const ch of c.entry.charts) ch.remove(); const i = registry.indexOf(c.entry); if (i >= 0) registry.splice(i, 1); }
+    if (c.node) c.node.remove();
+  }
+  box.classList.remove('is-on');
+  if (box.dataset.connect === 'code') { box.replaceChildren(box._card); delete box.dataset.ready; }
+  box._card.hidden = false;
+  const msg = $('.connect-msg', box._card);
+  msg.textContent = message || '';
+  msg.hidden = !message;
+  if (box._bar) {
+    showLiveState(box, 'off');
+    $('.live-state', box._bar).hidden = false;
+    const stop = $('[data-connect-stop]', box._bar); if (stop) stop.hidden = true;
+    const ctl = $('.connect-ctl', box._bar);
+    if (ctl) { ctl.hidden = true; for (const g of $$('[role="group"]', ctl)) $$('button', g).forEach((x, i) => x.setAttribute('aria-pressed', String(i === 0))); }
+  }
+}
+const FAIL_TEXT = 'Could not reach the exchange from this browser, so nothing was loaded. You can try again later.';
+async function startConnect(box) {
+  connectParts(box);
+  if (box._conn) return;
+  const c = { lives: [], timer: 0, entry: null, node: null, observer: null, live: false };
+  box._conn = c;
+  const fail = () => { if (box._conn === c) stopConnect(box, FAIL_TEXT); };
+  const onState = (s, provider) => {
+    if (box._conn !== c) return;
+    if (s === 'live') c.live = true;
+    showLiveState(box, s, s === 'live' && provider ? provider : '');
+    if (s === 'error' && !c.live) fail();
+  };
+  $('.connect-msg', box._card).hidden = true;
+  showLiveState(box, 'connecting');
+  c.timer = setTimeout(() => { if (!c.live) fail(); }, 15000);
+  try {
+    if (box.dataset.connect === 'element') {
+      await loadScript(elementScript());
+      if (box._conn !== c) return;
+      const tpl = $('template[data-connect-tpl]', box);
+      const node = tpl.content.firstElementChild.cloneNode(true);
+      node.setAttribute('theme', currentTheme());
+      node.setAttribute('loading', 'eager');
+      c.node = node;
+      box._card.hidden = true;
+      box.appendChild(node);
+      // The element shows its own dot and word on the plot; the bar mirrors it, read from its status line.
+      const read = () => { const st = node.shadowRoot && node.shadowRoot.querySelector('.st'); const t = st && !st.hidden ? st.textContent.trim().toLowerCase() : ''; if (t) onState(t); };
+      if (node.shadowRoot) { c.observer = new MutationObserver(read); c.observer.observe(node.shadowRoot, { subtree: true, childList: true, characterData: true, attributes: true }); }
+      read();
+      c.lives.push({ disconnect() { /* removing the element disconnects it */ } });
+    } else {
+      await chartLibs();
+      const LV = await liveLib();
+      const fn = (window.__CL_LIVE || {})[box.dataset.connectLive];
+      if (box._conn !== c || !fn || !LV) { if (box._conn === c) fail(); return; }
+      box._card.remove();
+      const charts = []; const tools = [];
+      const api = liveApi(box, charts, tools);
+      api.connectLive = (series, options = {}) => {
+        const h = LV.connectLive(series, { ...options, onStatus(s, info) { onState(s, info && info.provider); if (options.onStatus) options.onStatus(s, info); } });
+        c.lives.push(h);
+        return h;
+      };
+      fn(api);
+      c.entry = { charts, tools, restyle: (t) => charts.forEach((ch) => ch.applyOptions({ theme: t })) };
+      registry.push(c.entry);
+      box.dataset.ready = '1';
+    }
+    box.classList.add('is-on');
+    if (box._bar) {
+      const stop = $('[data-connect-stop]', box._bar); if (stop) stop.hidden = false;
+      const ctl = $('.connect-ctl', box._bar); if (ctl) ctl.hidden = false;
+    }
+  } catch (err) { fail(); }
+}
+function initConnect() {
+  document.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-connect-go]');
+    if (go) { const box = go.closest('[data-connect]'); if (box) startConnect(box); return; }
+    const stage = e.target.closest('[data-stage]') || document;
+    const box = $('[data-connect]', stage) || (e.target.closest('.ex-card') && $('[data-connect]', e.target.closest('.ex-card')));
+    if (!box) return;
+    const stop = e.target.closest('[data-connect-stop]');
+    if (stop) { connectParts(box); stopConnect(box, 'Disconnected. Nothing more is requested.'); return; }
+    const iv = e.target.closest('[data-live-interval]');
+    const sy = e.target.closest('[data-live-symbol]');
+    if ((iv || sy) && box._conn) {
+      pressIn(iv || sy, iv ? 'data-live-interval' : 'data-live-symbol');
+      for (const l of box._conn.lives) { if (iv) l.setInterval(iv.dataset.liveInterval); else l.setSymbol(sy.dataset.liveSymbol); }
     }
   });
 }
@@ -557,6 +683,6 @@ function start() {
   const toggle = $('#theme-toggle');
   if (toggle) toggle.addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true));
   applyTheme(currentTheme(), false);
-  initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initCharts(); initMeter();
+  initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initConnect(); initCharts(); initMeter();
 }
 start();

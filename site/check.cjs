@@ -46,6 +46,67 @@ function listPages(dir, base = '') {
   return out.sort();
 }
 
+function isExternal(url, origin) {
+  if (!/^(https?|wss?):/i.test(url)) return false;
+  return !url.startsWith(origin);
+}
+
+// ---- live data with no network: fetch and WebSocket for the exchanges, stubbed inside the page ----
+// Coinbase history answers with deterministic one-minute bars; the stream opens at once and window.__stubTrade(price)
+// sends a Coinbase "match". With { fail: true } every exchange request rejects and every socket closes, so the demos'
+// fallbacks can be checked. Requests to the page's own origin go to the real fetch.
+function liveStub(opts) {
+  const HOST = /(^|\.)(coinbase\.com|binance\.vision|kraken\.com)$/;
+  const realFetch = window.fetch.bind(window);
+  const stub = { fail: !!(opts && opts.fail), requests: [], sockets: [] };
+  window.__stub = stub;
+  const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  const f = (t) => 60000 + 300 * Math.sin(t / 3600) + 60 * Math.sin(t / 420);
+  window.fetch = function (input, init) {
+    let url;
+    try { url = new URL(typeof input === 'string' ? input : input.url, location.href); } catch (e) { return realFetch(input, init); }
+    if (!HOST.test(url.hostname)) return realFetch(input, init);
+    stub.requests.push(url.href);
+    if (stub.fail) return Promise.reject(new TypeError('Failed to fetch (stub)'));
+    if (url.hostname !== 'api.exchange.coinbase.com') return Promise.resolve(json([]));
+    const g = Number(url.searchParams.get('granularity')) || 60;
+    const start = Math.floor(Date.parse(url.searchParams.get('start')) / 1000);
+    const end = Math.floor(Date.parse(url.searchParams.get('end')) / 1000);
+    const rows = [];
+    for (let t = Math.floor(end / g) * g; t >= start; t -= g) {
+      const o = +f(t).toFixed(2); const c = +f(t + g).toFixed(2);
+      rows.push([t, +(Math.min(o, c) - 9).toFixed(2), +(Math.max(o, c) + 9).toFixed(2), o, c, +(1 + Math.abs(Math.sin(t)) * 6).toFixed(4)]);
+    }
+    return Promise.resolve(json(rows));
+  };
+  class FakeSocket {
+    constructor(url) {
+      this.url = url; this.readyState = 0; this.sent = [];
+      this.onopen = this.onmessage = this.onerror = this.onclose = null;
+      stub.sockets.push(this);
+      setTimeout(() => {
+        if (this.readyState !== 0) return;
+        if (stub.fail) { this.readyState = 3; if (this.onclose) this.onclose({ code: 1006 }); return; }
+        this.readyState = 1; if (this.onopen) this.onopen({});
+      }, 20);
+    }
+    send(data) { this.sent.push(String(data)); }
+    close() { this.readyState = 3; }
+  }
+  FakeSocket.CONNECTING = 0; FakeSocket.OPEN = 1; FakeSocket.CLOSING = 2; FakeSocket.CLOSED = 3;
+  window.WebSocket = FakeSocket;
+  let id = 1;
+  window.__stubTrade = (price) => {
+    let n = 0;
+    for (const s of stub.sockets) {
+      if (s.readyState !== 1 || !s.onmessage) continue;
+      s.onmessage({ data: JSON.stringify({ type: 'match', trade_id: id++, price: String(price), size: '0.25', time: new Date().toISOString() }) });
+      n++;
+    }
+    return n;
+  };
+}
+
 // ---- in-page helpers (serialised into the page) ----
 function inPagePassive() {
   const q = (s) => Array.from(document.querySelectorAll(s));
@@ -379,6 +440,133 @@ async function interactive(browser, origin) {
     await ctx.close();
   }
 
+  // Live data, with no network at all: other hosts are blocked, and fetch and WebSocket are stubbed in the page.
+  if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite-live.iife.min.js'))) {
+    const liveCtx = async (fail) => {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      await ctx.route((u) => isExternal(String(u), origin), (r) => r.abort());
+      await ctx.addInitScript(liveStub, { fail });
+      const page = await ctx.newPage();
+      const errs = watch(page);
+      const external = [];
+      page.on('request', (r) => { if (isExternal(r.url(), origin)) external.push(r.url()); });
+      page.on('websocket', (w) => external.push(w.url()));
+      return { ctx, page, errs, external };
+    };
+    const hero = (page) => page.evaluate(() => {
+      const el = document.querySelector('[data-demo="home"]');
+      const h = el && el._demo && el._demo.hero;
+      const main = h && h.main();
+      const d = main ? main.data() : [];
+      return {
+        ready: !!h, status: h ? h.status() : '', pressed: document.querySelector('[data-hero-live]').getAttribute('aria-pressed'),
+        word: document.querySelector('.hero-live .live-word').textContent, note: document.querySelector('[data-hero-live-note]').textContent,
+        n: d.length, last: d[d.length - 1] || null, title: main ? main.options().title : '',
+        requests: window.__stub.requests.slice(), sockets: window.__stub.sockets.map((x) => ({ url: x.url, state: x.readyState, sent: x.sent })),
+      };
+    });
+
+    // The hero: off by default, connects on click, reads Live, the last bar follows a trade, and switches off again.
+    {
+      const { ctx, page, errs, external } = await liveCtx(false);
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      await settle(page);
+      await page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
+      let h = await hero(page);
+      ok(h.ready && h.pressed === 'false' && h.status === 'off' && h.word === 'Demo data' && h.title === 'DEMO', `live hero: off by default, on demo data ("${h.word}", ${h.title})`);
+      ok(/Coinbase/.test(h.note) && /Off by default/.test(h.note), `live hero: the line under the toggle names the exchange ("${h.note}")`);
+      ok(h.requests.length === 0 && h.sockets.length === 0 && external.length === 0, `live hero: no request to any exchange or other host on load (${h.requests.length}, ${h.sockets.length}, ${external.length})`);
+      await page.click('[data-hero-live]');
+      await page.waitForFunction(() => document.querySelector('.hero-live .live-word').textContent === 'Live', null, { timeout: 8000 }).catch(() => {});
+      h = await hero(page);
+      ok(h.pressed === 'true' && h.status === 'live' && h.word === 'Live', `live hero: one click connects and the status reads Live ("${h.word}")`);
+      ok(h.requests.length > 0 && h.requests.every((u) => u.startsWith('https://api.exchange.coinbase.com/products/BTC-USD/candles')), `live hero: history comes from Coinbase only (${h.requests.length} requests)`);
+      ok(h.sockets.length === 1 && h.sockets[0].url === 'wss://ws-feed.exchange.coinbase.com' && /"matches"/.test(h.sockets[0].sent.join('')), 'live hero: one Coinbase stream, subscribed to trades');
+      ok(h.n === 300 && h.title === 'BTC-USD', `live hero: the chart shows the Coinbase bars (${h.n}, ${h.title})`);
+      const before = h.last;
+      const price = +(before.close + 321.25).toFixed(2);
+      const sent = await page.evaluate((p) => window.__stubTrade(p), price);
+      await page.waitForFunction((p) => { const m = document.querySelector('[data-demo="home"]')._demo.hero.main(); const d = m.data(); return d[d.length - 1].close === p; }, price, { timeout: 3000 }).catch(() => {});
+      h = await hero(page);
+      ok(sent === 1 && h.last.close === price && h.last.high >= price && h.last.time >= before.time, `live hero: the last bar moves on a stubbed trade (close ${before.close} to ${h.last.close})`);
+      await page.click('[data-hero-ind="volume"]');
+      await page.click('[data-hero-type="line"]');
+      h = await hero(page);
+      ok(h.n >= 300 && h.status === 'live', 'live hero: the type and indicator buttons keep working on live bars');
+      await page.click('[data-hero-live]');
+      h = await hero(page);
+      ok(h.pressed === 'false' && h.word === 'Demo data' && h.n === 260 && h.title === 'DEMO' && h.sockets.every((x) => x.state === 3), `live hero: a second click closes the stream and brings the demo data back (${h.n})`);
+      ok(errs.length === 0, 'live hero: no console errors ' + errs.join(' | '));
+      await ctx.close();
+    }
+    // The hero when the exchange cannot be reached: back to the demo data, with one quiet line.
+    {
+      const { ctx, page, errs } = await liveCtx(true);
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      await page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
+      await page.click('[data-hero-live]');
+      await page.waitForFunction(() => /Could not reach/.test(document.querySelector('[data-hero-live-note]').textContent), null, { timeout: 8000 }).catch(() => {});
+      const h = await hero(page);
+      ok(h.pressed === 'false' && h.word === 'Demo data' && /Could not reach Coinbase/.test(h.note) && h.n === 260 && h.title === 'DEMO' && h.requests.length > 0, `live hero: a failed connection falls back to the demo data quietly ("${h.note}")`);
+      ok(errs.length === 0, 'live hero fallback: no console errors ' + errs.join(' | '));
+      await ctx.close();
+    }
+    // The one-tag element in the home chapter: off, connects on click, Live, a trade moves its last bar, Disconnect.
+    {
+      const { ctx, page, errs, external } = await liveCtx(false);
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      await settle(page);
+      ok(await page.evaluate(() => !document.querySelector('#ch-live').closest('.chapter').querySelector('chartist-chart') && window.__stub.requests.length === 0) && external.length === 0, 'live chapter: off by default, no element and no request until Connect');
+      await page.locator('#ch-live').scrollIntoViewIfNeeded();
+      const sec = '.chapter:has(#ch-live)';
+      await page.click(`${sec} [data-connect-go]`);
+      await page.waitForFunction((q) => { const el = document.querySelector(`${q} chartist-chart`); const st = el && el.shadowRoot && el.shadowRoot.querySelector('.st'); return st && st.textContent === 'Live'; }, sec, { timeout: 8000 }).catch(() => {});
+      const st = await page.evaluate((q) => { const el = document.querySelector(`${q} chartist-chart`); return { st: el ? el.shadowRoot.querySelector('.st').textContent : '', bar: document.querySelector(`${q} .live-word`).textContent, n: el && el.series ? el.series.data().length : 0, last: el && el.series ? el.series.data().at(-1) : null }; }, sec);
+      ok(st.st === 'Live' && /^Live/.test(st.bar) && st.n === 500, `live chapter: the element connects on click and shows Live (${st.st}, bar "${st.bar}", ${st.n} bars)`);
+      const price = +(st.last.close - 211.5).toFixed(2);
+      await page.evaluate((p) => window.__stubTrade(p), price);
+      await page.waitForFunction(([q, p]) => document.querySelector(`${q} chartist-chart`).series.data().at(-1).close === p, [sec, price], { timeout: 3000 }).catch(() => {});
+      ok(await page.evaluate(([q, p]) => document.querySelector(`${q} chartist-chart`).series.data().at(-1).close === p, [sec, price]), 'live chapter: a stubbed trade moves the element\'s last bar');
+      await page.click(`${sec} [data-connect-stop]`);
+      ok(await page.evaluate((q) => !document.querySelector(`${q} chartist-chart`) && !document.querySelector(`${q} .connect-card`).hidden && document.querySelector(`${q} .live-word`).textContent === 'Off' && window.__stub.sockets.every((x) => x.readyState === 3), sec), 'live chapter: Disconnect removes the element, closes the stream and shows the card again');
+      ok(errs.length === 0, 'live chapter: no console errors ' + errs.join(' | '));
+      await ctx.close();
+    }
+    {
+      const { ctx, page } = await liveCtx(true);
+      await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+      const sec = '.chapter:has(#ch-live)';
+      await page.locator('#ch-live').scrollIntoViewIfNeeded();
+      await page.click(`${sec} [data-connect-go]`);
+      await page.waitForFunction((q) => !document.querySelector(`${q} .connect-msg`).hidden, sec, { timeout: 12000 }).catch(() => {});
+      const r = await page.evaluate((q) => ({ msg: document.querySelector(`${q} .connect-msg`).textContent, el: !!document.querySelector(`${q} chartist-chart`), word: document.querySelector(`${q} .live-word`).textContent, hosts: [...new Set(window.__stub.requests.map((u) => new URL(u).hostname))] }), sec);
+      ok(/Could not reach/.test(r.msg) && !r.el && r.word === 'Off', `live chapter: when no exchange answers, the card comes back with one quiet line ("${r.msg}")`);
+      ok(r.hosts.length === 3, `live chapter: the element tried Coinbase, then Binance and Kraken (${r.hosts.join(', ')})`);
+      await ctx.close();
+    }
+    // The guide: the offline provider runs on load with no request; Connect starts a demo; the interval switch reloads.
+    {
+      const { ctx, page, errs, external } = await liveCtx(false);
+      await page.goto(`${origin}/guide/live-data.html`, { waitUntil: 'load' });
+      await settle(page);
+      await waitCharts(page, 'live guide');
+      ok(await page.evaluate(() => window.__stub.requests.length === 0 && window.__stub.sockets.length === 0) && external.length === 0, 'live guide: the page opens with no request to an exchange (the made-up provider needs none)');
+      const fig = page.locator('figure.live:has([data-live-interval])');
+      await fig.scrollIntoViewIfNeeded();
+      await fig.locator('[data-connect-go]').click();
+      await page.waitForFunction(() => /^Live/.test(document.querySelector('figure.live:has([data-live-interval]) .live-word').textContent), null, { timeout: 8000 }).catch(() => {});
+      ok(/^Live, coinbase$/.test(await fig.locator('.live-word').textContent()), `live guide: Connect starts the example and the bar reads "${await fig.locator('.live-word').textContent()}"`);
+      const n0 = await page.evaluate(() => window.__stub.requests.length);
+      await fig.locator('[data-live-interval="5m"]').click();
+      await page.waitForFunction((n) => window.__stub.requests.slice(n).some((u) => /granularity=300/.test(u)), n0, { timeout: 5000 }).catch(() => {});
+      ok(await page.evaluate((n) => window.__stub.requests.slice(n).some((u) => /granularity=300/.test(u)), n0), 'live guide: the 5m button switches the stream to five-minute history');
+      await fig.locator('[data-connect-stop]').click();
+      ok((await fig.locator('.live-word').textContent()) === 'Off' && await page.evaluate(() => window.__stub.sockets.every((x) => x.readyState === 3)), 'live guide: Disconnect closes every stream');
+      ok(errs.length === 0, 'live guide: no console errors ' + errs.join(' | '));
+      await ctx.close();
+    }
+  }
+
   // Strict CSP: no inline script code and no style attributes in the output.
   {
     const files = listPages(dist);  // 404.html included
@@ -418,6 +606,31 @@ async function screenshots(browser, origin) {
   await shot('site-api-light', 'guide/api-reference.html', { theme: 'light', prep: async (page) => { await page.fill('#api-filter', 'scale'); await page.evaluate(() => window.scrollTo(0, document.getElementById('api-filter').getBoundingClientRect().top + scrollY - 120)); } });
   await shot('site-drawings-dark', 'index.html', { prep: async (page) => { await page.evaluate(() => window.scrollTo(0, document.querySelector('.playground').getBoundingClientRect().top + scrollY - 150)); await page.waitForTimeout(600); } });
   await shot('site-search-light', 'guide/getting-started.html', { theme: 'light', prep: async (page) => { await page.keyboard.press('/'); await page.keyboard.type('price scale'); await page.waitForTimeout(300); await page.keyboard.press('ArrowDown'); } });
+  // One real screenshot of the hero in live mode, only when the exchange can be reached from here. Not an assertion:
+  // without network it says so and the check carries on.
+  if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite-live.iife.min.js'))) {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.addInitScript(() => { try { localStorage.setItem('cl-theme', 'dark'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    const reachable = await page.evaluate(async () => {
+      try { return (await fetch('https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=60', { credentials: 'omit' })).ok; } catch (e) { return false; }
+    });
+    if (!reachable) console.log('site-live-dark.png skipped: Coinbase cannot be reached from here');
+    else {
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForFunction(() => { const el = document.querySelector('[data-demo="home"]'); return el && el._demo && el._demo.hero; }, null, { timeout: 8000 }).catch(() => {});
+      await page.click('[data-hero-live]');
+      const live = await page.waitForFunction(() => document.querySelector('.hero-live .live-word').textContent === 'Live', null, { timeout: 25000 }).then(() => true).catch(() => false);
+      if (!live) console.log('site-live-dark.png skipped: the hero did not reach Live with the real exchange');
+      else {
+        await page.waitForTimeout(5000);   // a few real trades
+        await page.screenshot({ path: path.join(shots, 'site-live-dark.png') });
+        console.log('site-live-dark.png written from the real Coinbase feed');
+      }
+    }
+    await ctx.close();
+  }
   console.log('screenshots written to docs/screenshots/site-*.png');
 }
 
@@ -468,11 +681,16 @@ async function screenshots(browser, origin) {
       page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`console ${m.type()}: ${m.text()}`); });
       page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
       page.on('response', (r) => { if (r.status() >= 400) problems.push(`HTTP ${r.status()} ${r.url()}`); });
+      // Nothing may reach another host while a page opens and scrolls: live demos connect only on a click.
+      const external = [];
+      page.on('request', (r) => { if (isExternal(r.url(), origin)) external.push(r.url()); });
+      page.on('websocket', (w) => external.push(w.url()));
       await page.goto(`${origin}/${pg}`, { waitUntil: 'load' });
       await settle(page);
       const d = await page.evaluate(inPagePassive);
       if (d.hasCharts) await waitCharts(page, label);
       ok(problems.length === 0, `${label}: console and network clean ${problems.join(' | ')}`);
+      ok(external.length === 0, `${label}: no request to another host on load ${external.slice(0, 3).join(' | ')}`);
       ok(d.h1 === 1, `${label}: exactly one h1 (found ${d.h1})`);
       ok(!!d.title && !!d.desc, `${label}: title and description present`);
       ok(d.overflow <= 0, `${label}: no horizontal overflow (${d.overflow}px)`);

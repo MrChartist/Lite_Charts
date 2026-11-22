@@ -18,8 +18,9 @@ Chartist Lite draws a financial chart on one canvas. This page gets a chart on s
 > Version 0.1.0 is **not yet published to npm**, so `npm install @mrchartist/chartist-lite` does not work today. Build it from source and host the files yourself.
 
 ```bash
-cd packages/chartist-lite
-npm install
+git clone https://github.com/MrChartist/Lite_Charts
+cd Lite_Charts
+npm ci
 npm run build
 ```
 

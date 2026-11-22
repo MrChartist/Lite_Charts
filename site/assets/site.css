@@ -731,6 +731,41 @@ h2:hover .anchor, h3:hover .anchor, h4:hover .anchor, .anchor:focus-visible { op
 .live-badge { font: var(--t-eyebrow); letter-spacing: var(--tk-eyebrow); text-transform: uppercase; color: var(--ink); display: inline-flex; align-items: center; gap: 8px; margin-right: auto; }
 .live-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--up); }
 
+/* Live data: a status as a dot and a word (never colour alone), and the click-to-connect panel. */
+.live-state { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font: var(--t-label); color: var(--ink); white-space: nowrap; }
+.live-state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.live-state[data-s="live"] .dot { background: var(--up); }
+.live-state[data-s="connecting"] .dot, .live-state[data-s="reconnecting"] .dot { background: var(--warn); }
+.live-state[data-s="error"] .dot { background: var(--down); }
+.hero-live { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+.hero-live-note { flex: 1 0 100%; margin: 0; font: var(--t-caption); color: var(--muted); }
+.hero-visual .demo-bar .hero-controls { order: 2; }
+.hero-live { order: 1; }
+.hero-live-note { order: 3; }
+@media (min-width: 600px) { .hero-live-note { max-width: calc(100% - 170px); } }
+.connect { display: flex; flex-direction: column; background: var(--surface); position: relative; overflow: auto; }
+.connect > chartist-chart { flex: 1 0 auto; width: 100%; }
+.connect.is-on[data-connect="element"] { height: auto; overflow: visible; }
+.connect-card { margin: auto; padding: 20px 24px; max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.connect-ico { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--fill); color: var(--ink); }
+.connect-ico svg { width: 22px; height: 22px; }
+.connect-title { margin: 0; font: 500 17px/1.3 var(--font-body); color: var(--ink); }
+.connect-text, .connect-msg { margin: 0; font: var(--t-caption); color: var(--body); }
+.connect-msg { color: var(--ink); }
+.connect-bar .btn { margin-left: auto; }
+.connect-bar .connect-ctl { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.live-loading { margin: 0; padding: 16px; font: var(--t-small); color: var(--muted); }
+.ex-dialog-stage .connect { height: 540px; }
+@media (max-width: 899px) { .ex-dialog-stage .connect { height: 340px; } }
+.live-duo { display: grid; gap: 32px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: start; }
+@media (max-width: 899px) { .live-duo { grid-template-columns: minmax(0, 1fr); } }
+.live-side .code { margin: 0 0 20px; }
+.live-facts { list-style: none; padding: 0; margin: 0 0 16px; }
+.live-facts li { font: var(--t-small); color: var(--body); margin: 0 0 12px; }
+.live-facts b { color: var(--ink); font-weight: 600; }
+.live-honest { font: var(--t-caption); color: var(--muted); margin: 0 0 8px; }
+.live-side > a { font: var(--t-label); display: inline-flex; min-height: 32px; align-items: center; }
+
 .pager { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 80px 0 0; }
 .pager a { display: flex; flex-direction: column; gap: 6px; padding: 22px 24px; border: 1px solid var(--hair); border-radius: var(--r-card); background: var(--card); color: var(--ink); text-decoration: none; font: var(--t-title-3); transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
 .pager a:hover { border-color: var(--hair-2); }
@@ -832,7 +867,7 @@ h2:hover .anchor, h3:hover .anchor, h4:hover .anchor, .anchor:focus-visible { op
 @media (pointer: coarse) {
   .btn, .chip, .seg button, .copy, .icon-btn, .search-btn, .main-nav a, .footer-nav a, .nav-list a, .chapters a,
   .pager a, .skip, .nav-step, .gh-link, .nav-title, .page-toc a, .embed-card a, .standout-item, a.fact-chip, .ex-actions a, .search-results a, .crumb a, .related a, .duo-text a, .apart-item a,
-  .task-card .go { min-height: 44px; min-width: 44px; }
+  .task-card .go, .live-side > a, .live-state { min-height: 44px; min-width: 44px; }
   .icon-btn, .tool-group .icon-btn, .search-btn { width: 44px; height: 44px; }
   .chapters .disc { width: 38px; height: 38px; }
 }

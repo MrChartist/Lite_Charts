@@ -112,6 +112,13 @@ tools.setTool('trend');   // the next press on the chart starts a trend line`,
 </chartist-chart>`,
   },
   {
+    id: 'live-btc', kind: 'live', connect: true, title: 'Live Bitcoin, one tag', tags: ['<chartist-chart live>', 'connectLive'], guide: ['live-data', 'Live data guide'], lang: 'html',
+    label: 'Bitcoin in US dollars, one-minute candles with volume, live from the exchange',
+    text: 'One-minute Bitcoin candles and volume from Coinbase\'s public feed, with no code of yours. Nothing loads until you press Connect; then your browser talks to the exchange directly. Indicative prices, not advice.',
+    code: `<script src="chartist-lite.element-live.iife.min.js"></script>
+<chartist-chart live symbol="BTC-USD" interval="1m" provider="coinbase" volume height="420"></chartist-chart>`,
+  },
+  {
     id: 'element-area', kind: 'element', element: true, title: 'The element: an area', tags: ['<chartist-chart>'], guide: ['embedding', 'Embedding guide'], lang: 'html',
     text: 'The same rows read as one closing value per day, with <code>type="area"</code>.',
     code: `<chartist-chart type="area" height="260">

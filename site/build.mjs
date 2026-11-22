@@ -58,7 +58,7 @@ const RUNTIME_DEPS = Object.keys(pkgJson.dependencies || {}).length;
 
 // Performance figures from `npm run bench` (docs/performance.json, written by scripts/bench.cjs). When the file is
 // missing or its shape is not understood, the site hides the figures rather than guess.
-const SCENARIO_LABELS = { crosshair: 'Crosshair', pan: 'Pan', zoom: 'Wheel zoom', tick: 'Live tick', fit: 'Live tick, whole series in view', drag: 'Drag a drawing' };
+const SCENARIO_LABELS = { crosshair: 'Crosshair', pan: 'Pan', zoom: 'Wheel zoom', tick: 'Live tick', fit: 'Live tick, whole series in view', drag: 'Drag a drawing', trades: 'Live trades, 20 a frame' };
 function readPerf() {
   const f = path.join(pkg, 'docs', 'performance.json');
   if (!existsSync(f)) return null;
@@ -86,6 +86,10 @@ const PERF = readPerf();
 const PERF_PAGE = existsSync(path.join(pkg, 'docs', 'PERFORMANCE.md')) ? 'performance.html' : 'readme.html';
 // Drawing tools: the `drawings` entry. Its home chapter, examples card and script load appear when it is built.
 const DRAWINGS = existsSync(path.join(pkg, 'src', 'drawings', 'index.ts')) && existsSync(path.join(pkg, 'dist', 'chartist-lite-drawings.iife.min.js'));
+// Live data: the `live` entry and the element-live build. Its hero toggle, home chapter, examples card and guide demos
+// appear when both are built. Every live demo is click-to-connect: nothing reaches an exchange until the reader asks.
+const LIVE = existsSync(path.join(pkg, 'src', 'live', 'index.ts')) && existsSync(path.join(pkg, 'dist', 'chartist-lite-live.iife.min.js'))
+  && existsSync(path.join(pkg, 'dist', 'chartist-lite.element-live.iife.min.js'));
 const DRAWING_TOOLS = DRAWINGS ? Array.from(read('src/drawings/tools.ts').matchAll(/^\s*\{ id: '(\w+)', label: '([^']+)', points: \d+ \}/gm)).map((m) => ({ id: m[1], label: m[2] })) : [];
 
 function benchHtml() {
@@ -116,6 +120,7 @@ const GLYPH = {
   box: svg('<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>'),
   atom: svg('<circle cx="12" cy="12" r="1.5"/><ellipse cx="12" cy="12" rx="9" ry="3.6"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-60 12 12)"/>'),
   frame: svg('<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M3 8.5h18"/>'),
+  pulse: svg('<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>'),
 };
 
 async function measureSizes() {
@@ -128,6 +133,7 @@ async function measureSizes() {
     ['Element entry (includes the chart)', 'src/element/index.ts'],
     ['React entry (includes the chart)', 'src/react/index.ts'],
     ...(existsSync(path.join(pkg, 'src', 'drawings', 'index.ts')) ? [['Drawings entry', 'src/drawings/index.ts']] : []),
+    ...(LIVE ? [['Live entry', 'src/live/index.ts']] : []),
   ];
   for (const [label, entry] of ENTRIES) {
     const res = await build({ absWorkingDir: pkg, entryPoints: [entry], bundle: true, format: 'esm', minify: true, target: 'es2020', write: false, legalComments: 'none', logLevel: 'silent' });
@@ -138,6 +144,7 @@ async function measureSizes() {
     ['Script tag: chartist-lite.iife.min.js', 'dist/chartist-lite.iife.min.js'],
     ['Script tag: chartist-lite-indicators.iife.min.js', 'dist/chartist-lite-indicators.iife.min.js'],
     ['Script tag: chartist-lite.element.iife.min.js', 'dist/chartist-lite.element.iife.min.js'],
+    ...(LIVE ? [['Script tag: chartist-lite.element-live.iife.min.js', 'dist/chartist-lite.element-live.iife.min.js']] : []),
   ]) {
     const buf = readFileSync(path.join(pkg, file));
     rows.push([label, kb(buf.length), kb(gz(buf))]);
@@ -201,7 +208,8 @@ function renderOptions(page, srcFile, extra = {}) {
 const LIVE_NAMES = ['createChart', 'CandlestickSeries', 'BarSeries', 'LineSeries', 'AreaSeries', 'HistogramSeries', 'BaselineSeries',
   'createPriceLine', 'createSeriesMarkers', 'lightTheme', 'darkTheme', 'formatPrice', 'formatPercent', 'MINUS_SIGN',
   'sma', 'ema', 'wma', 'rsi', 'atr', 'obv', 'vwap', 'bollinger', 'donchian', 'macd', 'stochastic', 'supertrend', 'heikinAshi',
-  'aggregate', 'createIndicator', 'bars', 'intradayBars', 'benchmark', 'createDrawingTools', 'TOOLS', 'drawingsToJSON', 'output'];
+  'aggregate', 'createIndicator', 'bars', 'intradayBars', 'benchmark', 'createDrawingTools', 'TOOLS', 'drawingsToJSON', 'output',
+  'connectLive', 'coinbase', 'binance', 'kraken', 'PROVIDERS', 'INTERVAL_SECONDS'];
 const HEIGHTS = new Set(['220', '260', '280', '320', '360', '420', '480', '560']);
 const ZONES = [['Asia/Kolkata', 'Kolkata'], ['America/New_York', 'New York'], ['UTC', 'UTC']];
 
@@ -210,8 +218,24 @@ function controlsHtml(kind) {
   if (kind === 'zone') return `<div class="seg" role="group" aria-label="Axis time zone">${ZONES.map(([z, l], i) => `<button type="button" data-zone="${z}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>`;
   if (kind === 'theme') return `<div class="seg" role="group" aria-label="Chart theme"><button type="button" data-chart-theme="light" aria-pressed="false">Light</button><button type="button" data-chart-theme="dark" aria-pressed="false">Dark</button></div>`;
   if (kind === 'draw') return `<span class="draw-actions"><button class="btn btn--sm" type="button" data-draw="undo">Undo</button><button class="btn btn--sm" type="button" data-draw="redo">Redo</button><button class="btn btn--sm" type="button" data-draw="clear">Clear</button><button class="btn btn--sm" type="button" data-draw="export">Export JSON</button><button class="btn btn--sm" type="button" data-draw="import">Import it back</button></span>`;
+  if (kind === 'market') return `<div class="seg" role="group" aria-label="Interval">${['1m', '5m', '15m', '1h', '1d'].map((v, i) => `<button type="button" data-live-interval="${v}" aria-pressed="${i === 0}">${v}</button>`).join('')}</div><div class="seg" role="group" aria-label="Market">${['BTC-USD', 'ETH-USD', 'SOL-USD'].map((v, i) => `<button type="button" data-live-symbol="${v}" aria-pressed="${i === 0}">${v}</button>`).join('')}</div>`;
   if (kind === 'scale') return `<div class="seg" role="group" aria-label="Price scale mode"><button type="button" data-scale="linear" aria-pressed="true">Linear</button><button type="button" data-scale="log" aria-pressed="false">Log</button><button type="button" data-scale="percent" aria-pressed="false">Percent</button></div>`;
   return '';
+}
+
+/**
+ * A click-to-connect live demo. Nothing reaches an exchange until the reader presses the button: the stage holds a
+ * card that says what will happen, and site.js swaps it for the chart on click. `markup` (element mode) is the
+ * `<chartist-chart live>` tag, kept in a <template> until then; `liveId` (code mode) names a compiled example.
+ * Returns the stage and the bar under it (status, controls, Disconnect).
+ */
+function connectStage({ markup, liveId, height = '360', label, controls = '', title = 'Live Bitcoin is off' }) {
+  const card = `<div class="connect-card"><span class="connect-ico" aria-hidden="true">${GLYPH.pulse}</span><p class="connect-title">${esc(title)}</p><p class="connect-text">Press Connect and your browser asks Coinbase's public feed for prices directly. Nothing passes through this site, no key is used and nothing is stored.</p><p class="connect-msg" hidden></p><button class="btn btn--primary btn--sm js-only" type="button" data-connect-go>Connect to Coinbase</button></div>`;
+  const stage = markup
+    ? `<div class="connect h-${height}" data-connect="element" data-label="${esc(label)}">${card}<template data-connect-tpl>${markup}</template></div>`
+    : `<div class="connect chart h-${height}" data-connect="code" data-connect-live="${liveId}" data-label="${esc(label)}">${card}</div>`;
+  const bar = `<div class="demo-bar connect-bar"><span class="live-state" data-s="off" role="status"><span class="dot" aria-hidden="true"></span><span class="live-word">Off</span></span>${controls ? `<span class="connect-ctl" hidden>${controls}</span>` : ''}<button class="btn btn--sm" type="button" data-connect-stop hidden>Disconnect</button></div>`;
+  return { stage, bar };
 }
 
 function makeLive(slug, fns) {
@@ -221,6 +245,22 @@ function makeLive(slug, fns) {
     const id = `${slug}-${n}`;
     const h = HEIGHTS.has(String(attrs.height)) ? attrs.height : '320';
     const label = `Live example: ${heading || 'chart'}`;
+    if (attrs.connect) {
+      // Click-to-connect: the code (or the markup) runs only after the reader presses Connect.
+      let cs;
+      if (lang === 'html') {
+        const markup = code.split('\n').filter((l) => !/<script\s+src=/.test(l)).join('\n').trim();
+        cs = connectStage({ markup, height: h, label });
+      } else {
+        const runnable = code.replace(/^\s*import\s[\s\S]*?from\s+['"][^'"]+['"];?[ \t]*$/gm, '').trim();
+        fns.push(`${JSON.stringify(id)}: function (api) { const { ${LIVE_NAMES.join(', ')} } = api; {\n${runnable}\n} }`);
+        cs = connectStage({ liveId: id, height: h, label, controls: attrs.controls ? controlsHtml(attrs.controls) : '' });
+      }
+      const cnote = lang === 'html'
+        ? 'This markup runs on this page as written once you press Connect, with the element-live script already loaded. Until then nothing is requested.'
+        : 'This code runs on this page as written once you press Connect. Until then nothing is requested. The import lines are left to your bundler.';
+      return `<figure class="live window" data-stage>${cs.stage}${cs.bar}${codeBlock(code, lang, 'code--live')}<figcaption class="live-note">${cnote}</figcaption></figure>`;
+    }
     const controls = `<div class="demo-bar"><span class="live-badge">Live</span>${attrs.controls ? `<span class="js-only">${controlsHtml(attrs.controls)}</span>` : ''}</div>`;
     let stage;
     if (lang === 'html') {
@@ -238,6 +278,11 @@ function makeLive(slug, fns) {
       : 'This code runs on this page as written, with <code>bars</code> set to invented demo data. The import lines are left to your bundler.';
     return `<figure class="live window" data-stage>${controls}${stage}${codeBlock(code, lang, 'code--live')}<figcaption class="live-note">${note}</figcaption></figure>`;
   };
+}
+
+/** The one-tag live chart, as the site uses it (the theme is set by the page). */
+function liveTag(height, label) {
+  return `<chartist-chart live symbol="BTC-USD" interval="1m" provider="coinbase" volume height="${height}" aria-label="${esc(label)}"><p class="live-loading">Loading Bitcoin from the exchange.</p></chartist-chart>`;
 }
 
 // ---------- page chrome ----------
@@ -275,7 +320,7 @@ const OG_ALT = 'A daily candlestick chart with a 20-bar moving average, drawn by
 const TASK_ICONS = {
   'getting-started': 'play', embedding: 'code', 'series-types': 'candles', indicators: 'wave', 'panes-and-scales': 'panes',
   'time-and-time-zones': 'clock', 'drawing-tools': 'pen', theming: 'sun', plugins: 'pin', accessibility: 'keys',
-  'api-reference': 'book', 'coming-from-lightweight-charts': 'swap',
+  'api-reference': 'book', 'coming-from-lightweight-charts': 'swap', 'live-data': 'pulse',
 };
 
 /** The guide navigation panel: groups of icon rows, the current page with its one-line task, and a foot with
@@ -304,7 +349,7 @@ function layout(page) {
   const img = baseUrl + ogImage.path;
   const root = rootOf(p);
   const g = (s) => rel(p, guideBySlug(s).out);
-  const dataAttrs = [`data-assets="${root}assets/"`, `data-root="${root}"`, page.live ? `data-live="${page.live}"` : '', page.demos ? 'data-demos' : '', page.drawings ? 'data-drawings' : ''].filter(Boolean).join(' ');
+  const dataAttrs = [`data-assets="${root}assets/"`, `data-root="${root}"`, page.live ? `data-live="${page.live}"` : '', page.demos ? 'data-demos' : '', page.drawings ? 'data-drawings' : '', page.liveLib ? 'data-live-lib' : '', page.liveElement ? 'data-element-live' : ''].filter(Boolean).join(' ');
   return `<!doctype html>
 <html lang="${config.locale}" ${dataAttrs}>
 <head>
@@ -373,7 +418,7 @@ ${page.body}
     </div>
     <div class="footer-legal">
       <p>${esc(NAME)} ${esc(VERSION)} is an independent open-source project, written from scratch. It is not affiliated with, endorsed by or derived from TradingView or any other charting product. Licence: ${esc(config.license.name)}.</p>
-      <p>The charts on this site are drawn from invented demo data, not market data, and nothing here is investment advice. Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.</p>
+      <p>The charts on this site are drawn from invented demo data, not market data, except the live Bitcoin demos once you press Connect: those show indicative prices from the exchange's public feed. Nothing here is investment advice. Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.</p>
     </div>
   </div>
 </footer>
@@ -404,6 +449,8 @@ function docPage({ path: p, src, title, description, body, group, prevNext, rela
   const md = renderMarkdown(body, renderOptions(p, src, { live: live ? makeLive(live, fns) : null, entries, html: !!allowHtml }));
   if (fns.length) liveBundles.set(p, fns);
   const usesDrawings = fns.some((f) => f.includes('createDrawingTools'));
+  const usesLive = LIVE && fns.some((f) => f.includes('connectLive'));
+  const usesLiveElement = LIVE && md.html.includes('data-connect="element"');
   const h1Match = /<h1 id="[^"]*">([\s\S]*?)<\/h1>/.exec(md.html);
   let html = md.html.replace(/<h1 id="[^"]*">[\s\S]*?<\/h1>\n?/, '');
   let lead = '';
@@ -429,7 +476,7 @@ ${pager}
 ${onward}
 </article>`;
   pages.push({
-    path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', drawings: usesDrawings, live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
+    path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', drawings: usesDrawings, liveLib: usesLive, liveElement: usesLiveElement, live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
     bodyClass: 'docs-page', ld: ldExtra,
     body: `<div class="docs"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}${h2s.length >= 2 ? `<aside class="docs-toc"><nav class="page-toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${h2s.map((h, i) => `<li><a href="#${h.id}"${i === 0 ? ' aria-current="true"' : ''}>${esc(h.text)}</a></li>`).join('')}</ul></nav></aside>` : ''}</div>`,
   });
@@ -481,7 +528,7 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
 </div>`;
   pages.push({
     path: p, title: `Guide: how to use ${NAME}`, crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Guide', path: p }],
-    description: `Guides for ${NAME}, grouped by task: getting started, embedding, series types, indicators, panes, time zones, theming, plugins, accessibility and the API reference.`,
+    description: `Guides for ${NAME}, grouped by task: getting started, embedding, series types, indicators, panes, time zones, live data, theming, plugins, accessibility and the API.`,
     body,
   });
   searchDocs.push({ t: 'Guide', u: p, d: 'All guides, grouped by task.', s: [] });
@@ -491,7 +538,7 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
 {
   const p = 'examples.html';
   const g = (s) => rel(p, guideBySlug(s).out);
-  const KINDS = [['all', 'All'], ['series', 'Series'], ['indicators', 'Indicators'], ['panes', 'Panes and scales'], ['time', 'Time'], ...(DRAWINGS ? [['drawings', 'Drawings']] : []), ['element', 'Element']];
+  const KINDS = [['all', 'All'], ['series', 'Series'], ['indicators', 'Indicators'], ['panes', 'Panes and scales'], ['time', 'Time'], ...(DRAWINGS ? [['drawings', 'Drawings']] : []), ['element', 'Element'], ...(LIVE ? [['live', 'Live']] : [])];
   const demo = makeBars(60, 19, 120);
   const hi = Math.max(...demo.map((b) => b.high));
   const lo = Math.min(...demo.map((b) => b.low));
@@ -503,10 +550,19 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
     'element-candles': `<chartist-chart type="candlestick" volume height="240" aria-label="Demo candlestick chart with volume, from the custom element"><script type="application/json">${ohlc}</script>${fb('Demo bars for the candlestick element')}</chartist-chart>`,
     'element-area': `<chartist-chart type="area" height="240" aria-label="Demo area chart, from the custom element"><script type="application/json">${vals}</script>${fb('Demo closing values for the area element')}</chartist-chart>`,
   };
-  const cards = EXAMPLES.filter((ex) => DRAWINGS || ex.kind !== 'drawings').map((ex) => {
-    const stage = ex.element ? ELEMENTS[ex.id] : `<div class="chart h-240" data-demo="${ex.id}" data-label="${esc(ex.label)}"><p class="chart-fallback">${esc(ex.label)}. The chart appears when JavaScript runs.</p></div>`;
-    const controls = ex.controls ? `<div class="demo-bar js-only">${controlsHtml(ex.controls)}</div>` : '';
-    const tpl = ex.element ? `<template data-large>${ELEMENTS[ex.id].replace('height="240"', 'height="540"')}</template>` : '';
+  const cards = EXAMPLES.filter((ex) => (DRAWINGS || ex.kind !== 'drawings') && (LIVE || ex.kind !== 'live')).map((ex) => {
+    let stage; let controls; let tpl;
+    if (ex.connect) {
+      // Click-to-connect, in the card and in its large view alike.
+      const tag = (h) => liveTag(h, ex.label);
+      const small = connectStage({ markup: tag(240), height: '240', label: ex.label });
+      const large = connectStage({ markup: tag(540), height: '540', label: ex.label });
+      stage = small.stage; controls = small.bar; tpl = `<template data-large>${large.stage}${large.bar}</template>`;
+    } else {
+      stage = ex.element ? ELEMENTS[ex.id] : `<div class="chart h-240" data-demo="${ex.id}" data-label="${esc(ex.label)}"><p class="chart-fallback">${esc(ex.label)}. The chart appears when JavaScript runs.</p></div>`;
+      controls = ex.controls ? `<div class="demo-bar js-only">${controlsHtml(ex.controls)}</div>` : '';
+      tpl = ex.element ? `<template data-large>${ELEMENTS[ex.id].replace('height="240"', 'height="540"')}</template>` : '';
+    }
     return `<article class="card ex-card" id="${ex.id}" data-kind="${ex.kind}"${ex.big ? ` data-big="${ex.big}"` : ''} aria-labelledby="${ex.id}-h">
 <div data-stage>${stage}${controls}</div>
 <div class="ex-body"><h2 id="${ex.id}-h">${esc(ex.title)}</h2><p>${ex.text}</p><div class="ex-tags">${ex.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div></div>
@@ -515,7 +571,7 @@ ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"
 </article>`;
   }).join('\n');
   const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Examples</span></nav>
-<h1 id="top">Charts you can <span class="serif-frame">touch.</span></h1><p class="lead">Every chart here is drawn by ${esc(NAME)} in your browser, from invented demo data. Drag to pan, scroll or pinch to zoom, tab in and press Enter to step through bars. Open any card for a large chart and its code.</p></div></section>
+<h1 id="top">Charts you can <span class="serif-frame">touch.</span></h1><p class="lead">Every chart here is drawn by ${esc(NAME)} in your browser, from invented demo data${LIVE ? ', except the Live card, which shows exchange prices once you press Connect' : ''}. Drag to pan, scroll or pinch to zoom, tab in and press Enter to step through bars. Open any card for a large chart and its code.</p></div></section>
 <div class="wrap">
 <div class="filters js-only"><div class="seg" role="group" aria-label="Filter examples">${KINDS.map(([k, l], i) => `<button type="button" data-filter="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div></div>
 <div class="gallery" id="ex-gallery">
@@ -527,7 +583,7 @@ ${cards}
   <div class="ex-dialog-body"><div class="ex-dialog-stage" data-stage id="ex-dialog-stage"></div><div class="ex-dialog-side"><p id="ex-dialog-text"></p><div id="ex-dialog-code"></div></div></div>
 </dialog>`;
   pages.push({
-    path: p, title: `Examples: candlestick, line, area, indicators and panes | ${NAME}`, demos: true, drawings: DRAWINGS,
+    path: p, title: `Examples: candlestick, line, area, indicators and panes | ${NAME}`, demos: true, drawings: DRAWINGS, liveElement: LIVE,
     description: `Live ${NAME} charts you can touch: every series type, indicators, MACD and RSI panes, scale modes, a time zone switch and the chartist-chart web component.`,
     crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Examples', path: p }],
     body,
@@ -540,6 +596,7 @@ ${cards}
   const sizes = await measureSizes();
   const coreGzip = sizes[0][2];
   const indGzip = sizes[1][2];
+  const liveGzip = sizes.find((r) => /^Live entry/.test(r[0]))?.[2] ?? '';
   const p = 'index.html';
   const g = (s) => rel(p, guideBySlug(s).out);
   const homeBars = makeBars(60, 19, 120);
@@ -567,7 +624,7 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
 </div>`;
   const CH = [
     ['what', 'What it is'], ['move', 'See it move'], ['series', 'Series'], ['panes', 'Indicators and panes'],
-    ...(DRAWINGS ? [['drawings', 'Drawing tools']] : []), ['embed', 'Embed anywhere'], ['speed', 'Speed'], ['start', 'Get started'],
+    ...(DRAWINGS ? [['drawings', 'Drawing tools']] : []), ['embed', 'Embed anywhere'], ...(LIVE ? [['live', 'Live data']] : []), ['speed', 'Speed'], ['start', 'Get started'],
   ];
   const chapter = (key, h2, lead, content) => {
     const i = CH.findIndex((c) => c[0] === key);
@@ -601,7 +658,7 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
 </div>
 <div class="hero-visual">
 ${win('', `<div class="chart" data-demo="home" data-label="Demo daily candlestick chart with a 20-bar moving average"><noscript><img src="${rel(p, 'assets/img/basic-light.png')}" width="${ogImage.size.width}" height="${ogImage.size.height}" alt="${esc(OG_ALT)}"></noscript></div>
-<div class="demo-bar js-only"><div class="seg" role="group" aria-label="Series type"><button type="button" data-hero-type="candles" aria-pressed="true">Candles</button><button type="button" data-hero-type="bars" aria-pressed="false">Bars</button><button type="button" data-hero-type="line" aria-pressed="false">Line</button><button type="button" data-hero-type="area" aria-pressed="false">Area</button></div><div class="hero-controls" role="group" aria-label="Indicators"><button class="chip" type="button" data-hero-ind="sma" aria-pressed="true"><span class="dot" aria-hidden="true"></span>SMA 20</button><button class="chip" type="button" data-hero-ind="bb" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Bollinger</button><button class="chip" type="button" data-hero-ind="volume" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Volume</button><button class="chip" type="button" data-hero-ind="rsi" aria-pressed="false"><span class="dot" aria-hidden="true"></span>RSI pane</button></div></div>`, `<span class="js-only"><span class="seg" role="group" aria-label="Theme"><button type="button" data-set-theme="dark" aria-pressed="true">Dark</button><button type="button" data-set-theme="light" aria-pressed="false">Light</button></span></span>`)}
+<div class="demo-bar js-only"><div class="seg" role="group" aria-label="Series type"><button type="button" data-hero-type="candles" aria-pressed="true">Candles</button><button type="button" data-hero-type="bars" aria-pressed="false">Bars</button><button type="button" data-hero-type="line" aria-pressed="false">Line</button><button type="button" data-hero-type="area" aria-pressed="false">Area</button></div><div class="hero-controls" role="group" aria-label="Indicators"><button class="chip" type="button" data-hero-ind="sma" aria-pressed="true"><span class="dot" aria-hidden="true"></span>SMA 20</button><button class="chip" type="button" data-hero-ind="bb" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Bollinger</button><button class="chip" type="button" data-hero-ind="volume" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Volume</button><button class="chip" type="button" data-hero-ind="rsi" aria-pressed="false"><span class="dot" aria-hidden="true"></span>RSI pane</button></div>${LIVE ? `<div class="hero-live" role="group" aria-label="Live data"><button class="chip chip--live" type="button" data-hero-live aria-pressed="false"><span class="dot" aria-hidden="true"></span>Live BTC</button><span class="live-state" data-s="off" role="status"><span class="dot" aria-hidden="true"></span><span class="live-word">Demo data</span></span></div><p class="hero-live-note" data-hero-live-note>Off by default. Live BTC connects your browser straight to Coinbase's public feed; nothing passes through this site and nothing is stored.</p>` : ''}</div>`, `<span class="js-only"><span class="seg" role="group" aria-label="Theme"><button type="button" data-set-theme="dark" aria-pressed="true">Dark</button><button type="button" data-set-theme="light" aria-pressed="false">Light</button></span></span>`)}
 <div class="hero-chips"><span class="fact-chip fc-1"><span class="k">Size</span><span class="v">${coreGzip} KB gzip</span></span><a class="fact-chip fc-2" href="${rel(p, PERF_PAGE)}"><span class="k">${PERF && PERF.over === 0 ? '120 Hz ready' : 'Series'}</span><span class="v">${PERF && PERF.over === 0 ? `worst p95 ${PERF.worst.toFixed(1)} ms of ${PERF.budget.toFixed(2)}` : `${SERIES_COUNT} types`}</span></a><span class="fact-chip fc-3"><span class="k">Dependencies</span><span class="v">${RUNTIME_DEPS === 0 ? 'None' : RUNTIME_DEPS}</span></span></div>
 </div>
 </div></section>
@@ -618,7 +675,7 @@ ${chapter('what', 'What it <span class="serif-frame">is.</span>', '', `<div clas
 <div class="fact-card"><span class="tile tile--4">${GLYPH.code}</span><span><span class="k">Comes as</span><span class="v">Module, React, a tag</span></span></div>
 <div class="fact-card"><span class="tile tile--5">${GLYPH.book}</span><span><span class="k">Licence</span><span class="v">${esc(config.license.name)}</span></span></div>
 </div></div>
-<div class="intro-side"><p>${SERIES_COUNT} series types, ${INDICATOR_NAMES.length} indicators, stacked panes, exchange time zones and a legend that reads the bar under the pointer. It has no runtime dependencies and never fetches data on its own.</p><p>It is written from scratch by ${esc(config.author.name)}. Many names will feel familiar if you know Lightweight Charts, on purpose; the code is its own, and the guide lists where behaviour differs.</p></div></div>
+<div class="intro-side"><p>${SERIES_COUNT} series types, ${INDICATOR_NAMES.length} indicators, stacked panes, exchange time zones and a legend that reads the bar under the pointer. It has no runtime dependencies, and the core never fetches data on its own${LIVE ? '; live prices come from an optional entry, only when you call it' : ''}.</p><p>It is written from scratch by ${esc(config.author.name)}. Many names will feel familiar if you know Lightweight Charts, on purpose; the code is its own, and the guide lists where behaviour differs.</p></div></div>
 <div class="apart">${apart.map(([c, icon, t, text, href, link], i) => `<div class="apart-item"><span class="tile tile--${c}">${GLYPH[icon]}</span><div><h3 id="apart-${i + 1}">${t}</h3><p>${text} <a href="${href}">${link}</a></p></div></div>`).join('')}</div>`)}
 
 ${chapter('move', 'See it <span class="serif-frame">move.</span>', 'Two things a canvas usually cannot do: read exchange time, and be read aloud.', `<div class="duo">
@@ -650,20 +707,36 @@ ${tabs}
 <div class="card embed-card"><span class="tile tile--5">${GLYPH.frame}</span><h3>An iframe</h3><p>For hosts that forbid scripts: a small page you host, framed by theirs.</p><code class="snippet">&lt;iframe src="frame.html?src=..."&gt;</code><a href="${g('embedding')}#4-an-iframe-for-sites-that-forbid-scripts">Iframe guide</a></div>
 </div>`)}
 
+${LIVE ? chapter('live', 'Live prices in <span class="serif-frame">one tag.</span>', `The optional live entry loads history and streams live prices from a public exchange feed, folded into bars and painted once per frame. ${liveGzip} KB gzip as a module; the one-tag build is the element with it inside.`, `<div class="live-duo">
+<div>${win('&lt;chartist-chart live&gt;, Bitcoin', (() => { const c = connectStage({ markup: liveTag(360, 'Bitcoin in US dollars, one-minute candles with volume, live from the exchange'), height: '360', label: 'Live Bitcoin chart' }); return c.stage + c.bar; })())}</div>
+<div class="live-side">${codeBlock(`<script src="chartist-lite.element-live.iife.min.js"></script>
+
+<chartist-chart live symbol="BTC-USD" interval="1m"
+  provider="coinbase" volume height="420"></chartist-chart>`, 'html')}
+<ul class="live-facts">
+<li><b>No code, no key.</b> The tag loads 500 bars of history, then streams prices and updates the last bar once per frame.</li>
+<li><b>Straight from the visitor's browser</b> to the exchange. Nothing passes through a server of yours or ours, and nothing is stored.</li>
+<li><b>Coinbase first.</b> If its history does not load, Binance (quoted in USDT) and then Kraken are tried. Change <code>symbol</code> or <code>interval</code> and the stream follows.</li>
+<li><b>A dot and a word</b> show the state: Connecting, Live, Reconnecting, Offline or Error. A hidden tab pauses the stream.</li>
+</ul>
+<p class="live-honest">Prices are indicative and not advice. Using exchange data in a commercial or redistributed product is subject to each exchange's terms, which are yours to check.</p>
+<a href="${g('live-data')}">Live data guide</a></div>
+</div>`) : ''}
+
 ${chapter('speed', 'Built for <span class="serif-frame">120 Hz.</span>', PERF ? `A 120 Hz screen gives each frame ${PERF.budget.toFixed(2)} ms. In ${PERF.scenarios} measured gestures, up to ${PERF.panBars} bars, the costliest frame of our code took ${PERF.worst.toFixed(2)} ms at p95, and ${PERF.over === 0 ? 'none' : PERF.over} went over. The meter times this chart on your own device.` : 'A 120 Hz screen gives each frame 8.33 ms. The meter times this chart on your own device while it pans and zooms through 5000 bars.', `<div class="speed">
 ${win('Frame meter, on your device', `<div class="chart h-280" data-demo="meter" data-label="Demo chart of 5000 bars used to time pan and zoom frames on this device"></div><div class="meter js-only" id="meter"><canvas id="meter-canvas" width="600" height="96" aria-hidden="true"></canvas><div class="meter-read" role="status" id="meter-read">The meter runs when the chart is on screen.</div><div class="meter-legend"><span>Each bar is one frame: the time to move the view and paint it.</span><span>The line is the 8.33 ms budget of a 120 Hz frame.</span></div></div>`, `<span class="js-only"><button class="btn btn--sm" type="button" id="meter-run">Run again</button></span>`)}
 <div class="card bench">${benchHtml().replace("PERF_HREF", rel(p, PERF_PAGE))}</div>
 </div>`)}
 
 ${chapter('start', 'Start in a <span class="serif-frame">minute.</span>', `Version ${esc(VERSION)} is not on npm yet, so build it once and host the file yourself.`, `<div class="install">
-<div><ol class="install-steps"><li>Run <code>npm install</code> and <code>npm run build</code> in <code>packages/chartist-lite</code>.</li><li>Copy the file you need from <code>dist/</code> next to your page.</li><li>Paste one of the snippets above and give it your rows.</li></ol>
+<div><ol class="install-steps"><li>Clone <code>github.com/MrChartist/Lite_Charts</code>, then run <code>npm ci</code> and <code>npm run build</code> in it.</li><li>Copy the file you need from <code>dist/</code> next to your page.</li><li>Paste one of the snippets above and give it your rows.</li></ol>
 <div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Read Getting started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'guide/index.html')}">All guides</a></div></div>
-<div class="honest"><div class="card"><h3 id="not-h">What it is not</h3><ul class="not-list"><li>No data feed. You give it rows; it never fetches prices by itself (the element can load a JSON or CSV file you point it at).</li><li>No order placement and no trading features.</li><li>No pattern detection or signals. Markers show what you give them.</li>${DRAWINGS ? '' : '<li>No drawing tools in this version: no trend lines, Fibonacci tools or text notes. A primitive can draw your own marks.</li>'}</ul></div>
+<div class="honest"><div class="card"><h3 id="not-h">What it is not</h3><ul class="not-list"><li>No data feed in the core. You give it rows; it never fetches prices by itself (the element can load a JSON or CSV file you point it at).${LIVE ? ' The optional live entry reads public exchange prices, only when you use it.' : ''}</li><li>No order placement and no trading features.</li><li>No pattern detection or signals. Markers show what you give them.</li>${DRAWINGS ? '' : '<li>No drawing tools in this version: no trend lines, Fibonacci tools or text notes. A primitive can draw your own marks.</li>'}</ul></div>
 <div class="card"><h3 id="status-h">Status</h3><dl class="status-list"><dt>Version</dt><dd>${esc(VERSION)}, not yet on npm</dd><dt>Licence</dt><dd>${esc(config.license.name)}</dd><dt>Tested in</dt><dd>Chromium, through Playwright</dd><dt>Not yet tested</dt><dd>Firefox, Safari, screen readers</dd><dt>Made by</dt><dd><a href="${esc(config.author.url)}" rel="noopener">${esc(config.author.name)}</a></dd></dl></div></div>
 </div>`)}
 </div>`;
   pages.unshift({
-    path: p, title: `${NAME}: a lightweight financial chart library, no dependencies`, demos: true, drawings: DRAWINGS, bodyClass: 'home',
+    path: p, title: `${NAME}: a lightweight financial chart library, no dependencies`, demos: true, drawings: DRAWINGS, liveElement: LIVE, bodyClass: 'home',
     description: 'A lightweight financial chart library: candlestick and other series, indicators, panes, time zones and a chartist-chart web component. No dependencies.',
     body,
     ld: [{ '@context': 'https://schema.org', '@type': 'SoftwareSourceCode', name: NAME, description: config.tagline, programmingLanguage: 'TypeScript', license: config.license.url, version: VERSION, url: baseUrl, author: author(), ...(REPO ? { codeRepository: REPO } : {}) }],
@@ -694,9 +767,10 @@ writeFileSync(path.join(out, 'assets', 'search-index.js'), `window.__CL_SEARCH=$
 copyFileSync(path.join(here, 'assets', 'site.css'), path.join(out, 'assets', 'site.css'));
 copyFileSync(path.join(here, 'assets', 'fonts.css'), path.join(out, 'assets', 'fonts.css'));
 cpSync(path.join(here, 'assets', 'fonts'), path.join(out, 'assets', 'fonts'), { recursive: true });
-for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js', 'chartist-lite.element.iife.min.js', ...(DRAWINGS ? ['chartist-lite-drawings.iife.min.js'] : [])]) {
+for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js', 'chartist-lite.element.iife.min.js', ...(DRAWINGS ? ['chartist-lite-drawings.iife.min.js'] : []),
+  ...(LIVE ? ['chartist-lite-live.iife.min.js', 'chartist-lite.element-live.iife.min.js'] : [])]) {
   const src = path.join(pkg, 'dist', f);
-  if (!existsSync(src)) throw new Error(`dist/${f} is missing: run "npm run build" in packages/chartist-lite first`);
+  if (!existsSync(src)) throw new Error(`dist/${f} is missing: run "npm run build" in the package folder first`);
   copyFileSync(src, path.join(out, 'assets', f));
 }
 copyFileSync(path.join(pkg, config.ogImageSource), path.join(out, ogImage.path));

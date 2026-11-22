@@ -12,51 +12,143 @@ const one = (chart, extra) => ({ charts: [chart], ...extra });
 const closes = (bars) => bars.map((b) => ({ time: b.time, value: b.close }));
 const make = (el, L, theme, opts = {}) => L.createChart(el, { theme, ariaLabel: el.dataset.label, ...opts });
 
+const LIVE_WORDS = { off: 'Demo data', connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
+
+/**
+ * The hero chart. Demo data by default; the Live BTC toggle (off by default) connects the visitor's browser to
+ * Coinbase's public feed through the live entry, loaded on that click. When Coinbase cannot be reached (status error,
+ * or not live within 15 s) it goes back to the demo data with one quiet line.
+ */
 function home(el, L, theme) {
   const I = window.ChartistLiteIndicators || {};
-  const bars = makeBars(260, 7);
+  const demoBars = makeBars(260, 7);
   const chart = make(el, L, theme);
-  const state = { type: 'candles', ind: new Set(['sma']), theme };
+  const state = { type: 'candles', ind: new Set(['sma']), theme, bars: demoBars, live: null, status: 'off' };
   const stage = el.closest('[data-stage]');
+  const note = stage && stage.querySelector('[data-hero-live-note]');
+  const noteText = note ? note.textContent : '';
   let series = [];
-  let guides = [];
-  function render() {
-    const range = chart.timeScale().getVisibleLogicalRange();
+  let refs = {};
+  let token = 0;
+  let timer = 0;
+  const shape = (b) => (state.type === 'line' || state.type === 'area' ? { time: b.time, value: b.close } : { time: b.time, open: b.open, high: b.high, low: b.low, close: b.close });
+  function indicators() {
+    const bars = state.bars;
+    if (refs.sma) refs.sma.setData(I.sma(bars, 20));
+    if (refs.bb) { const bb = I.bollinger(bars, { period: 20, mult: 2 }); refs.bb[0].setData(bb.upper); refs.bb[1].setData(bb.lower); }
+    if (refs.rsi) refs.rsi.setData(I.rsi(bars, 14));
+  }
+  function render(keepRange = true) {
+    const range = keepRange ? chart.timeScale().getVisibleLogicalRange() : null;
     for (const s of series) chart.removeSeries(s);
-    series = []; guides = [];
+    series = []; refs = {};
     const t = TONES[state.theme];
     const DEF = { candles: L.CandlestickSeries, bars: L.BarSeries, line: L.LineSeries, area: L.AreaSeries };
-    const main = chart.addSeries(DEF[state.type], { title: 'DEMO' });
-    main.setData(state.type === 'line' || state.type === 'area' ? closes(bars) : bars);
-    series.push(main);
+    const main = chart.addSeries(DEF[state.type], { title: state.live ? 'BTC-USD' : 'DEMO' });
+    main.setData(state.bars.map(shape));
+    series.push(main); refs.main = main;
     if (state.ind.has('sma') && I.sma) {
-      const s = chart.addSeries(L.LineSeries, { ...quiet, title: 'SMA 20', lineWidth: 2, color: t.avg });
-      s.setData(I.sma(bars, 20)); series.push(s);
+      refs.sma = chart.addSeries(L.LineSeries, { ...quiet, title: 'SMA 20', lineWidth: 2, color: t.avg });
+      series.push(refs.sma);
     }
     if (state.ind.has('bb') && I.bollinger) {
-      const bb = I.bollinger(bars, { period: 20, mult: 2 });
-      for (const [k, name] of [['upper', 'BB upper'], ['lower', 'BB lower']]) {
-        const s = chart.addSeries(L.LineSeries, { ...quiet, title: name, lineWidth: 1, color: t.band });
-        s.setData(bb[k]); series.push(s);
-      }
+      refs.bb = [['upper', 'BB upper'], ['lower', 'BB lower']].map(([, name]) => chart.addSeries(L.LineSeries, { ...quiet, title: name, lineWidth: 1, color: t.band }));
+      series.push(...refs.bb);
     }
     if (state.ind.has('volume')) {
-      const v = chart.addSeries(L.HistogramSeries, { title: 'Volume', priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false, priceFormat: { precision: 0, minMove: 1 } });
+      const fmt = state.live ? { precision: 4, minMove: 0.0001 } : { precision: 0, minMove: 1 };
+      refs.vol = chart.addSeries(L.HistogramSeries, { title: 'Volume', priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false, priceFormat: fmt });
       chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-      v.setData(bars.map((b) => ({ time: b.time, value: b.volume }))); series.push(v);
+      refs.vol.setData(state.bars.map((b) => ({ time: b.time, value: b.volume }))); series.push(refs.vol);
     }
     if (state.ind.has('rsi') && I.rsi) {
-      const r = chart.addSeries(L.LineSeries, { title: 'RSI 14', lineWidth: 2, priceLineVisible: false, color: t.second }, 1);
-      r.setData(I.rsi(bars, 14)); series.push(r);
-      guides = [70, 30].map((price) => L.createPriceLine(r, { price, lineStyle: 'dotted', axisLabelVisible: false, color: t.guide }));
+      refs.rsi = chart.addSeries(L.LineSeries, { title: 'RSI 14', lineWidth: 2, priceLineVisible: false, color: t.second }, 1);
+      series.push(refs.rsi);
+      [70, 30].forEach((price) => L.createPriceLine(refs.rsi, { price, lineStyle: 'dotted', axisLabelVisible: false, color: t.guide }));
     }
+    indicators();
     if (range) chart.timeScale().setVisibleLogicalRange(range);
   }
+
+  // ---- live mode ----
+  function show(s, message) {
+    state.status = s;
+    if (!stage) return;
+    const btn = stage.querySelector('[data-hero-live]');
+    const st = stage.querySelector('.hero-live .live-state');
+    if (btn) btn.setAttribute('aria-pressed', String(s !== 'off'));
+    if (st) { st.dataset.s = s; st.querySelector('.live-word').textContent = LIVE_WORDS[s] || s; }
+    if (note) note.textContent = message || (s === 'off' ? noteText : 'Live BTC: one-minute candles from Coinbase\'s public feed, straight to your browser. Indicative prices, not advice.');
+  }
+  /** Bars changed in this frame (connectLive's onBars): replace the forming bar or append, then paint them. */
+  function applyUpdates(changed) {
+    const bars = state.bars;
+    for (const b of changed) {
+      const last = bars[bars.length - 1];
+      if (last && b.time < last.time) continue;
+      if (last && b.time === last.time) bars[bars.length - 1] = { ...b }; else bars.push({ ...b });
+      refs.main.update(shape(b));
+      if (refs.vol) refs.vol.update({ time: b.time, value: b.volume });
+    }
+    indicators();
+  }
+  function stopLive(message) {
+    token++;
+    clearTimeout(timer);
+    if (state.live) { try { state.live.disconnect(); } catch (e) { /* already closed */ } }
+    const was = state.live || state.status !== 'off';
+    state.live = null;
+    show('off', message);
+    if (!was) return;
+    state.bars = demoBars;
+    chart.applyOptions({ timeScale: { timeZone: 'UTC' }, ariaLabel: el.dataset.label });
+    render(false);
+    chart.timeScale().resetTimeScale();
+  }
+  const fail = () => stopLive('Could not reach Coinbase from this browser, so the chart shows the demo data again.');
+  async function startLive() {
+    const my = ++token;
+    show('connecting');
+    let LV;
+    try { LV = await window.__CL_LIVE_LIB(); } catch (e) { LV = null; }
+    if (my !== token) return;
+    if (!LV) { fail(); return; }
+    let first = true;
+    let reached = false;
+    // The series handed to connectLive only says what it is; the rows arrive through onBars and are painted here,
+    // so the type and indicator buttons keep working on live bars.
+    const sink = { seriesType: () => 'candlestick', setData() {}, update() {} };
+    state.live = LV.connectLive(sink, {
+      symbol: 'BTC-USD', interval: '1m', provider: LV.coinbase, history: 300,   // Coinbase alone, no fallback
+      onStatus(s) {
+        if (my !== token) return;
+        if (s === 'live') reached = true;
+        if (s === 'error' && !reached) { fail(); return; }
+        show(s);
+      },
+      onBars(kind, list) {
+        if (my !== token) return;
+        if (kind === 'history') {
+          state.bars = list.map((b) => ({ ...b }));
+          if (first) {
+            first = false;
+            chart.applyOptions({ timeScale: { timeZone: 'local' }, ariaLabel: 'Bitcoin in US dollars, one-minute candles, live from Coinbase' });
+            render(false);
+            const n = state.bars.length;
+            chart.timeScale().setVisibleLogicalRange({ from: n - 90, to: n + 3 });
+          } else render(true);
+        } else applyUpdates(list);
+      },
+    });
+    timer = setTimeout(() => { if (my === token && !reached) fail(); }, 15000);
+  }
+
   render();
   if (stage) {
     stage.addEventListener('click', (e) => {
       const tb = e.target.closest('[data-hero-type]');
       const ib = e.target.closest('[data-hero-ind]');
+      const lb = e.target.closest('[data-hero-live]');
       if (tb) {
         state.type = tb.dataset.heroType;
         for (const b of stage.querySelectorAll('[data-hero-type]')) b.setAttribute('aria-pressed', String(b === tb));
@@ -66,11 +158,17 @@ function home(el, L, theme) {
         if (state.ind.has(k)) state.ind.delete(k); else state.ind.add(k);
         ib.setAttribute('aria-pressed', String(state.ind.has(k)));
         render();
+      } else if (lb) {
+        if (state.status === 'off') startLive(); else stopLive('Live BTC is off. Nothing more is requested.');
       }
     });
   }
-  void guides;
-  return one(chart, { restyle(t) { state.theme = t; chart.applyOptions({ theme: t }); render(); } });
+  window.addEventListener('pagehide', () => { if (state.live) state.live.disconnect(); });
+  return one(chart, {
+    restyle(t) { state.theme = t; chart.applyOptions({ theme: t }); render(); },
+    // For the site check: the hero's live state and its main series.
+    hero: { status: () => state.status, main: () => refs.main, bars: () => state.bars },
+  });
 }
 
 function candles(el, L, theme) {

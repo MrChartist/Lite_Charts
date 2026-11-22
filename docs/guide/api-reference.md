@@ -22,6 +22,8 @@ Every public export, with its signature as written in the source (`src/index.ts`
 | `@mrchartist/chartist-lite/element` | `defineChartistElement` and the element's parsing helpers | `chartist-lite.element.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
 | `@mrchartist/chartist-lite/drawings` | `createDrawingTools`, `TOOLS`, the JSON helpers | `chartist-lite-drawings.iife.min.js`, `ChartistLiteDrawings` |
 | `@mrchartist/chartist-lite/react` | `createChartistReact` and the controller | none |
+| `@mrchartist/chartist-lite/live` | `connectLive`, the built-in providers and their parsers | `chartist-lite-live.iife.min.js`, `ChartistLiteLive` |
+| `<chartist-chart live>` (element plus live) | the element with the live entry inside | `chartist-lite.element-live.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
 
 The package is `sideEffects: false`, and importing any entry touches no DOM.
 
@@ -1069,6 +1071,86 @@ The fifteen tools: `trend`, `ray`, `extended`, `horizontal`, `horizontalRay`, `v
 const twoPointTools = TOOLS.filter(t => t.points === 2).map(t => t.id);
 ```
 
+## Live data
+
+From `@mrchartist/chartist-lite/live`. Behaviour, statuses, privacy and the exchanges' limits: [Live data](live-data.md). The core never imports this entry; importing it opens nothing.
+
+### `connectLive`
+
+```sig
+connectLive(series, { symbol?, interval?, provider?, volumeSeries?, chart?, history?, onStatus?, onError?, onBars?, fetch?, WebSocket?, env? }?): LiveHandle
+```
+
+Loads history into `series`, then streams from the exchange and hands the changed bars to `series.update()` once per frame. `symbol` defaults to `'BTC-USD'`, `interval` to `'1m'` (`'1m' | '5m' | '15m' | '1h' | '6h' | '1d'`), `provider` to `'coinbase'` (a name is tried first with the other built-ins after it when its history fails; a provider object is used alone), `history` to 500 (10 to 5000). `volumeSeries` gets each bar's volume; with `chart`, older history loads at the left edge. Never throws into the page.
+
+```js
+const live = connectLive(candles, { symbol: 'BTC-USD', interval: '1m', volumeSeries: volume, chart });
+```
+
+### `live.setInterval`
+
+```sig
+status(): 'connecting' | 'live' | 'reconnecting' | 'offline' | 'error'
+provider(): string | null
+symbol(): string
+interval(): LiveInterval
+setInterval(interval: LiveInterval): void
+setSymbol(symbol: string): void
+loadOlder(): Promise<number>
+disconnect(): void
+```
+
+The handle. `setInterval` and `setSymbol` reload and resubscribe (an unknown interval, the current value or an empty symbol is ignored); `loadOlder` resolves to the bars added (0 at the start of the data or without paging); `disconnect` closes the stream, aborts requests and removes every timer and listener.
+
+```js
+live.setInterval('5m');
+```
+
+### `LiveProvider`
+
+```sig
+interface LiveProvider {
+  id: string; intervals: readonly LiveInterval[]; canPageBack: boolean;
+  history(symbol, interval, { limit, before? }, { fetch, WebSocket, signal }): Promise<LiveBar[]>;
+  subscribe(symbol, interval, { tick, open, closed }, { fetch, WebSocket }): () => void;
+}
+```
+
+A source of bars, for any market. `history` returns bars in ascending time (`LiveBar` is `{ time, open, high, low, close, volume }`, `time` the bucket start in UNIX seconds); `subscribe` returns a function that closes the stream and must not call `closed` after it. `tick` takes `{ kind: 'trade', time, price, size, id? }` or `{ kind: 'bar', bar, closed }`.
+
+```js
+connectLive(candles, { provider: myExchange });
+```
+
+### `coinbase`, `binance`, `kraken`
+
+```sig
+const coinbase: LiveProvider; const binance: LiveProvider; const kraken: LiveProvider
+const PROVIDERS: { coinbase, binance, kraken }
+const INTERVAL_SECONDS: { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '6h': 21600, '1d': 86400 }
+binanceSymbol(symbol): string          // 'BTC-USD' -> 'BTCUSDT'
+krakenSymbols(symbol): { rest, ws }    // 'BTC-USD' -> { rest: 'XBTUSD', ws: 'BTC/USD' }
+```
+
+The built-in providers, keyless and public. Kraken has no `'6h'` and cannot page back. Pure parsers of each exchange's messages are exported too: `parseCoinbaseCandles`, `parseCoinbaseMessage`, `parseBinanceKlines`, `parseBinanceMessage`, `parseKrakenOHLC`, `parseKrakenMessage`.
+
+```js
+connectLive(candles, { provider: coinbase });   // Coinbase alone, no fallback
+```
+
+### `BarBuilder`, `backoffMs`
+
+```sig
+new BarBuilder(intervalSeconds, last?)   // apply(tick): LiveBar | null, bucket(time), last
+backoffMs(attempt, rand): number
+```
+
+The pure parts of the stream: folding trades into bars (late trades dropped, a repeated id counted once, whole bars replacing their time) and the reconnect wait (1 s doubling to 30 s, varied by up to 30%). Types: `LiveHandle`, `LiveOptions`, `LiveStatus`, `LiveEnv`, `ProviderName`, `HistoryRange`, `LiveBar`, `LiveInterval`, `LiveProvider`, `LiveTick`, `ProviderDeps`, `StreamHandlers`.
+
+```js
+const b = new BarBuilder(60); b.apply({ kind: 'trade', time: 1700000000, price: 100, size: 1 });
+```
+
 ## Element
 
 From `@mrchartist/chartist-lite/element`. Attributes, events and data formats: [Embedding the chart](embedding.md).
@@ -1095,6 +1177,19 @@ Pure helpers the element uses to read its attributes and JSON or CSV data, expor
 
 ```js
 const rows = parseRows('time,value\n2024-01-01,100');
+```
+
+### Live attributes
+
+```sig
+<chartist-chart live symbol="BTC-USD" interval="1m" provider="coinbase" volume>
+```
+
+With the element-live build, `live` streams from a public exchange feed instead of reading `src` or inline data. `symbol` (default `BTC-USD`), `interval` (`1m` default, `5m`, `15m`, `1h`, `6h`, `1d`) and `provider` (`coinbase` default, `binance`, `kraken`) are passed to `connectLive`; `volume` adds a volume histogram. A dot and a word show the status on the plot. Changing `symbol` or `interval` switches the stream; `provider`, `type` or `volume` start again. In the plain element build, `live` shows a line saying the element-live build is needed. `setElementLive(connect)` is how that build plugs the connector in.
+
+```html
+<script src="chartist-lite.element-live.iife.min.js"></script>
+<chartist-chart live symbol="ETH-USD" interval="5m" volume></chartist-chart>
 ```
 
 ## React

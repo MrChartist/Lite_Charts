@@ -47,3 +47,18 @@ Inside a larger repository, copy it to the repository's `.github/workflows/` and
 The pages need no `'unsafe-inline'`: the only inline `<script>` blocks are JSON-LD and the element's JSON data, which
 are data, not code. A policy such as `default-src 'self'; img-src 'self' data:` works for the whole site; the live
 charts load the package's script files from `assets/`.
+
+The live Bitcoin demos (the hero's Live BTC toggle, the home chapter, the examples card and the Live data guide) are off
+until a reader presses them; then the reader's browser connects to the exchange directly. To keep them working under a
+policy, add `connect-src 'self' https://api.exchange.coinbase.com wss://ws-feed.exchange.coinbase.com`, plus
+`https://data-api.binance.vision wss://data-stream.binance.vision https://api.kraken.com wss://ws.kraken.com` for the
+element's fallback to Binance and Kraken. Without them those demos fall back quietly; nothing else changes.
+
+## Live demos and the check
+
+`node site/check.cjs` needs no network. It blocks every other host and asserts that no page requests one while it
+opens. Then it stubs `fetch` and `WebSocket` inside the page (`liveStub` in `check.cjs`) and checks that the hero's
+toggle is off by default, connects on a click, reads Live, moves its last bar on a stubbed trade and falls back to the
+demo data when the stub fails; the same for the home chapter's element (including its fallback to Binance and Kraken)
+and the guide's interval switch. With `SITE_SHOTS=1` it also tries one real connection for
+`docs/screenshots/site-live-dark.png`, and skips it when the exchange cannot be reached.
