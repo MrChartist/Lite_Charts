@@ -2,13 +2,13 @@
 
 <p align="center"><strong>Financial charts that stay light.</strong> A ready-made chart product in one call, or just the canvas: 16 chart types, 85 indicators, 53 drawing tools, live crypto and exchange time zones, with no runtime dependencies.</p>
 
-<p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"></a> <a href="https://mrchartist.github.io/Lite_Charts/"><img src="https://img.shields.io/badge/docs-live%20demo-0B0B0F" alt="Documentation and live demo"></a> <a href="https://github.com/MrChartist/Lite_Charts/issues"><img src="https://img.shields.io/github/issues/MrChartist/Lite_Charts?color=0B0B0F" alt="Open issues on GitHub"></a> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-33.6%20KB%20gzip-0B0B0F" alt="Core 33.6 KB gzip"> <img src="https://img.shields.io/badge/120%20Hz-worst%20p95%205.3%20ms-0B0B0F" alt="120 Hz frame budget: worst p95 5.3 ms of 8.33"> <img src="https://img.shields.io/badge/tests-555%20passing-0B0B0F" alt="555 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
+<p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-0B0B0F" alt="Licence Apache-2.0"></a> <a href="https://mrchartist.github.io/Lite_Charts/"><img src="https://img.shields.io/badge/docs-live%20demo-0B0B0F" alt="Documentation and live demo"></a> <a href="https://github.com/MrChartist/Lite_Charts/issues"><img src="https://img.shields.io/github/issues/MrChartist/Lite_Charts?color=0B0B0F" alt="Open issues on GitHub"></a> <img src="https://img.shields.io/badge/dependencies-0-0B0B0F" alt="Runtime dependencies: 0"> <img src="https://img.shields.io/badge/core-33.6%20KB%20gzip-0B0B0F" alt="Core 33.6 KB gzip"> <img src="https://img.shields.io/badge/120%20Hz-worst%20p95%205.1%20ms-0B0B0F" alt="120 Hz frame budget: worst p95 5.1 ms of 8.33"> <img src="https://img.shields.io/badge/tests-555%20passing-0B0B0F" alt="555 tests passing"> <img src="https://img.shields.io/badge/types-TypeScript-0B0B0F" alt="Written in TypeScript"></p>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/widget-dark.png"><img src="docs/screenshots/widget-light.png" alt="The ready-made Chartist Lite chart: a candlestick chart with an EMA, volume and an RSI pane, the top bar with symbol, intervals, chart type, indicators and tools, and the bottom bar with range keys, the clock and the scale keys" width="100%"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-hero-dark.png"><img src="docs/screenshots/readme-hero-light.png" alt="The ready-made Chartist Lite chart on demo data: daily candles with an EMA, volume and an RSI pane, the top bar with symbol, chart type, indicators and tools, and the bottom bar with range keys, the clock and the scale keys" width="100%"></picture></p>
 
 <p align="center"><strong><a href="https://mrchartist.github.io/Lite_Charts/">Live demo and docs</a></strong> · <a href="#quick-start">Quick start</a> · <a href="#a-gallery">Gallery</a> · <a href="#live-bitcoin-in-one-tag">Live Bitcoin</a> · <a href="docs/guide/getting-started.md">Get started</a> · <a href="docs/README.md">All documents</a> · <a href="docs/guide/api-reference.md">API reference</a> · <a href="docs/guide/how-it-compares.md">How it compares</a></p>
 
-<p align="center"><b>85</b> indicators · <b>53</b> drawing tools · <b>16</b> chart types · <b>33.6 KB</b> gzip core · <b>0</b> dependencies · worst p95 <b>5.3 ms</b> of 8.33</p>
+<p align="center"><b>85</b> indicators · <b>53</b> drawing tools · <b>16</b> chart types · <b>33.6 KB</b> gzip core · <b>0</b> dependencies · worst p95 <b>5.1 ms</b> of 8.33</p>
 
 ## Contents
 
@@ -33,7 +33,7 @@
 - **16 chart types,** Renko, Kagi, line break, point and figure and range bars included, each one call to `applyChartType` ([guide](docs/guide/chart-types.md)).
 - **85 indicators** in a catalogue a UI can be built on, each proven equal to its own function in the tests ([catalogue](docs/guide/indicator-catalogue.md)).
 - **53 drawing tools** in 7 groups, with a toolbar, single-key shortcuts, undo and versioned JSON; the default 15 are a 20.7 KB gzip import ([guide](docs/guide/drawing-tools.md)).
-- **120 Hz frame budget, measured:** in 116 scenarios up to 100000 bars, the costliest frame of our code took 5.30 ms at p95 of the 8.33 ms a 120 Hz screen allows; none went over ([how it was measured](docs/PERFORMANCE.md)).
+- **120 Hz frame budget, measured:** in 116 scenarios up to 100000 bars, the costliest frame of our code took 5.10 ms at p95 of the 8.33 ms a 120 Hz screen allows; none went over ([how it was measured](docs/PERFORMANCE.md)).
 - **Keyboard and screen-reader inspect mode:** Enter steps through bars, each one announced; it works under a strict `style-src 'self'` policy and with hostile page CSS.
 
 Chartist Lite is a small JavaScript library that draws price charts on a single canvas, with a ready-made workspace around it when you want one. It comes as ES modules, a React wrapper, `<chartist-chart>` and `<chartist-terminal>` web components and plain script-tag files. Core 33.6 KB gzip, no runtime dependencies, written from scratch.
@@ -295,7 +295,7 @@ The axis has one slot per bar, so nights and weekends take no space; ticks land 
 
 The chart takes focus and has a name and spoken help. Arrows pan, plus and minus zoom, and Enter starts stepping through bars; each bar is announced through a live region, for example "Thu 18 Apr 2024; DEMO: open 98.43, high 100.32, low 97.41, close 99.96". [Accessibility](docs/guide/accessibility.md)
 
-![The chart focused with its focus ring, inspecting one bar with the keyboard: the crosshair on 18 April and the legend showing that bar](docs/screenshots/site-tour-keyboard.png)
+![The chart focused with its focus ring, inspecting one bar with the keyboard: the crosshair on that bar and the legend showing its values](docs/screenshots/site-tour-keyboard.png)
 
 ## Recipes
 
@@ -463,11 +463,11 @@ From `npm run bench` ([PERFORMANCE.md](docs/PERFORMANCE.md), raw numbers in `doc
 
 | Worst p95, ms | 1000 bars | 10000 bars | 100000 bars |
 |---|---|---|---|
-| Crosshair | 1.10 | 1.10 | 1.30 |
-| Pan | 0.70 | 0.80 | 0.70 |
-| Wheel zoom | 1.80 | 2.80 | 4.40 |
+| Crosshair | 1.20 | 1.20 | 1.20 |
+| Pan | 0.70 | 0.80 | 0.60 |
+| Wheel zoom | 1.80 | 2.60 | 4.00 |
 | Live tick | 0.80 | 0.70 | 0.70 |
-| Live tick, whole series in view | 1.10 | 2.20 | 5.30 |
+| Live tick, whole series in view | 1.00 | 2.40 | 5.10 |
 | Drag a drawing | 0.50 | 0.50 | 0.50 |
 | Live trades, 20 a frame | 0.50 | 0.50 | 0.50 |
 
@@ -491,7 +491,7 @@ You load what you need: every part is its own entry. Bundled and minified with e
 | `lite-charts/widget` | The ready-made chart (includes the chart); drawings and live load on demand | 91.2 KB | 78.4 KB |
 | `lite-charts/element` | The `<chartist-chart>` tag (includes the chart) | 37.3 KB | 32.8 KB |
 | `lite-charts/react` | A component and a hook (includes the chart) | 33.1 KB | 29.3 KB |
-| `chartist-lite.terminal.iife.min.js` | One script tag: the widget with chart types, live data and drawing tools, and the tags | 132.7 KB | 112.2 KB |
+| `chartist-lite.terminal.iife.min.js` | One script tag: the widget with chart types, live data and drawing tools, and the tags | 132.7 KB | 112.3 KB |
 
 What three typical pages load:
 
@@ -499,7 +499,7 @@ What three typical pages load:
 |---|---|---|
 | Core only: `createChart` and candlesticks | 28.3 KB | 25.1 KB |
 | Candles, two averages and RSI (`sma`, `ema`, `rsi`) | 30.1 KB | 26.6 KB |
-| The full terminal, one script tag | 132.7 KB | 112.2 KB |
+| The full terminal, one script tag | 132.7 KB | 112.3 KB |
 
 The core has a 34 KB gzip budget that `npm run size` enforces.
 
@@ -511,13 +511,13 @@ Using only figures each project publishes about itself; every figure, its source
 |---|---|---|---|
 | Licence | Apache-2.0 | Apache 2.0 | Apache-2.0 |
 | Size stated | core 33.6 KB gzip, 29.7 KB brotli (measured) | "35 KB" (compression not stated) | core 141.88 kB brotli |
-| Full workspace | 112.2 KB brotli (terminal build) | not stated | 380.39 kB brotli |
+| Full workspace | 112.3 KB brotli (terminal build) | not stated | 380.39 kB brotli |
 | Chart types | 16 | candles, line, bars, area, baseline, histogram, plus custom | 13 |
 | Indicators | 85 | not stated | 112 |
 | Drawing tools | 53 | not stated | 90 |
 | Order flow, trading tickets | none | not stated | stated |
 | On npm | not yet | not stated on its page | `npm i openalgo-charts` |
-| Measured frame budget | worst p95 5.3 ms of 8.33 | not stated | not stated |
+| Measured frame budget | worst p95 5.1 ms of 8.33 | not stated | not stated |
 
 Sources: tradingview.com/lightweight-charts and openalgo.in/charts, both read on 2026-11-22. OpenAlgo Charts states more indicators and drawing tools, order flow and trading on the chart; both others install today and Lightweight Charts states wide use; Chartist Lite is new. All trademarks belong to their owners; Chartist Lite is not affiliated with either project.
 
@@ -644,4 +644,4 @@ Not built yet, from the feature notes:
 
 Written by Mr. Chartist, https://mrchartist.com. Where each part came from: [PROVENANCE.md](PROVENANCE.md). Development tools: TypeScript, Vitest and esbuild; the checks and screenshots run in Chromium through Playwright.
 
-The documentation site uses the Mr. Chartist type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1, with symbols from Inter. The fonts ship only with the site, not with the library.
+The documentation site uses the system's own fonts and no web fonts.

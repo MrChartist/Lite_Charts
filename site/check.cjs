@@ -286,10 +286,6 @@ async function interactive(browser, origin) {
     const pre = await page.evaluate(() => document.querySelector('#panel-react pre').textContent);
     ok(clip === pre && clip.includes('createChartistReact'), 'copy: the button copies the block text exactly');
     ok(await page.evaluate(() => document.querySelector('#panel-react .copy').textContent === 'Copied'), 'copy: the button says Copied');
-    // Scroll-spy on the home chapters.
-    await page.evaluate(() => document.getElementById('ch-panes').scrollIntoView());
-    await page.waitForTimeout(400);
-    ok(await page.evaluate(() => document.querySelector('nav.chapters a[aria-current="true"]').getAttribute('href') === '#ch-panes'), 'scroll-spy: the home capsule marks the chapter in view');
     // Frame meter.
     await page.evaluate(() => document.getElementById('meter').scrollIntoView({ block: 'center' }));
     await page.waitForFunction(() => /Median/.test(document.getElementById('meter-read').textContent), null, { timeout: 15000 }).catch(() => {});
@@ -297,11 +293,13 @@ async function interactive(browser, origin) {
     ok(/Median [\d.]+ ms/.test(meter), `meter: it measures frames on this device ("${meter.slice(0, 80)}")`);
     ok(errs.length === 0, 'home interactions: no console errors ' + errs.join(' | '));
     // Scroll-spy on a guide page.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${origin}/guide/panes-and-scales.html`, { waitUntil: 'load' });
     const id = await page.evaluate(() => document.querySelectorAll('.prose > h2')[1].id);
     await page.evaluate((x) => document.getElementById(x).scrollIntoView(), id);
     await page.waitForTimeout(400);
-    ok(await page.evaluate(() => document.querySelector('nav.chapters a[aria-current="true"]').getAttribute('href')) === `#${id}`, `scroll-spy: a guide capsule marks the second chapter (#${id})`);
+    ok(await page.evaluate(() => document.querySelector('nav.page-toc a[aria-current="true"]').getAttribute('href')) === `#${id}`, `scroll-spy: "On this page" marks the second section (#${id})`);
+    ok(await page.evaluate(() => !document.querySelector('nav.chapters, .chapter-label')), 'plain look: no chapter capsule and no numbered chapter labels');
     await ctx.close();
   }
 
@@ -435,18 +433,51 @@ async function interactive(browser, origin) {
     await ctx.close();
   }
 
-  // Fonts: the brand faces load over http, and their arrival barely moves the layout.
+  // System fonts only: no web font anywhere, and nothing moves the layout while the charts arrive.
   {
+    const files = [];
+    (function walk(d) { for (const f of fs.readdirSync(d)) { const q = path.join(d, f); if (fs.statSync(q).isDirectory()) walk(q); else files.push(q); } })(dist);
+    const fontFiles = files.filter((f) => /\.(woff2?|ttf|otf|eot)$/i.test(f));
+    ok(fontFiles.length === 0, `fonts: no font files in site/dist (${fontFiles.length})`);
+    const faces = files.filter((f) => /\.(css|html|js)$/.test(f) && /@font-face/.test(fs.readFileSync(f, 'utf8')));
+    ok(faces.length === 0, `fonts: no @font-face rule anywhere in site/dist ${faces.map((f) => path.relative(dist, f)).join(', ')}`);
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
+    const fontRequests = [];
+    page.on('request', (r) => { if (r.resourceType() === 'font') fontRequests.push(r.url()); });
     await page.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); });
     await page.goto(`${origin}/guide/series-types.html`, { waitUntil: 'load' });
-    await page.evaluate(() => document.fonts.ready);
-    await page.waitForTimeout(600);
-    const fonts = await page.evaluate(() => Array.from(document.fonts).filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, '')));
-    ok(fonts.includes('Chartist Sans') && fonts.includes('Chartist Sans Flex'), `fonts: Chartist Sans and Chartist Sans Flex load (${[...new Set(fonts)].join(', ')})`);
+    await page.waitForTimeout(800);
+    ok(fontRequests.length === 0, `fonts: a page requests no font (${fontRequests.length})`);
     const cls = await page.evaluate(() => window.__cls);
-    ok(cls < 0.05, `fonts: layout shift while fonts and charts arrive is ${cls.toFixed(4)} (under 0.05)`);
+    ok(cls < 0.05, `layout: shift while the charts arrive is ${cls.toFixed(4)} (under 0.05)`);
+    await ctx.close();
+  }
+
+  // No pink or purple in the stylesheet: every colour in site.css has a hue outside 270 to 345 degrees, or is grey.
+  {
+    const css = fs.readFileSync(path.join(dist, 'assets', 'site.css'), 'utf8');
+    const hues = [];
+    for (const m of css.matchAll(/#([0-9a-f]{6})\b|rgba?\((\d+),\s*(\d+),\s*(\d+)/gi)) {
+      const [r, g, b] = m[1] ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : [m[2], m[3], m[4]].map(Number);
+      const mx = Math.max(r, g, b); const mn = Math.min(r, g, b);
+      if (mx - mn < 40) continue;   // grey enough
+      const d = mx - mn;
+      let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h = (h * 60 + 360) % 360;
+      if (h >= 270 && h <= 345) hues.push(m[0]);
+    }
+    ok(hues.length === 0, `colour: no pink or purple in site.css ${hues.join(', ')}`);
+  }
+
+  // The default theme follows the system: light without a choice, dark when the system asks.
+  for (const scheme of ['light', 'dark']) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: scheme });
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/guide/getting-started.html`, { waitUntil: 'load' });
+    const r = await page.evaluate(() => ({ attr: document.documentElement.getAttribute('data-theme'), bg: getComputedStyle(document.body).backgroundColor }));
+    const lum = r.bg.match(/\d+/g).slice(0, 3).map(Number).reduce((a, x) => a + x, 0) / 3;
+    ok(!r.attr && (scheme === 'light' ? lum > 230 : lum < 40), `theme: with no choice the page follows a ${scheme} system (data-theme ${r.attr || 'none'}, background ${r.bg})`);
     await ctx.close();
   }
 
@@ -730,7 +761,7 @@ async function screenshots(browser, origin) {
   await shot('site-home-dark', 'index.html');
   await shot('site-home-light', 'index.html', { theme: 'light' });
   await shot('site-home-phone', 'index.html', { width: 390, height: 844, mobile: true });
-  const guidePrep = async (page) => { await page.evaluate(() => { const h = document.querySelectorAll('.prose > .chapter-label')[1]; window.scrollTo(0, h.getBoundingClientRect().top + scrollY - 150); }); };
+  const guidePrep = async (page) => { await page.evaluate(() => { const h = document.querySelectorAll('.prose > h2')[1]; window.scrollTo(0, h.getBoundingClientRect().top + scrollY - 150); }); };
   await shot('site-guide-dark', 'guide/series-types.html', { prep: guidePrep });
   await shot('site-guide-light', 'guide/series-types.html', { theme: 'light', prep: guidePrep });
   await shot('site-guide-phone', 'guide/indicators.html', { width: 390, height: 844, mobile: true, prep: guidePrep });
@@ -780,6 +811,65 @@ async function screenshots(browser, origin) {
       }
     }
     await ctx.close();
+  }
+  // The README's hero pair: the ready-made chart on demo data, 1100 x 620 CSS px at device scale 2, no page around it,
+  // small rounded corners on a transparent background (so it sits on GitHub's light and dark pages alike).
+  if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite.terminal.iife.min.js'))) {
+    const tmp = path.join(dist, '_readme-hero.html');
+    for (const theme of ['dark', 'light']) {
+      fs.writeFileSync(tmp, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>hero</title><style>html,body{margin:0;background:transparent}#w{width:1100px;height:620px;border-radius:12px;overflow:hidden}</style></head><body><div id="w"></div><script src="assets/chartist-lite.terminal.iife.min.js" data-manual></script><script>window.__w=ChartistLiteTerminal.createWidget('w',{theme:'${theme}',data:ChartistLiteTerminal.demoBars('DEMO','1D',400),symbol:{symbol:'DEMO',description:'Demo data'},interval:'1D',indicators:['ema','rsi']});</script></body></html>`);
+      const ctx = await browser.newContext({ viewport: { width: 1200, height: 720 }, deviceScaleFactor: 2 }, null);
+      const page = await ctx.newPage();
+      await page.goto(`${origin}/_readme-hero.html`, { waitUntil: 'load' });
+      await page.waitForTimeout(1500);
+      await page.locator('#w').screenshot({ path: path.join(shots, `readme-hero-${theme}.png`), omitBackground: true });
+      await ctx.close();
+    }
+    fs.unlinkSync(tmp);
+  }
+  // The README tour's two site shots, from the plain site: the zone switch and the keyboard inspect mode.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2 }, null);
+    await ctx.addInitScript(() => { try { localStorage.setItem('cl-theme', 'dark'); localStorage.setItem('cl-hero-data', 'demo'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
+    await page.locator('[data-demo="zone"]').scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.querySelector('[data-demo="zone"]').dataset.ready === '1' && document.querySelector('[data-demo="keys"]').dataset.ready === '1', null, { timeout: 8000 }).catch(() => {});
+    await page.click('button[data-zone="America/New_York"]');
+    await page.waitForTimeout(400);
+    await page.locator('.window:has([data-demo="zone"])').screenshot({ path: path.join(shots, 'site-tour-timezones.png') });
+    await page.evaluate(() => document.querySelector('[data-demo="keys"]')._demo.charts[0].element().focus());
+    await page.keyboard.press('Enter');
+    for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(300);
+    await page.locator('.window:has([data-demo="keys"])').screenshot({ path: path.join(shots, 'site-tour-keyboard.png') });
+    await ctx.close();
+  }
+  // How the README reads on GitHub: its column is about 880 px; rendered here with this site's Markdown renderer (the
+  // HTML subset GitHub allows) on GitHub's light and dark page colours. For review, not published.
+  {
+    const { renderMarkdown } = await import(require('node:url').pathToFileURL(path.join(here, 'markdown.mjs')).href);
+    const pkgDir = path.join(here, '..');
+    const html = renderMarkdown(fs.readFileSync(path.join(pkgDir, 'README.md'), 'utf8'), {
+      html: true,
+      resolveAsset: (src) => require('node:url').pathToFileURL(path.join(pkgDir, src)).href,
+      resolveLink: (href) => ({ href }),
+      imageSize: () => null,
+    }).html;
+    const outDir = scratch || path.join(dist, 'review');
+    fs.mkdirSync(outDir, { recursive: true });
+    for (const [theme, bg, fg, border] of [['dark', '#0d1117', '#e6edf3', '#30363d'], ['light', '#ffffff', '#1f2328', '#d1d9e0']]) {
+      const file = path.join(outDir, `readme-github-${theme}.html`);
+      fs.writeFileSync(file, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>README</title><style>body{margin:0;background:${bg};color:${fg};font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif}main{width:880px;box-sizing:border-box;padding:32px;margin:0 auto;border:1px solid ${border};border-radius:6px}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid ${border};padding:6px 13px}pre{background:${theme === 'dark' ? '#151b23' : '#f6f8fa'};padding:16px;overflow:auto;border-radius:6px}code{font-size:85%}a{color:${theme === 'dark' ? '#4493f8' : '#0969da'}}h1,h2{border-bottom:1px solid ${border};padding-bottom:.3em}</style></head><body><main>${html}</main></body></html>`);
+      const ctx = await browser.newContext({ viewport: { width: 960, height: 1400 }, colorScheme: theme }, null);
+      const page = await ctx.newPage();
+      await page.goto(require('node:url').pathToFileURL(file).href, { waitUntil: 'load' });
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: path.join(outDir, `readme-880-${theme}.png`) });
+      await page.screenshot({ path: path.join(outDir, `readme-880-${theme}-full.png`), fullPage: true });
+      await ctx.close();
+    }
+    console.log(`README rendered at 880 px for review: ${outDir}/readme-880-{dark,light}.png`);
   }
   console.log('screenshots written to docs/screenshots/site-*.png');
 }
@@ -927,15 +1017,15 @@ async function screenshots(browser, origin) {
     await page.goto(`${origin}/examples.html`, { waitUntil: 'load' });
     await settle(page); await waitCharts(page, 'examples toggle');
     const before = await page.evaluate(inPageCharts);
-    ok(before.every((c) => c.bright >= 0 && c.bright < 80), 'toggle: dark is the default and every chart starts dark');
+    ok(before.filter((c) => !c.themeFree).every((c) => c.bright > 200), 'toggle: with a light system and no choice, every chart starts light');
     await page.click('#theme-toggle');
     await page.waitForTimeout(500);
     const after = await page.evaluate(inPageCharts);
-    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'light', 'toggle: page switches to light');
-    ok(after.every((c) => c.bright > 200 && c.diff > 300), 'toggle: every chart repaints light and stays non-empty ' + JSON.stringify(after.map((c) => c.bright)));
-    ok(await page.evaluate(() => document.getElementById('theme-toggle').getAttribute('aria-pressed')) === 'false', 'toggle: aria-pressed follows (pressed means dark)');
+    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'dark', 'toggle: page switches to dark');
+    ok(after.filter((c) => !c.themeFree).every((c) => c.bright < 80 && c.diff > 300), 'toggle: every chart repaints dark and stays non-empty ' + JSON.stringify(after.map((c) => c.bright)));
+    ok(await page.evaluate(() => document.getElementById('theme-toggle').getAttribute('aria-pressed')) === 'true', 'toggle: aria-pressed follows (pressed means dark)');
     await page.reload({ waitUntil: 'load' });
-    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'light', 'toggle: the choice is remembered after a reload, before first paint');
+    ok(await page.evaluate(() => document.documentElement.dataset.theme) === 'dark', 'toggle: the choice is remembered after a reload, before first paint');
     // Zone switch changes the axis labels without errors.
     await page.locator('button[data-zone="America/New_York"]').scrollIntoViewIfNeeded();
     await page.click('button[data-zone="America/New_York"]');

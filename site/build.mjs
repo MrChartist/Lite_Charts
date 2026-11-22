@@ -446,7 +446,8 @@ function layout(page) {
 <meta name="description" content="${esc(page.description)}">${page.noindex ? '\n<meta name="robots" content="noindex">' : ''}
 <link rel="canonical" href="${esc(url)}">
 <meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="${page.ogType || 'website'}">
 <meta property="og:site_name" content="${esc(NAME)}">
 <meta property="og:title" content="${esc(page.title)}">
@@ -501,11 +502,12 @@ ${page.body}
       <div class="footer-brand"><a class="brand" href="${rel(p, 'index.html')}">${MARK}<span>${esc(NAME)}</span></a><p>${esc(config.tagline)} Version ${esc(VERSION)}, not yet published to npm.</p></div>
       <div class="footer-col"><h2 id="f-docs">Docs</h2><ul class="footer-nav" aria-labelledby="f-docs"><li><a href="${rel(p, 'guide/index.html')}">Guide</a></li><li><a href="${g('getting-started')}">Getting started</a></li><li><a href="${rel(p, 'examples.html')}">Examples</a></li><li><a href="${g('api-reference')}">API reference</a></li></ul></div>
       <div class="footer-col"><h2 id="f-guides">Topics</h2><ul class="footer-nav" aria-labelledby="f-guides"><li><a href="${g('series-types')}">Series types</a></li><li><a href="${g('indicators')}">Indicators</a></li><li><a href="${g('time-and-time-zones')}">Time zones</a></li><li><a href="${g('accessibility')}">Accessibility</a></li></ul></div>
-      <div class="footer-col"><h2 id="f-project">Project</h2><ul class="footer-nav" aria-labelledby="f-project"><li><a href="${rel(p, 'readme.html')}">README</a></li><li><a href="${g('coming-from-lightweight-charts')}">Coming from Lightweight Charts</a></li><li><a href="${esc(config.author.url)}" rel="noopener">${esc(config.author.name)}</a></li></ul></div>
+      <div class="footer-col"><h2 id="f-project">Project</h2><ul class="footer-nav" aria-labelledby="f-project"><li><a href="${rel(p, 'readme.html')}">README</a></li><li><a href="${g('coming-from-lightweight-charts')}">Coming from Lightweight Charts</a></li>${REPO ? `<li><a href="${esc(REPO)}" rel="noopener">Source on GitHub</a></li>` : ''}</ul></div>
     </div>
     <div class="footer-legal">
-      <p>${esc(NAME)} ${esc(VERSION)} is an independent open-source project, written from scratch. It is not affiliated with, endorsed by or derived from TradingView or any other charting product. Licence: ${esc(config.license.name)}.</p>
-      <p>The home page's hero chart shows real prices by default, and the other live demos show them once you press Connect: they come straight from the exchange's public feed (Coinbase first) to your browser, with nothing in between, and are indicative only. Every other chart is drawn from invented demo data. Nothing here is investment advice. Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.</p>
+      <p>${esc(NAME)} ${esc(VERSION)} is an independent open-source project, written from scratch. It is not affiliated with, endorsed by or derived from TradingView or any other charting product.</p>
+      <p>The home page's hero chart shows real prices by default, and the other live demos show them once you press Connect: they come straight from the exchange's public feed (Coinbase first) to your browser, with nothing in between, and are indicative only. Every other chart is drawn from invented demo data. Nothing here is investment advice.</p>
+      <p class="footer-line">${esc(NAME)}, ${esc(config.license.name)}${REPO ? ` · <a href="${esc(REPO)}" rel="noopener">GitHub</a>` : ''}</p>
     </div>
   </div>
 </footer>
@@ -559,14 +561,9 @@ const searchDocs = [];
 
 const pad2 = (n) => String(n).padStart(2, '0');
 /** The chapter capsule: numbered coloured discs; the current one opens to show its title (scroll-spy in site.js). */
-function chaptersNav(items, label) {
-  return `<nav class="chapters" aria-label="${esc(label)}">${items.map((c, i) => `<a class="d-${(i % 5) + 1}" href="#${c.id}" aria-label="${pad2(i + 1)}: ${esc(c.text)}"${i === 0 ? ' aria-current="true"' : ''}><span class="disc" aria-hidden="true">${pad2(i + 1)}</span><span class="ct" aria-hidden="true">${esc(c.text)}</span></a>`).join('')}</nav>`;
-}
-/** The label that opens a chapter: "02 | Title", a thin rule, and "02 / 09" with ticks at the right. */
-function chapterLabel(i, total, title) {
-  const ticks = Array.from({ length: total }, (_, k) => `<i${k === i ? ' class="on"' : ''}></i>`).join('');
-  return `<div class="chapter-label"><span class="chapter-tag"><span class="n">${pad2(i + 1)}</span><span class="sep" aria-hidden="true"></span><span class="t">${esc(title)}</span></span><span class="chapter-rule" aria-hidden="true"></span><span class="chapter-progress"><span class="ticks" aria-hidden="true">${ticks}</span>${pad2(i + 1)} / ${pad2(total)}</span></div>`;
-}
+/** (The chapter capsule and the numbered chapter labels are not part of the plain look; headings stand alone.) */
+function chaptersNav() { return ''; }
+function chapterLabel() { return ''; }
 
 /** Numbers a guide may name as {{token}}: read from the source and from measurements at build time, never typed. */
 function tokens() {
@@ -584,7 +581,7 @@ function fillTokens(text, srcFile) {
   return text.replace(/\{\{([\w.-]+)\}\}/g, (m, k) => { if (k in t) return String(t[k]); warnings.push(`${srcFile}: unknown token ${m}`); return m; });
 }
 
-function docPage({ path: p, src, title, description, body: rawBody, group, prevNext, related, crumbs, ld: ldExtra, live, entries, html: allowHtml }) {
+function docPage({ path: p, src, title, description, body: rawBody, group, prevNext, related, crumbs, ld: ldExtra, live, entries, html: allowHtml, wide }) {
   const body = fillTokens(rawBody, src);
   const fns = [];
   const md = renderMarkdown(body, renderOptions(p, src, { live: live ? makeLive(live, fns) : null, entries, html: !!allowHtml }));
@@ -622,7 +619,7 @@ ${onward}
   pages.push({
     path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', drawings: usesDrawings, liveLib: usesLive, liveElement: usesLiveElement, libs, live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
     bodyClass: 'docs-page', ld: ldExtra,
-    body: `<div class="docs"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}${h2s.length >= 2 ? `<aside class="docs-toc"><nav class="page-toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${h2s.map((h, i) => `<li><a href="#${h.id}"${i === 0 ? ' aria-current="true"' : ''}>${esc(h.text)}</a></li>`).join('')}</ul></nav></aside>` : ''}</div>`,
+    body: `<div class="docs${wide ? ' docs--wide' : ''}"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}${h2s.length >= 2 && !wide ? `<aside class="docs-toc"><nav class="page-toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${h2s.map((h, i) => `<li><a href="#${h.id}"${i === 0 ? ' aria-current="true"' : ''}>${esc(h.text)}</a></li>`).join('')}</ul></nav></aside>` : ''}</div>`,
   });
   searchDocs.push({ t: title, u: p, d: description, s: md.headings.filter((h) => h.level <= 3).map((h) => [h.text, h.id, firstSentence(h.lead)]) });
 }
@@ -636,7 +633,7 @@ guides.forEach((g, i) => {
     prevNext: { prev: guides[i - 1], next: guides[i + 1] }, related: g.related.map(guideBySlug).filter(Boolean),
     crumbs: [{ name: 'Home', path: 'index.html' }, { name: 'Guide', path: 'guide/index.html' }, { name: g.title, path: g.out }],
     ld: [{ '@context': 'https://schema.org', '@type': 'TechArticle', headline: g.title, description: g.description, inLanguage: config.locale, url: baseUrl + g.out, author: author(), isPartOf: { '@type': 'WebSite', name: NAME, url: baseUrl }, about: { '@type': 'SoftwareSourceCode', name: NAME } }],
-    live: g.slug, entries: g.layout === 'api',
+    live: g.slug, entries: g.layout === 'api', wide: g.layout === 'wide',
   });
 });
 
@@ -666,7 +663,7 @@ if (existsSync(path.join(pkg, 'docs', 'PERFORMANCE.md'))) {
   const p = 'guide/index.html';
   let k = 0;
   const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Guide</span></nav>
-<h1 id="top">Learn it one task <span class="serif-frame">at a time.</span></h1><p class="lead">${['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty'][guides.length] || guides.length} short pages, each about one job. Start with Getting started; every page after it has live charts you can touch and code you can copy.</p></div></section>
+<h1 id="top">Learn it one task at a time.</h1><p class="lead">${['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty'][guides.length] || guides.length} short pages, each about one job. Start with Getting started; every page after it has live charts you can touch and code you can copy.</p></div></section>
 <div class="wrap">
 ${GROUPS.map((grp) => `<section class="task-group" aria-labelledby="g-${grp.id}"><div class="task-group-head"><h2 id="g-${grp.id}">${esc(grp.title)}</h2><p>${esc(grp.blurb)}</p></div><ul class="task-grid">${guides.filter((x) => x.group === grp.id).map((x) => { k++; return `<li><a class="card task-card" href="${rel(p, x.out)}"><span class="tile tile--${((k - 1) % 5) + 1}">${GLYPH[TASK_ICONS[x.slug]] || GLYPH.book}</span><p class="task">${esc(x.task)}</p><h3>${esc(x.title)}</h3><p>${esc(x.summary)}</p><span class="go">Read the guide ${ICON.arrow}</span></a></li>`; }).join('')}</ul></section>`).join('\n')}
 </div>`;
@@ -735,7 +732,7 @@ ${f.tabs.map((t, k) => `<template data-fx-src="${k}" data-fx-id="${ids[k]}" data
 </article>`;
   }).join('\n');
   const body = `<section class="index-panel"><div class="wrap"><nav class="crumb" aria-label="Breadcrumb"><a href="${rel(p, 'index.html')}">${esc(NAME)}</a><span class="sep" aria-hidden="true">›</span><span aria-current="page">Examples</span></nav>
-<h1 id="top">Charts you can <span class="serif-frame">touch.</span></h1><p class="lead">Every chart here is drawn by ${esc(NAME)} in your browser, from invented demo data${LIVE ? ', except the Live card, which shows exchange prices once you press Connect' : ''}. Switch a tab and the chart redraws; "Get this code" hands you exactly the code that runs.</p></div></section>
+<h1 id="top">Charts you can touch.</h1><p class="lead">Every chart here is drawn by ${esc(NAME)} in your browser, from invented demo data${LIVE ? ', except the Live card, which shows exchange prices once you press Connect' : ''}. Switch a tab and the chart redraws; "Get this code" hands you exactly the code that runs.</p></div></section>
 <div class="wrap">
 <section class="fx-section" aria-labelledby="fx-h"><div class="task-group-head"><h2 id="fx-h">Feature gallery</h2><p>${FX.length} features, each with its variants. Drag to pan, scroll or pinch to zoom, tab in and press Enter to step through bars.</p></div>
 <div class="fx-grid" id="fx-gallery">
@@ -825,12 +822,12 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
     [3, 'minus', 'Numbers that read right', 'A true minus sign (<span class="num">−2.35</span>), no grouping commas (<span class="num">12345.60</span>), tabular figures on the axes.', g('time-and-time-zones') + '#numbers-on-the-axis', 'Number rules'],
   ];
   const STATS = [
-    [CATALOG.length, 'Indicators', g('indicator-catalogue')],
-    [DRAWING_TOOLS.length, 'Drawing tools', g('drawing-tools')],
-    [CHART_TYPES.length || SERIES_COUNT, 'Chart types', g('chart-types')],
-    [`${coreGzip} KB`, 'Core, gzip', '#ch-load'],
-    [RUNTIME_DEPS, 'Dependencies', '#ch-what'],
-    ...(PERF ? [[`${PERF.worst.toFixed(1)} ms`, `Worst p95 of ${PERF.budget.toFixed(2)}`, rel(p, PERF_PAGE)]] : []),
+    [CATALOG.length, 'indicators', g('indicator-catalogue')],
+    [DRAWING_TOOLS.length, 'drawing tools', g('drawing-tools')],
+    [CHART_TYPES.length || SERIES_COUNT, 'chart types', g('chart-types')],
+    [`${coreGzip} KB`, 'core, gzip', '#ch-load'],
+    [RUNTIME_DEPS, 'runtime dependencies', '#ch-what'],
+    ...(PERF ? [[`${PERF.worst.toFixed(1)} ms`, `worst p95 frame cost of ${PERF.budget.toFixed(2)} ms`, rel(p, PERF_PAGE)]] : []),
   ];
   const poster = (theme) => {
     const src = POSTERS[theme];
@@ -842,16 +839,18 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
     : `<div class="chart" data-demo="home" data-label="Demo daily candlestick chart"></div>`;
   const body = `<section class="hero-panel" aria-labelledby="hero-h"><div class="wrap hero hero--product">
 <div class="hero-text">
-<div class="hero-title"><p class="pill"><span class="tile tile--5">${GLYPH.candles}</span>Open source charting, version ${esc(VERSION)}</p>
-<h1 id="hero-h">Financial charts <span class="serif-frame">that stay light.</span></h1></div>
+<div class="hero-title"><p class="pill">Open source charting library, version ${esc(VERSION)}</p>
+<h1 id="hero-h">Financial charts that stay light.</h1></div>
 <div class="hero-copy"><p class="lead">A complete chart product in one call, or just the canvas: ${CHART_TYPES.length || SERIES_COUNT} chart types, ${CATALOG.length} indicators, ${DRAWING_TOOLS.length} drawing tools and exchange time zones. ${coreGzip} KB gzip core, no runtime dependencies, and every chart works from the keyboard.</p>
 <div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Get started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'examples.html')}">See the gallery</a></div></div>
+<div class="hero-quick">${codeBlock(`<script src="chartist-lite.terminal.iife.min.js"></script>
+<chartist-terminal live symbol="BTC-USD" interval="1h" indicators="ema,rsi" drawings></chartist-terminal>`, 'html')}<p class="note-line">The whole workspace below, from one script tag and one HTML tag. Not on npm yet: <a href="${g('getting-started')}#install">build it from the repository</a>.</p></div>
 </div>
 <div class="hero-visual">
 <div class="window hero-window" data-stage>${heroStage}</div>
 <p class="hero-hint">This is the real widget, not a picture: pick a symbol, draw, add indicators, change the range. <a href="${g('widget')}">The ready-made chart</a></p>
 </div>
-<ul class="stats" aria-label="Measured facts">${STATS.map(([v, k, href]) => `<li><a class="stat" href="${href}"><span class="v">${esc(String(v))}</span><span class="k">${esc(k)}</span></a></li>`).join('')}</ul>
+<p class="stats" aria-label="Measured facts">${STATS.map(([v, k, href]) => `<a class="stat" href="${href}"><b class="v">${esc(String(v))}</b> <span class="k">${esc(k)}</span></a>`).join('<span class="sep" aria-hidden="true"> · </span>')}</p>
 </div></section>
 
 <section class="wrap standout" aria-labelledby="standout-h"><h2 id="standout-h" class="eyebrow">What stands out</h2><ul class="standout-list">${STANDOUT.map(([c, icon, text, href]) => `<li><a class="standout-item" href="${href}"><span class="tile tile--${c}">${GLYPH[icon]}</span><span>${text}</span></a></li>`).join('')}</ul></section>
@@ -859,35 +858,35 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
 <div class="wrap home-chapters">
 ${chaptersNav(CH.map(([k, t]) => ({ id: `ch-${k}`, text: t })), 'Chapters')}
 
-${chapter('what', 'What it <span class="serif-frame">is.</span>', '', `<div class="intro"><div><p class="intro-statement">${esc(NAME)} is a small JavaScript library that draws price charts on one canvas, with the parts a market page needs built in.</p>
+${chapter('what', 'What it is.', '', `<div class="intro"><div><p class="intro-statement">${esc(NAME)} is a small JavaScript library that draws price charts on one canvas, with the parts a market page needs built in.</p>
 <div class="fact-cards">
 <div class="fact-card"><span class="tile tile--1">${GLYPH.candles}</span><span><span class="k">Kind</span><span class="v">Canvas chart library</span></span></div>
 <div class="fact-card"><span class="tile tile--2">${GLYPH.gauge}</span><span><span class="k">Size</span><span class="v">${coreGzip} KB gzip core</span></span></div>
 <div class="fact-card"><span class="tile tile--4">${GLYPH.code}</span><span><span class="k">Comes as</span><span class="v">Module, React, a tag</span></span></div>
 <div class="fact-card"><span class="tile tile--5">${GLYPH.book}</span><span><span class="k">Licence</span><span class="v">${esc(config.license.name)}</span></span></div>
 </div></div>
-<div class="intro-side"><p>${CHART_TYPES.length || SERIES_COUNT} chart types, ${CATALOG.length} indicators, ${DRAWING_TOOLS.length} drawing tools, stacked panes, exchange time zones and a legend that reads the bar under the pointer. It has no runtime dependencies, and the core never fetches data on its own${LIVE ? '; live prices come from an optional entry, only when you call it' : ''}.</p><p>It is written from scratch by ${esc(config.author.name)}. Many names will feel familiar if you know Lightweight Charts, on purpose; the code is its own, and the guide lists where behaviour differs.</p></div></div>
+<div class="intro-side"><p>${CHART_TYPES.length || SERIES_COUNT} chart types, ${CATALOG.length} indicators, ${DRAWING_TOOLS.length} drawing tools, stacked panes, exchange time zones and a legend that reads the bar under the pointer. It has no runtime dependencies, and the core never fetches data on its own${LIVE ? '; live prices come from an optional entry, only when you call it' : ''}.</p><p>It is written from scratch. Many names will feel familiar if you know Lightweight Charts, on purpose; the code is its own, and the guide lists where behaviour differs.</p></div></div>
 <div class="apart">${apart.map(([c, icon, t, text, href, link], i) => `<div class="apart-item"><span class="tile tile--${c}">${GLYPH[icon]}</span><div><h3 id="apart-${i + 1}">${t}</h3><p>${text} <a href="${href}">${link}</a></p></div></div>`).join('')}</div>`)}
 
-${chapter('move', 'See it <span class="serif-frame">move.</span>', 'Two things a canvas usually cannot do: read exchange time, and be read aloud.', `<div class="duo">
+${chapter('move', 'See it move.', 'Two things a canvas usually cannot do: read exchange time, and be read aloud.', `<div class="duo">
 <div>${win('Five sessions, five-minute bars', `<div class="chart h-320" data-demo="zone" data-label="Demo five-minute candlestick chart over five sessions"></div><div class="demo-bar js-only"><span class="group-label">Axis zone</span>${controlsHtml('zone')}</div>`)}<div class="duo-text"><h3 id="move-zones">Exchange time, with no gaps</h3><p>Nights and weekends take no space, ticks land on session boundaries, and labels read in the zone you choose. The data never changes.</p><a href="${g('time-and-time-zones')}">Time and time zones</a></div></div>
 <div>${win('Keyboard inspect mode', `<div class="chart h-320" data-demo="keys" data-label="Demo chart for keyboard control: press Enter to inspect bars"></div><div class="demo-bar js-only"><button class="btn btn--sm" type="button" data-focus-chart>Focus the chart</button><span class="keys"><kbd>←</kbd> <kbd>→</kbd></span><span class="group-label">pan</span><span class="keys"><kbd>Enter</kbd></span><span class="group-label">inspect</span></div>`)}<div class="duo-text"><h3 id="move-keys">Readable without a mouse</h3><p>The chart takes focus and has a name. Enter starts stepping through bars; each is announced, with the legend following along.</p><a href="${g('accessibility')}">Accessibility</a></div></div>
 </div>`)}
 
-${chapter('series', 'Six ways to draw a <span class="serif-frame">price.</span>', 'Every type takes the same rows and follows the theme. Each chart below is live.', `<div class="series-grid">${[['s-candles', 'Candlestick', 'CandlestickSeries'], ['s-bar', 'OHLC bars', 'BarSeries'], ['s-line', 'Line', 'LineSeries'], ['s-area', 'Area', 'AreaSeries'], ['s-histogram', 'Histogram', 'HistogramSeries'], ['s-baseline', 'Baseline', 'BaselineSeries']].map(([id, t, def]) => `<figure class="window series-card"><div class="chart h-200" data-demo="${id}" data-label="Demo ${t.toLowerCase()} chart"></div><figcaption><span>${t}</span><code>${def}</code></figcaption></figure>`).join('')}</div>
+${chapter('series', 'Six ways to draw a price.', 'Every type takes the same rows and follows the theme. Each chart below is live.', `<div class="series-grid">${[['s-candles', 'Candlestick', 'CandlestickSeries'], ['s-bar', 'OHLC bars', 'BarSeries'], ['s-line', 'Line', 'LineSeries'], ['s-area', 'Area', 'AreaSeries'], ['s-histogram', 'Histogram', 'HistogramSeries'], ['s-baseline', 'Baseline', 'BaselineSeries']].map(([id, t, def]) => `<figure class="window series-card"><div class="chart h-200" data-demo="${id}" data-label="Demo ${t.toLowerCase()} chart"></div><figcaption><span>${t}</span><code>${def}</code></figcaption></figure>`).join('')}</div>
 <p class="duo-text"><a href="${g('series-types')}">Series types: rows and options</a></p>`)}
 
-${chapter('panes', 'Indicators and <span class="serif-frame">panes.</span>', `Overlays on the price, oscillators underneath. The indicator entry is ${indGzip} KB gzip and imports nothing from the chart.`, `<div class="duo">
+${chapter('panes', 'Indicators and panes.', `Overlays on the price, oscillators underneath. The indicator entry is ${indGzip} KB gzip and imports nothing from the chart.`, `<div class="duo">
 <div>${win('SMA 20 and Bollinger bands', `<div class="chart h-360" data-demo="indicators" data-label="Demo candlestick chart with a moving average and Bollinger bands"></div>`)}<div class="duo-text"><h3 id="panes-ind">Plain functions, aligned rows</h3><p><code>setData(sma(bars, 20))</code> just works: every indicator returns one row per bar, with empty rows while its window fills.</p><a href="${g('indicators')}">Indicators</a></div></div>
 <div>${win('Volume overlay and an RSI pane', `<div class="chart h-360" data-demo="panes" data-label="Demo candlestick chart with volume and an RSI pane below"></div><div class="demo-bar js-only"><span class="group-label">Price scale</span>${controlsHtml('scale')}</div>`)}<div class="duo-text"><h3 id="panes-panes">A pane is one argument</h3><p>Pass a pane index to <code>addSeries</code>. Drag the divider, or focus it and press the arrow keys.</p><a href="${g('panes-and-scales')}">Panes and scales</a></div></div>
 </div>`)}
 
-${DRAWINGS ? chapter('drawings', 'Drawing <span class="serif-frame">tools.</span>', `${DRAWING_TOOLS.length} tools in a separate entry of ${sizeOf(sizes, 'drawings')?.gzip ?? ''} KB gzip, on the chart's own pointer and keyboard hooks. Pick a tool on the rail, or click the chart and press T, then draw.`, `<div class="playground">
+${DRAWINGS ? chapter('drawings', 'Drawing tools.', `${DRAWING_TOOLS.length} tools in a separate entry of ${sizeOf(sizes, 'drawings')?.gzip ?? ''} KB gzip, on the chart's own pointer and keyboard hooks. Pick a tool on the rail, or click the chart and press T, then draw.`, `<div class="playground">
 ${win('Playground: the real toolbar on a real chart', `<div class="chart h-480" data-demo="draw" data-label="Demo chart with drawing tools: pick a tool on the left rail and draw"></div><div class="demo-bar js-only">${controlsHtml('draw')}</div><pre class="out js-only" data-out tabindex="0" aria-live="polite" aria-label="Exported drawings">Export JSON shows the drawings here, as the text you would save.</pre>`)}
 <div class="playground-side"><div class="duo-text"><h3 id="draw-tools">Every tool</h3><p>${DRAWING_TOOLS.map((t) => esc(t.label)).join(', ')}.</p><h3 id="draw-keys">Keys, with the chart focused</h3><ul class="key-list"><li><kbd>T</kbd> trend, <kbd>H</kbd> horizontal, <kbd>F</kbd> Fibonacci, <kbd>R</kbd> rectangle, <kbd>L</kbd> long, <kbd>N</kbd> note</li><li><kbd>Delete</kbd> removes the selected drawing</li><li><kbd>Esc</kbd> drops the tool or the selection</li><li><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> nudge it (<kbd>Shift</kbd> for 10)</li><li><kbd>Ctrl</kbd> <kbd>Z</kbd> undo, <kbd>Ctrl</kbd> <kbd>Y</kbd> redo</li><li><kbd>Shift</kbd> <kbd>H</kbd> adds a horizontal line</li></ul><a href="${g('drawing-tools')}">Drawing tools guide</a></div></div>
 </div>`) : ''}
 
-${chapter('embed', 'Embed it <span class="serif-frame">anywhere.</span>', 'From a CMS block that takes one script tag to a React app: the same chart and the same options.', `<div class="install">
+${chapter('embed', 'Embed it anywhere.', 'From a CMS block that takes one script tag to a React app: the same chart and the same options.', `<div class="install">
 <div>${win('&lt;chartist-chart&gt;, no code', `<chartist-chart type="candlestick" volume height="300" aria-label="Demo candlestick chart from the chartist-chart element"><script type="application/json">${ohlc}</script><table><caption>Demo bars for the element</caption><tr><th>First bar</th><td>${homeBars[0].time}</td></tr><tr><th>Last close</th><td>${homeBars[homeBars.length - 1].close.toFixed(2)}</td></tr></table></chartist-chart>`)}</div>
 ${tabs}
 </div>
@@ -898,7 +897,7 @@ ${tabs}
 <div class="card embed-card"><span class="tile tile--5">${GLYPH.frame}</span><h3>An iframe</h3><p>For hosts that forbid scripts: a small page you host, framed by theirs.</p><code class="snippet">&lt;iframe src="frame.html?src=..."&gt;</code><a href="${g('embedding')}#4-an-iframe-for-sites-that-forbid-scripts">Iframe guide</a></div>
 </div>`)}
 
-${LIVE ? chapter('live', 'Live prices in <span class="serif-frame">one tag.</span>', `The optional live entry loads history and streams live prices from a public exchange feed, folded into bars and painted once per frame. ${liveGzip} KB gzip as a module; the one-tag build is the element with it inside.`, `<div class="live-duo">
+${LIVE ? chapter('live', 'Live prices in one tag.', `The optional live entry loads history and streams live prices from a public exchange feed, folded into bars and painted once per frame. ${liveGzip} KB gzip as a module; the one-tag build is the element with it inside.`, `<div class="live-duo">
 <div>${win('&lt;chartist-chart live&gt;, Bitcoin', (() => { const c = connectStage({ markup: liveTag(360, 'Bitcoin in US dollars, one-minute candles with volume, live from the exchange'), height: '360', label: 'Live Bitcoin chart' }); return c.stage + c.bar; })())}</div>
 <div class="live-side">${codeBlock(`<script src="chartist-lite.element-live.iife.min.js"></script>
 
@@ -914,18 +913,18 @@ ${LIVE ? chapter('live', 'Live prices in <span class="serif-frame">one tag.</spa
 <a href="${g('live-data')}">Live data guide</a></div>
 </div>`) : ''}
 
-${chapter('load', 'You load what <span class="serif-frame">you need.</span>', 'Every part is its own entry. A page that only draws candles never downloads the drawing tools, and the ready-made chart loads its drawing, live and extras code the first time someone asks for it.', sizeTables(sizes, p))}
+${chapter('load', 'You load what you need.', 'Every part is its own entry. A page that only draws candles never downloads the drawing tools, and the ready-made chart loads its drawing, live and extras code the first time someone asks for it.', sizeTables(sizes, p))}
 
-${chapter('speed', 'Built for <span class="serif-frame">120 Hz.</span>', PERF ? `A 120 Hz screen gives each frame ${PERF.budget.toFixed(2)} ms. In ${PERF.scenarios} measured gestures, up to ${PERF.panBars} bars, the costliest frame of our code took ${PERF.worst.toFixed(2)} ms at p95, and ${PERF.over === 0 ? 'none' : PERF.over} went over. The meter times this chart on your own device.` : 'A 120 Hz screen gives each frame 8.33 ms. The meter times this chart on your own device while it pans and zooms through 5000 bars.', `<div class="speed">
+${chapter('speed', 'Built for 120 Hz.', PERF ? `A 120 Hz screen gives each frame ${PERF.budget.toFixed(2)} ms. In ${PERF.scenarios} measured gestures, up to ${PERF.panBars} bars, the costliest frame of our code took ${PERF.worst.toFixed(2)} ms at p95, and ${PERF.over === 0 ? 'none' : PERF.over} went over. The meter times this chart on your own device.` : 'A 120 Hz screen gives each frame 8.33 ms. The meter times this chart on your own device while it pans and zooms through 5000 bars.', `<div class="speed">
 ${win('Frame meter, on your device', `<div class="chart h-280" data-demo="meter" data-label="Demo chart of 5000 bars used to time pan and zoom frames on this device"></div><div class="meter js-only" id="meter"><canvas id="meter-canvas" width="600" height="96" aria-hidden="true"></canvas><div class="meter-read" role="status" id="meter-read">The meter runs when the chart is on screen.</div><div class="meter-legend"><span>Each bar is one frame: the time to move the view and paint it.</span><span>The line is the 8.33 ms budget of a 120 Hz frame.</span></div></div>`, `<span class="js-only"><button class="btn btn--sm" type="button" id="meter-run">Run again</button></span>`)}
 <div class="card bench">${benchHtml().replace("PERF_HREF", rel(p, PERF_PAGE))}</div>
 </div>`)}
 
-${chapter('start', 'Start in a <span class="serif-frame">minute.</span>', `Version ${esc(VERSION)} is not on npm yet, so build it once and host the file yourself.`, `<div class="install">
+${chapter('start', 'Start in a minute.', `Version ${esc(VERSION)} is not on npm yet, so build it once and host the file yourself.`, `<div class="install">
 <div><ol class="install-steps"><li>Clone <code>github.com/MrChartist/Lite_Charts</code>, then run <code>npm ci</code> and <code>npm run build</code> in it.</li><li>Copy the file you need from <code>dist/</code> next to your page.</li><li>Paste one of the snippets above and give it your rows.</li></ol>
 <div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Read Getting started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'guide/index.html')}">All guides</a></div></div>
 <div class="honest"><div class="card"><h3 id="not-h">What it is not</h3><ul class="not-list"><li>No data feed in the core. You give it rows; it never fetches prices by itself (the element can load a JSON or CSV file you point it at).${LIVE ? ' The optional live entry reads public exchange prices, only when you use it.' : ''}</li><li>No order placement and no trading features.</li><li>No pattern detection or signals. Markers show what you give them.</li>${DRAWINGS ? '' : '<li>No drawing tools in this version: no trend lines, Fibonacci tools or text notes. A primitive can draw your own marks.</li>'}</ul></div>
-<div class="card"><h3 id="status-h">Status</h3><dl class="status-list"><dt>Version</dt><dd>${esc(VERSION)}, not yet on npm</dd><dt>Licence</dt><dd>${esc(config.license.name)}</dd><dt>Tested in</dt><dd>Chromium, through Playwright</dd><dt>Not yet tested</dt><dd>Firefox, Safari, screen readers</dd><dt>Made by</dt><dd><a href="${esc(config.author.url)}" rel="noopener">${esc(config.author.name)}</a></dd></dl></div></div>
+<div class="card"><h3 id="status-h">Status</h3><dl class="status-list"><dt>Version</dt><dd>${esc(VERSION)}, not yet on npm</dd><dt>Licence</dt><dd>${esc(config.license.name)}</dd><dt>Tested in</dt><dd>Chromium, through Playwright</dd><dt>Not yet tested</dt><dd>Firefox, Safari, screen readers</dd>${REPO ? `<dt>Source</dt><dd><a href="${esc(REPO)}" rel="noopener">GitHub</a></dd>` : ''}</dl></div></div>
 </div>`)}
 </div>`;
   pages.unshift({
@@ -960,8 +959,6 @@ for (const [p, fns] of liveBundles) {
 }
 writeFileSync(path.join(out, 'assets', 'search-index.js'), `window.__CL_SEARCH=${JSON.stringify(searchDocs).replace(/</g, '\\u003c')};`);
 copyFileSync(path.join(here, 'assets', 'site.css'), path.join(out, 'assets', 'site.css'));
-copyFileSync(path.join(here, 'assets', 'fonts.css'), path.join(out, 'assets', 'fonts.css'));
-cpSync(path.join(here, 'assets', 'fonts'), path.join(out, 'assets', 'fonts'), { recursive: true });
 for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js', 'chartist-lite.element.iife.min.js', ...(DRAWINGS ? ['chartist-lite-drawings.iife.min.js'] : []),
   ...(LIVE ? ['chartist-lite-live.iife.min.js', 'chartist-lite.element-live.iife.min.js'] : []),
   ...(WIDGET ? ['chartist-lite.terminal.iife.min.js', 'chartist-lite-widget.iife.min.js'] : []), ...(EXTRAS ? ['chartist-lite-extras.iife.min.js'] : []), ...(TRANSFORMS ? ['chartist-lite-transforms.iife.min.js'] : [])]) {
@@ -992,7 +989,7 @@ writeFileSync(path.join(out, '.nojekyll'), '');
   const notFound = layout({
     path: '404.html', title: `Page not found | ${NAME}`, noindex: true,
     description: `This page of the ${NAME} documentation does not exist. Start from the guide, the examples or the home page.`,
-    body: `<section class="index-panel"><div class="wrap"><p class="eyebrow">404</p><h1 id="top">This page is <span class="serif-frame">not here.</span></h1><p class="lead">The address may be old or mistyped. These will get you back on track.</p><div class="actions"><a class="btn btn--primary btn--lg" href="guide/getting-started.html">Get started</a><a class="btn btn--lg" href="guide/index.html">The guide</a><a class="btn btn--lg" href="index.html">Home</a></div></div></section>`,
+    body: `<section class="index-panel"><div class="wrap"><p class="eyebrow">404</p><h1 id="top">This page is not here.</h1><p class="lead">The address may be old or mistyped. These will get you back on track.</p><div class="actions"><a class="btn btn--primary btn--lg" href="guide/getting-started.html">Get started</a><a class="btn btn--lg" href="guide/index.html">The guide</a><a class="btn btn--lg" href="index.html">Home</a></div></div></section>`,
   }).replace('<head>', `<head>\n<base href="${esc(baseUrl)}">`);
   writeFileSync(path.join(out, '404.html'), notFound);
 }

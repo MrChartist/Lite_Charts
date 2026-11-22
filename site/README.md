@@ -81,3 +81,16 @@ is a build warning. The indicator catalogue table and the drawing tools table ar
 `@@CATALOGUE@@` or `@@DRAWING_TOOLS@@`. The feature gallery of `examples.html` comes from `src/gallery.js`: each tab's
 code is compiled into the page's live script, and "Get this code" shows the same text (the check compares them).
 
+
+## Look
+
+A plain documentation look, on purpose neutral: system fonts (no web fonts at all), light by default and dark when
+the system asks, a remembered toggle that wins over both, a neutral grey scale, hairline borders, radii of 8 to 12 px,
+one blue for links and focus, green and red only for market direction. The charts keep the library's own default look.
+`layout: wide` in a guide's front matter drops the "On this page" column for a page with a wide table.
+
+The check asserts the look too: no font file and no `@font-face` anywhere in `site/dist`, no font request, no pink or
+purple colour in `site.css`, no chapter capsule or numbered chapter labels, and a default theme that follows the
+system. With `SITE_SHOTS=1` it also writes the README's hero pair (`docs/screenshots/readme-hero-{dark,light}.png`, the
+widget on demo data at 1100 by 620 CSS px, device scale 2) and renders the README at GitHub's 880 px column on its light
+and dark page colours for review (`site/dist/review/`, or `SITE_CHECK_SCRATCH`).

@@ -1,9 +1,0 @@
-Fonts of this site
-
-Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and
-Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1. Symbols that Chartist Sans
-Flex lacks come from a small cut of Inter (The Inter Project Authors), also under the SIL Open Font License 1.1.
-
-The files are the Mr. Chartist copies (subset and renamed, 2026), unchanged here. Each folder holds the original
-OFL.txt with its copyright line. The fonts stay under the SIL Open Font License 1.1 and are not sold on their own.
-Source of these copies: src/assets/fonts/ of the Mr. Chartist app; licence notes: docs/theme/type/LICENSE.md.

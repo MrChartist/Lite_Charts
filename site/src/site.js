@@ -11,9 +11,11 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 
 // ---------- theme: dark by default, light when chosen; remembered ----------
-const currentTheme = () => (root.dataset.theme === 'light' ? 'light' : 'dark');
+// Light by default; dark when the system asks; a choice made with the toggle is remembered and wins.
+const systemDark = () => !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+const currentTheme = () => (root.dataset.theme === 'light' || root.dataset.theme === 'dark' ? root.dataset.theme : systemDark() ? 'dark' : 'light');
 function applyTheme(name, store) {
-  root.dataset.theme = name;
+  if (store) root.dataset.theme = name;
   const t = $('#theme-toggle');
   if (t) t.setAttribute('aria-pressed', String(name === 'dark'));
   for (const b of $$('[data-set-theme]')) b.setAttribute('aria-pressed', String(b.dataset.setTheme === name));
@@ -721,13 +723,12 @@ function initApiFilter() {
   const prose = input.closest('.prose');
   const count = $('#api-count');
   const nodes = Array.from(prose.children);
-  // Groups: each chapter label starts one; entries belong to the group above them.
+  // Groups: each h2 starts one; entries belong to the group above them.
   const groups = [];
   let g = null;
   for (const n of nodes) {
-    if (n.classList.contains('chapter-label')) { g = { head: [n], rest: [], entries: [] }; groups.push(g); continue; }
+    if (n.tagName === 'H2') { g = { head: [n], rest: [], entries: [] }; groups.push(g); continue; }
     if (!g || n.matches('.api-filter, .doc-head, .chapters, .pager, .onward, .related')) continue;
-    if (n.tagName === 'H2') g.head.push(n);
     else if (n.classList.contains('entry')) { n._text = `${n.dataset.entry} ${n.textContent}`.toLowerCase(); g.entries.push(n); }
     else g.rest.push(n);
   }
@@ -935,6 +936,8 @@ function start() {
   const toggle = $('#theme-toggle');
   if (toggle) toggle.addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true));
   applyTheme(currentTheme(), false);
+  // Follow the system while nothing was chosen.
+  if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (!root.dataset.theme) applyTheme(currentTheme(), false); });
   initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initConnect(); initCharts(); initMeter(); initHero(); initCatalogue(); initFeatures();
 }
 start();

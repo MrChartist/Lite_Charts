@@ -4,6 +4,7 @@ description: Every one of the {{indicators}} indicators in the Chartist Lite cat
 order: 10.5
 related: indicators, widget, api-reference
 group: reference
+layout: wide
 task: Find an indicator and its inputs
 summary: All {{indicators}} indicators with their category, inputs, defaults and outputs, and a live preview of each.
 ---

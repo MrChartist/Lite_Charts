@@ -8,7 +8,7 @@
 //   > [!NOTE] / [!TIP] / [!WARNING] / [!VERIFY]   a callout (VERIFY reads "Needs verification")
 //   options.entries = true                     each h3 and what follows it is wrapped in <section class="entry">
 //   options.html = true                        (the README only) the small HTML set GitHub renders: <p align>, <div align>,
-//                                              <picture>/<source>/<img>, <details>/<summary>, <h1 align>. Image paths go
+//                                              <picture>/<source>/<img>, <details>/<summary>, <strong>, <b>, <em>, <code>, <h1 align>. Image paths go
 //                                              through resolveAsset; remote images (badges) become text chips, so the site
 //                                              loads nothing from other hosts.
 // Code is highlighted at build time (highlight.mjs) and framed with a language label and a copy button.
@@ -34,7 +34,7 @@ function rawHtml(line, options) {
   });
   s = s.replace(/<a href="([^"]*)">/gi, (_m, href) => { const r = options.resolveLink ? options.resolveLink(href) : { href }; return r && r.href ? `<a href="${esc(r.href)}">` : '<a>'; });
   // Keep only these tags; anything else is shown as text.
-  return s.replace(/<(?!\/?(p|div|picture|source|img|details|summary|br|a|span)\b)/gi, '&lt;');
+  return s.replace(/<(?!\/?(p|div|picture|source|img|details|summary|br|a|span|strong|b|em|code)\b)/gi, '&lt;');
 }
 
 /** A framed, highlighted code block. */

@@ -4,6 +4,7 @@ description: Chartist Lite next to TradingView Lightweight Charts and OpenAlgo C
 order: 12
 related: coming-from-lightweight-charts, indicator-catalogue, api-reference
 group: reference
+layout: wide
 task: See how it compares, with sources
 summary: Only figures each project publishes about itself, each with its source and the date it was read, including where the others are ahead.
 ---
