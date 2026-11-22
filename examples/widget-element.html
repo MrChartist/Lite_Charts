@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: the widget with no JavaScript</title>
+<link rel="stylesheet" href="widget-element.css">
+</head>
+<body>
+<h1>Zero JavaScript: two tags</h1>
+<p>One script tag, then a tag per chart. Real crypto prices from public exchange APIs; demo data if none answers.</p>
+<!-- The terminal build bundles the widget, live data and drawings, and registers both tags. -->
+<script src="../dist/chartist-lite.terminal.iife.min.js"></script>
+<chartist-terminal id="t1" live symbol="BTC-USD" interval="1h" indicators="ema,rsi" drawings height="560"></chartist-terminal>
+<chartist-chart id="t2" widget live symbol="ETH-USD" interval="15m" theme="dark" height="480"></chartist-chart>
+</body>
+</html>

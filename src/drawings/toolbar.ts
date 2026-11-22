@@ -1,8 +1,12 @@
-// The optional drawing toolbar: one rail of grouped icon buttons (cursor; lines; shapes; Fibonacci; measure;
-// positions; annotate | keep drawing, magnet, hide | undo, redo, delete all), each multi-tool group a button with a
-// flyout menu, a floating style bar for the selected drawing, and the text-note editor. DOM in a shadow root, every
-// style a CSSOM write with the same important resets as the legend (CSP-safe, page CSS cannot reach it), themed from
-// the chart's colours. Icons are our own single-colour line drawings on a 24 grid (1.8 stroke, round caps).
+// The optional drawing toolbar: one rail of grouped icon buttons (cursor; then one button per group of the tools on
+// offer: lines, channels and pitchforks, Fibonacci and Gann, shapes, measure and analysis, positions, annotate | keep
+// drawing, magnet, hide | undo, redo, delete all), each multi-tool group a button with a flyout menu, a floating style
+// bar for the selected drawing, and the text-note editor. DOM in a shadow root, every style a CSSOM write with the same
+// important resets as the legend (CSP-safe, page CSS cannot reach it), themed from the chart's colours. Icons are our
+// own single-colour line drawings on a 24 grid (1.8 stroke, round caps), each tool's from its definition. Flyouts, the
+// style bar and the editor are kept inside the chart box: a flyout opens beside its button, up when there is no room
+// below, and scrolls inside itself when the chart is short; under a width threshold the style bar collapses to colour,
+// a "more" panel and delete.
 
 import type { ChartApi } from '../api';
 import type { ThemeColors } from '../core/theme';
@@ -10,7 +14,9 @@ import { lightTheme } from '../core/theme';
 import { css, cssReset } from '../render/dom';
 import type { Pt } from './geometry';
 import type { DrawingToolsController, DrawingToolsUi } from './controller';
-import { TOOL_GROUPS, TOOL_KEYS, toolInfo, type Drawing, type ToolGroup, type ToolId } from './tools';
+import type { Drawing, ToolDefinition, ToolId } from './contract';
+import { groupsFor, keysFor, type ToolGroup } from './engine';
+import { BASIC_TOOLS } from './tools/basic';
 
 const SVG = 'http://www.w3.org/2000/svg';
 /** The chart's inset: the rail keeps this far from the pane edge and from the legend. */
@@ -20,30 +26,14 @@ const GAP = 4;
 const PAD = 6;
 const HOLD_MS = 350;
 
-// A ring of radius 2 around (x, y), drawn as two arcs (the "dot" of a line tool).
-const ring = (x: number, y: number): string => `M${x + 2} ${y}a2 2 0 1 1-4 0a2 2 0 1 1 4 0`;
-
 /**
- * 24-grid line icons, one idea each, recognisable at 20 px without a tooltip. Dots are rings (r 2); lines stop at the
- * ring's edge so the ring reads as a point.
+ * 24-grid line icons of the toolbar itself, one idea each, recognisable at 20 px without a tooltip. Each tool's icon is
+ * in its definition (`ToolDefinition.icon`); `ICONS` keeps the toolbar's own and, for code that read them here, the
+ * basic tools' (from the definitions).
  */
-export const ICONS: Readonly<Record<string, string>> = {
+const UI_ICONS: Readonly<Record<string, string>> = {
   cursor: 'M7 4.5l10.5 9.8-4.7.7-2.5 4.3z',
-  trend: `${ring(5, 19)}${ring(19, 5)}M6.4 17.6L17.6 6.4`,
-  ray: `${ring(5, 19)}M6.4 17.6L20 4M20 4h-5.5M20 4v5.5`,
-  extended: `${ring(8, 16)}${ring(16, 8)}M2.5 21.5l4.1-4.1M9.4 14.6l5.2-5.2M17.4 6.6l4.1-4.1`,
-  horizontal: `${ring(12, 12)}M2.5 12H10M14 12h7.5`,
-  horizontalRay: `${ring(5, 12)}M7 12h14.5M18.5 9l3 3-3 3`,
-  vertical: `${ring(12, 12)}M12 2.5V10M12 14v7.5`,
-  rectangle: 'M4 6.5h16v11H4z',
-  channel: `${ring(4, 13)}${ring(10, 20)}M5.5 11.7L19.5 4M11.5 18.7L20.5 13.8`,
-  fib: 'M3.5 4.5h17M3.5 9.5h12M3.5 14.5h8M3.5 19.5h17',
-  measure: 'M3.5 16.5l13-13 4 4-13 13zM7.5 12.5l1.5 1.5M10.5 9.5l1.5 1.5M13.5 6.5l1.5 1.5',
-  long: 'M3.5 4.5h11v8h-11zM3.5 12.5h11v7h-11zM19.5 19.5v-15M16.5 7.5l3-3 3 3',
-  short: 'M3.5 4.5h11v7h-11zM3.5 11.5h11v8h-11zM19.5 4.5v15M16.5 16.5l3 3 3-3',
-  arrow: 'M5 19L18.5 5.5M11 5.5h7.5V13',
-  text: 'M6 5.5h12M12 5.5v13M9.5 18.5h5',
-  brush: 'M4 18.5c3 0 3.5-5 6.5-5s3 5 6 5 3-7.5 3.5-10.5',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
   keep: 'M7.5 11V8a4.5 4.5 0 0 1 9 0v3M6 11h12v9H6zM12 14.5v2',
   magnet: 'M6 4.5v7.5a6 6 0 0 0 12 0V4.5h-4V12a2 2 0 0 1-4 0V4.5zM6 8.5h4M14 8.5h4',
   hide: 'M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6zM14.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 1 1 5 0',
@@ -54,7 +44,9 @@ export const ICONS: Readonly<Record<string, string>> = {
   solid: 'M3 12h18',
 };
 
-function icon(doc: Document, name: string, px = 24): SVGSVGElement {
+export const ICONS: Readonly<Record<string, string>> = { ...Object.fromEntries(BASIC_TOOLS.map(t => [t.id, t.icon])), ...UI_ICONS };
+
+function icon(doc: Document, d: string, px = 24): SVGSVGElement {
   const svg = doc.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('width', String(px));
@@ -67,7 +59,7 @@ function icon(doc: Document, name: string, px = 24): SVGSVGElement {
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   const path = doc.createElementNS(SVG, 'path');
-  path.setAttribute('d', ICONS[name] ?? '');
+  path.setAttribute('d', d);
   svg.appendChild(path);
   return svg;
 }
@@ -85,18 +77,51 @@ function isDark(hex: string): boolean {
 }
 
 /** Tooltip text of a tool: its name and its key. */
-export function toolTitle(id: ToolId): string {
-  const info = toolInfo(id);
-  const key = TOOL_KEYS[id];
+export function toolTitle(id: ToolId, defs: readonly ToolDefinition[] = BASIC_TOOLS): string {
+  const info = defs.find(t => t.id === id);
+  const key = info?.key;
   return `${info ? info.label : id}${key ? ` (${key})` : ''}`;
 }
 
 type Kind = 'cursor' | 'group' | 'keep' | 'magnet' | 'hide' | 'undo' | 'redo' | 'clear';
 interface Btn { el: HTMLButtonElement; kind: Kind; group?: ToolGroup; mark?: HTMLElement }
 
+/**
+ * Where a flyout goes inside the chart box (all in chart px): beside a vertical rail's button (else below a horizontal
+ * one); moved up so it ends inside the box, flipped to the other side when there is no room, and given a smaller height
+ * (it scrolls) when the chart is shorter than the list. Width never exceeds the box.
+ */
+export function placeFlyout(button: { left: number; top: number; right: number; bottom: number }, chartBox: { width: number; height: number }, want: { width: number; height: number }, vertical: boolean): { left: number; top: number; width: number; height: number } {
+  const M = 4;
+  const width = Math.max(0, Math.min(want.width, chartBox.width - 2 * M));
+  const height = Math.max(0, Math.min(want.height, chartBox.height - 2 * M));
+  let left: number, top: number;
+  if (vertical) {
+    left = button.right + 6;
+    if (left + width > chartBox.width - M) left = button.left - 6 - width; // flip to the left of the button
+    if (left < M) left = Math.max(M, chartBox.width - M - width); // no room either side: overlap, inside the box
+    top = button.top - 4;
+    if (top + height > chartBox.height - M) top = chartBox.height - M - height; // open upwards
+  } else {
+    left = Math.min(button.left, chartBox.width - M - width);
+    top = button.bottom + 6;
+    if (top + height > chartBox.height - M) top = button.top - 6 - height; // above the button
+    if (top < M) top = Math.max(M, chartBox.height - M - height);
+  }
+  return { left: Math.max(M, left), top: Math.max(M, top), width, height };
+}
+
 export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, position: 'left' | 'top'): DrawingToolsUi {
+  const defs = ctl.tools();
+  const byId = new Map(defs.map(t => [t.id, t]));
+  const TOOL_GROUPS = groupsFor(defs);
+  const TOOL_KEYS = keysFor(defs);
+  const toolInfo = (id: ToolId): ToolDefinition | undefined => byId.get(id);
+  const title = (id: ToolId): string => toolTitle(id, defs);
   const root = chart.element();
   const doc = root.ownerDocument;
+  /** A toolbar icon or a tool's icon, by name. */
+  const ic = (name: string, px?: number): SVGSVGElement => icon(doc, byId.get(name)?.icon ?? UI_ICONS[name] ?? '', px);
   const win = doc.defaultView;
   const coarse = (): boolean => { try { return !!win?.matchMedia?.('(pointer: coarse)').matches; } catch { return false; } };
   const vertical = position === 'left';
@@ -136,7 +161,7 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     el.setAttribute('aria-label', label);
     el.title = label;
     el.tabIndex = -1;
-    el.appendChild(icon(doc, iconName));
+    el.appendChild(ic(iconName));
     el.addEventListener('click', ev => { if (kind !== 'clear') confirmClear = false; onClick(ev); sync(); });
     el.addEventListener('pointerdown', () => css(el, { transform: 'scale(0.97)' }));
     const release = (): void => css(el, { transform: 'none' });
@@ -283,15 +308,15 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
       const on = ctl.tool() === t || (ctl.tool() === null && current.get(g.id) === t);
       row.setAttribute('aria-checked', String(ctl.tool() === t));
       row.tabIndex = -1;
-      const ic = icon(doc, t, 20);
+      const glyph = ic(t, 20);
       const name = doc.createElement('span');
       name.textContent = toolInfo(t)?.label ?? t;
       const key = doc.createElement('span');
       key.textContent = TOOL_KEYS[t] ?? '';
-      cssReset(ic as unknown as HTMLElement, { display: 'block', 'flex-shrink': '0' });
+      cssReset(glyph as unknown as HTMLElement, { display: 'block', 'flex-shrink': '0' });
       cssReset(name, { display: 'block', 'flex-grow': '1', 'white-space': 'nowrap', color: 'inherit', font: 'inherit' });
       cssReset(key, { display: 'block', color: ctl.tool() === t ? 'inherit' : c.mutedText, font: 'inherit', 'min-width': '12px', 'text-align': 'right', 'font-variant-numeric': 'tabular-nums' });
-      row.append(ic, name, key);
+      row.append(glyph, name, key);
       const pick = (): void => { current.set(g.id, t); closeMenu(true); ctl.setTool(t); swapIcon(b); sync(); };
       row.addEventListener('click', pick);
       row.addEventListener('keydown', ev => {
@@ -319,12 +344,20 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     }
     const r = b.el.getBoundingClientRect();
     const rr = root.getBoundingClientRect();
+    const rowH = coarse() ? 44 : 32;
     cssReset(menu, {
-      position: 'absolute', display: 'flex', 'flex-direction': 'column', gap: '2px', padding: '4px', 'min-width': '200px',
+      position: 'absolute', display: 'flex', 'flex-direction': 'column', gap: '2px', padding: '4px', 'min-width': '0',
       background: c.background, border: `1px solid ${c.paneSeparator}`, 'border-radius': '12px', color: c.text,
-      font: `400 13px ${chart.options().fontFamily}`, 'pointer-events': 'auto', 'z-index': '4',
-      left: `${vertical ? r.right - rr.left + 6 : r.left - rr.left}px`, top: `${vertical ? r.top - rr.top - 4 : r.bottom - rr.top + 6}px`,
+      font: `400 13px ${chart.options().fontFamily}`, 'pointer-events': 'auto', 'z-index': '4', 'box-sizing': 'border-box',
+      'overflow-y': 'auto', 'overflow-x': 'hidden', 'scrollbar-width': 'thin', visibility: 'hidden', left: '0', top: '0',
     });
+    const box = placeFlyout(
+      { left: r.left - rr.left, top: r.top - rr.top, right: r.right - rr.left, bottom: r.bottom - rr.top },
+      { width: rr.width, height: rr.height },
+      { width: Math.max(200, menu.scrollWidth + 2), height: g.tools.length * (rowH + 2) + 8 },
+      vertical,
+    );
+    css(menu, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, 'max-height': `${box.height}px`, visibility: 'visible' });
     const start = items[Math.max(0, g.tools.indexOf(current.get(g.id) as ToolId))];
     if (byKeyboard) start.focus();
   }
@@ -333,13 +366,14 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     if (!b.group) return;
     const t = current.get(b.group.id) as ToolId;
     const old = b.el.querySelector('svg');
-    if (old) old.replaceWith(icon(doc, t));
+    if (old) old.replaceWith(ic(t));
   }
 
   // Close the flyout on any press elsewhere in the chart.
   const outside = (ev: Event): void => {
-    if (!menuFor) return;
     const path = ev.composedPath();
+    if (panelOpen && !path.includes(panel) && !path.includes(bar)) { panelOpen = false; sync(); }
+    if (!menuFor) return;
     if (path.includes(menu) || path.includes(menuFor.el)) return;
     closeMenu(false);
   };
@@ -366,7 +400,7 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-label', `Line width ${w}`);
     b.title = `Line width ${w}`;
-    const svg = icon(doc, 'solid', 20);
+    const svg = ic('solid', 20);
     svg.setAttribute('stroke-width', String(w * 1.2));
     b.appendChild(svg);
     b.addEventListener('click', () => { const sel = ctl.selected(); if (sel) ctl.update(sel.id, { style: { width: w } }); sync(); });
@@ -377,19 +411,49 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
   dashEl.type = 'button';
   dashEl.setAttribute('aria-label', 'Dashed line');
   dashEl.title = 'Dashed line';
-  dashEl.appendChild(icon(doc, 'dash', 20));
+  dashEl.appendChild(ic('dash', 20));
   dashEl.addEventListener('click', () => { const sel = ctl.selected(); if (sel) ctl.update(sel.id, { style: { dash: sel.style.dash === 'dashed' ? 'solid' : 'dashed' } }); sync(); });
   bar.appendChild(dashEl);
   const delEl = doc.createElement('button');
   delEl.type = 'button';
   delEl.setAttribute('aria-label', 'Delete drawing');
   delEl.title = 'Delete drawing';
-  delEl.appendChild(icon(doc, 'trash', 20));
+  delEl.appendChild(ic('trash', 20));
   delEl.addEventListener('click', () => { const sel = ctl.selected(); if (sel) ctl.remove(sel.id); sync(); });
   bar.appendChild(delEl);
-  for (const b of [...swatchEls, ...widthEls, dashEl, delEl]) {
+  // Compact form (narrow charts): the current colour and "more" open one panel with every option; delete stays.
+  const colorEl = doc.createElement('button');
+  colorEl.type = 'button';
+  colorEl.setAttribute('aria-label', 'Colour, width and dash');
+  colorEl.title = 'Colour, width and dash';
+  colorEl.setAttribute('aria-haspopup', 'true');
+  const moreEl = doc.createElement('button');
+  moreEl.type = 'button';
+  moreEl.setAttribute('aria-label', 'More style options');
+  moreEl.title = 'More style options';
+  moreEl.setAttribute('aria-haspopup', 'true');
+  moreEl.appendChild(ic('more', 20));
+  const panel = doc.createElement('div');
+  panel.setAttribute('role', 'group');
+  panel.setAttribute('aria-label', 'Drawing style options');
+  shadow.appendChild(panel);
+  let panelOpen = false;
+  let compact = false;
+  const togglePanel = (): void => { panelOpen = !panelOpen; sync(); };
+  colorEl.addEventListener('click', togglePanel);
+  moreEl.addEventListener('click', togglePanel);
+  for (const b of [...swatchEls, ...widthEls, dashEl, delEl, colorEl, moreEl]) {
     b.addEventListener('focus', () => focusRing(b));
     b.addEventListener('blur', () => focusRing(b));
+  }
+  /** Put the options in the bar (wide) or in the panel (compact); only when the form changes. */
+  function arrange(next: boolean): void {
+    if (next === compact && bar.childElementCount) return;
+    compact = next;
+    bar.textContent = '';
+    panel.textContent = '';
+    if (compact) { bar.append(colorEl, moreEl, delEl); panel.append(...swatchEls, ...widthEls, dashEl); }
+    else { bar.append(...swatchEls, ...widthEls, dashEl, delEl); panelOpen = false; }
   }
 
   // ── text editor ──
@@ -444,9 +508,9 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
         pressed = t !== null && b.group.tools.includes(t);
         if (pressed && t && current.get(b.group.id) !== t) { current.set(b.group.id, t); swapIcon(b); }
         const cur = current.get(b.group.id) as ToolId;
-        const label = b.group.tools.length > 1 ? `${b.group.label}: ${toolTitle(cur)}. Hold, or press the arrow away from the rail, for more` : toolTitle(cur);
+        const label = b.group.tools.length > 1 ? `${b.group.label}: ${title(cur)}. Hold, or press the arrow away from the rail, for more` : title(cur);
         b.el.setAttribute('aria-label', label);
-        b.el.title = b.group.tools.length > 1 ? `${toolTitle(cur)}. Hold for more ${b.group.label.toLowerCase()}` : toolTitle(cur);
+        b.el.title = b.group.tools.length > 1 ? `${title(cur)}. Hold for more ${b.group.label.toLowerCase()}` : title(cur);
       } else if (b.kind === 'keep') pressed = ctl.keepDrawing();
       else if (b.kind === 'magnet') pressed = ctl.magnet();
       else if (b.kind === 'hide') pressed = ctl.hidden();
@@ -468,20 +532,48 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     fades();
     // Style bar: above the selected drawing, inside the chart.
     const sel = ctl.hidden() ? null : ctl.selected();
-    if (!sel) { cssReset(bar, { display: 'none' }); return; }
+    if (!sel) { panelOpen = false; cssReset(bar, { display: 'none' }); cssReset(panel, { display: 'none' }); return; }
     const sw = swatches(c);
-    const items = [...swatchEls, ...widthEls, dashEl, delEl];
-    void items;
-    const barW = 10 * (size + GAP) + 2 * PAD;
+    const plotW = chart.timeScale().width();
+    const boxH = root.clientHeight || p0h;
+    const cell = size + 2;
+    const fullW = 10 * cell + 8 + 2;
+    // Narrow plot: the compact form (colour, more, delete), its options in a panel that wraps inside the chart.
+    arrange(fullW > plotW - 8);
+    const barW = (compact ? 3 * cell : 10 * cell) + 8 + 2;
+    const barH = size + 8 + 2;
     const pos = selectionPoint(sel);
-    // Inside the plot: never over the price axis.
-    const left = Math.max(plotLeft() + 4, Math.min(plotLeft() + chart.timeScale().width() - barW - 4, pos.x - barW / 2));
-    const barTop = Math.max(4, pos.y - size - 22);
+    // Inside the plot: never over the price axis; above the drawing, else below its top, always inside the chart box.
+    const left = Math.max(plotLeft() + 4, Math.min(plotLeft() + plotW - barW - 4, pos.x - barW / 2));
+    const barTop = Math.max(4, Math.min(boxH - barH - 4, pos.y - size - 22));
     cssReset(bar, {
       position: 'absolute', display: 'flex', 'flex-direction': 'row', 'align-items': 'center', gap: '2px', padding: '4px',
       background: c.background, border: `1px solid ${c.paneSeparator}`, 'border-radius': '12px', left: `${left}px`, top: `${barTop}px`,
-      'pointer-events': 'auto',
+      'pointer-events': 'auto', 'box-sizing': 'border-box',
     });
+    if (compact && panelOpen) {
+      const panelW = Math.min(5 * cell + 8 + 2, plotW - 8);
+      const rows = Math.ceil(9 / Math.max(1, Math.floor((panelW - 10) / cell)));
+      const panelH = rows * cell + 8 + 2;
+      const pLeft = Math.max(plotLeft() + 4, Math.min(plotLeft() + plotW - panelW - 4, left));
+      let pTop = barTop + barH + 4;
+      if (pTop + panelH > boxH - 4) pTop = Math.max(4, barTop - panelH - 4);
+      cssReset(panel, {
+        position: 'absolute', display: 'flex', 'flex-wrap': 'wrap', 'align-items': 'center', gap: '2px', padding: '4px', 'box-sizing': 'border-box',
+        width: `${panelW}px`, left: `${pLeft}px`, top: `${pTop}px`, background: c.background, border: `1px solid ${c.paneSeparator}`,
+        'border-radius': '12px', 'pointer-events': 'auto', 'z-index': '4',
+      });
+    } else cssReset(panel, { display: 'none' });
+    const cur = sel.style.color ?? c.line;
+    colorEl.setAttribute('aria-expanded', String(panelOpen));
+    moreEl.setAttribute('aria-expanded', String(panelOpen));
+    colorEl.textContent = '';
+    const swatch = doc.createElement('span');
+    cssReset(swatch, { display: 'block', width: '16px', height: '16px', 'border-radius': '8px', background: cur, margin: 'auto' });
+    colorEl.appendChild(swatch);
+    for (const [b, on] of [[colorEl, panelOpen], [moreEl, panelOpen]] as const) {
+      cssReset(b, { display: 'inline-flex', 'align-items': 'center', 'justify-content': 'center', width: `${size}px`, height: `${size}px`, 'border-radius': `${size / 2}px`, background: on ? c.grid : 'transparent', color: c.text, cursor: 'pointer', 'flex-shrink': '0', padding: '0' });
+    }
     swatchEls.forEach((b, i) => {
       const col = sw[i];
       (b as HTMLButtonElement & { _c?: string })._c = col;
@@ -527,18 +619,26 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     return { x: plotLeft() + (n ? x / n : ts.width() / 2), y: top + (Number.isFinite(y) ? Math.max(0, Math.min(ph, y)) : 0) };
   }
 
-  function editText(d: Drawing, at: Pt): void {
+  function editText(d: Drawing, at: Pt, onDone?: (text: string | null) => void): void {
     editor?.remove();
     const input = doc.createElement('input');
     input.type = 'text';
     input.value = d.text ?? '';
-    input.placeholder = 'Text';
+    input.placeholder = toolInfo(d.tool)?.text ?? 'Text';
     input.setAttribute('aria-label', 'Text of the note');
+    input.maxLength = 200;
     const c = colors();
+    // Inside the plot and the chart box, whatever the chart's size.
+    const plotW = chart.timeScale().width();
+    const boxH = root.clientHeight || (chart.panes()[0]?.getHeight() ?? 0);
+    const w = Math.max(80, Math.min(200, plotW - 8));
+    const h = coarse() ? 40 : 28;
+    const left = Math.max(plotLeft() + 4, Math.min(plotLeft() + plotW - w - 4, plotLeft() + at.x));
+    const top = Math.max(4, Math.min(boxH - h - 4, paneTop(d.pane) + at.y - h / 2));
     cssReset(input, {
-      position: 'absolute', left: `${plotLeft() + at.x}px`, top: `${paneTop(d.pane) + at.y - 14}px`, width: '160px', height: '28px',
+      position: 'absolute', left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px`, 'box-sizing': 'border-box',
       padding: '0 8px', 'border-radius': '8px', border: `1px solid ${c.focusRing}`, background: c.background, color: c.text,
-      font: `500 13px ${chart.options().fontFamily}`, 'pointer-events': 'auto', outline: 'none',
+      font: `500 ${coarse() ? 16 : 13}px ${chart.options().fontFamily}`, 'pointer-events': 'auto', outline: 'none',
     });
     let done = false;
     const finish = (keepText: boolean): void => {
@@ -547,7 +647,8 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
       const v = input.value.trim();
       input.remove();
       editor = null;
-      if (keepText && v) ctl.update(d.id, { text: v });
+      if (onDone) onDone(keepText && v ? v : null);
+      else if (keepText && v) ctl.update(d.id, { text: v });
       root.focus();
     };
     input.addEventListener('keydown', ev => {

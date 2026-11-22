@@ -93,8 +93,12 @@ function withPriceFormat(options: object, given: unknown): void {
 class SeriesHandle<D extends AnySeriesDefinition> implements SeriesApi<D> {
   constructor(private chart: Chart, readonly model: AnyModel) {}
   seriesType(): string { return this.model.def.type; }
-  setData(data: readonly unknown[]): void { this.chart.setSeriesData(this.model, data as never); }
-  update(row: unknown): void { this.chart.updateSeries(this.model, row as never); }
+  private subs = new Set<(kind: 'set' | 'update', row?: unknown) => void>();
+  setData(data: readonly unknown[]): void { this.chart.setSeriesData(this.model, data as never); this.emit('set'); }
+  update(row: unknown): void { this.chart.updateSeries(this.model, row as never); this.emit('update', row); }
+  private emit(kind: 'set' | 'update', row?: unknown): void { for (const f of this.subs) { try { f(kind, row); } catch { /* a plugin's handler */ } } }
+  subscribeDataChanged(f: (kind: 'set' | 'update', row?: unknown) => void): void { this.subs.add(f); }
+  unsubscribeDataChanged(f: (kind: 'set' | 'update', row?: unknown) => void): void { this.subs.delete(f); }
   data(): never[] { return this.model.data() as never[]; }
   applyOptions(options: object): void {
     mergeInto(this.model.options, options);
@@ -931,7 +935,7 @@ export class Chart implements ChartApi, InputTarget {
       if (!Number.isFinite(y)) continue;
       const yd = Math.floor((pane.top + y) * vpr) + 0.5;
       ctx.save();
-      ctx.strokeStyle = s.def.lastValueColor(row, s.options, this.colors);
+      ctx.strokeStyle = s.def.lastValueColor(row, s.options, this.colors, s.lastRow(1));
       ctx.lineWidth = 1;
       ctx.setLineDash([Math.max(1, Math.round(2 * hpr)), Math.max(1, Math.round(3 * hpr))]);
       ctx.beginPath();
@@ -1025,7 +1029,7 @@ export class Chart implements ChartApi, InputTarget {
       const v = s.def.value(row);
       const y = scale.priceToY(v);
       if (!Number.isFinite(y)) continue;
-      const fill = s.def.lastValueColor(row, s.options, this.colors);
+      const fill = s.def.lastValueColor(row, s.options, this.colors, s.lastRow(1));
       tags.push({ y, text: this.priceText(scale, v, pi), fill, color: readableTextOn(fill), pinned: true });
     }
     this.eachPrimitive(pi, (p, owner) => {
@@ -1543,7 +1547,9 @@ export class Chart implements ChartApi, InputTarget {
     else if (v.kind === 'logical') ts.setVisibleLogicalRange(v.range);
     else if (v.kind === 'span') {
       const ix = this.index;
-      ts.setVisibleLogicalRange({ from: spanFirstIndex(v.span, ix.times, ix.count, ix.displayZone()) - 0.5, to: ix.count - 1 + ts.options.rightOffset });
+      // At least five bars, so a 1D span on daily bars does not zoom to a single candle.
+      const first = Math.max(0, Math.min(spanFirstIndex(v.span, ix.times, ix.count, ix.displayZone()), ix.count - 5));
+      ts.setVisibleLogicalRange({ from: first - 0.5, to: ix.count - 1 + ts.options.rightOffset });
     }
     else {
       const a = this.index.lowerBound(timeToSeconds(v.range.from));

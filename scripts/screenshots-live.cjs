@@ -49,8 +49,10 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   for (const prov of ['binance', 'kraken']) {
     await page.selectOption('#provider', prov);
     const ok = await waitLive();
-    const info = await page.evaluate(() => ({ p: window.__demo.live.provider(), s: window.__demo.live.status(), n: window.__demo.candles.data().length }));
+    const info = await page.evaluate(() => ({ p: window.__demo.live.provider(), s: window.__demo.live.status(), n: window.__demo.candles.data().length, info: window.__demo.live.info(), title: window.__demo.candles.options().title, status: document.getElementById('statusText').textContent }));
     check(ok && info.p === prov && info.n > 50, `${prov}: history and stream`, info);
+    const quote = prov === 'binance' ? 'USDT' : 'USD';
+    check(info.info.quote === quote && info.title === `BTC-${quote}` && info.status === `Live · ${info.info.providerLabel} · ${quote}`, `${prov}: the status and the legend name the provider and the quote currency really in use`, info);
   }
   await page.selectOption('#provider', 'coinbase');
   await waitLive();
@@ -65,8 +67,18 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   const sockets = [];
   el.on('websocket', ws => sockets.push(ws));
   await el.goto('file://' + path.join(root, 'examples', 'live-element.html'));
-  const elLive = await el.waitForFunction(() => { const s = document.getElementById('btc').shadowRoot.querySelector('[part="status"]'); return s && s.textContent === 'Live'; }, null, { timeout: 25000 }).then(() => true).catch(() => false);
-  check(elLive, '<chartist-chart live> streams with no page code and shows "Live" (dot and word)');
+  const elLive = await el.waitForFunction(() => { const s = document.getElementById('btc').shadowRoot.querySelector('[part="status"]'); return s && /^Live · \w+ · \w+$/.test(s.textContent); }, null, { timeout: 25000 }).then(() => true).catch(() => false);
+  check(elLive, '<chartist-chart live> streams with no page code and shows "Live · provider · quote" (dot and word)', await el.evaluate(() => document.getElementById('btc').shadowRoot.querySelector('[part="status"]')?.textContent));
+  // A symbol change: the old bars go at once, the title follows the new symbol.
+  const switched = await el.evaluate(async () => {
+    const e = document.getElementById('btc');
+    e.setAttribute('symbol', 'ETH-USD');
+    await new Promise(r => setTimeout(r, 50));
+    const cleared = e.series.data().length;
+    for (let i = 0; i < 100 && !(e.series.data().length > 50); i++) await new Promise(r => setTimeout(r, 200));
+    return { cleared, n: e.series.data().length, title: e.series.options().title, last: e.series.data().at(-1)?.close };
+  });
+  check(switched.cleared === 0 && switched.n > 50 && /^ETH-USDT?$/.test(switched.title) && switched.last < 20000, 'a symbol change clears the old bars and retitles the series', switched);
   await el.screenshot({ path: path.join(out, 'bitcoin-element.png') });
   await el.evaluate(() => document.getElementById('btc').remove());
   await el.waitForTimeout(500);

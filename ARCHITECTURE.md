@@ -9,8 +9,10 @@ For contributors and stage-2 workers. Public README, licence and contributing gu
 | Install dev tools | `npm install` (TypeScript, Vitest, esbuild; no runtime dependencies) |
 | Typecheck (sources and tests) | `npm run typecheck` |
 | Unit tests | `npm test` |
-| Build `dist/` | `npm run build` (ESM per entry; IIFE globals `ChartistLite` (`chartist-lite.iife.min.js`), `ChartistLiteIndicators` (`chartist-lite-indicators.iife.min.js`), `ChartistLiteElement` (`chartist-lite.element.iife.min.js`, registers `<chartist-chart>` on load); `.d.ts` in `dist/types/`) |
-| Size | `npm run size` (each entry bundled + minified + gzip, and the three IIFE files as built; fails if the core is over 45 KB gzip) |
+| Build `dist/` | `npm run build` (ESM per entry, a licence banner on every file, declarations with real `.js` specifiers so `nodenext` consumers resolve them; optional entries `widget`, `transforms`, `extras` build only when their index file exists; IIFE globals `ChartistLite` (`chartist-lite.iife.min.js`), `ChartistLiteIndicators` (`chartist-lite-indicators.iife.min.js`), `ChartistLiteElement` (`chartist-lite.element.iife.min.js`, registers `<chartist-chart>` on load); `.d.ts` in `dist/types/`) |
+| Size | `npm run size` (each entry bundled + minified + gzip, and every IIFE file as built; fails if the core is over 34 KB gzip) |
+| Package as a consumer gets it | `npm run pack:check` (packs, unpacks into a throwaway consumer, imports every subpath in Node, type-checks a strict `nodenext` and a `bundler` consumer with `skipLibCheck: false`, and proves the types are real: a wrong member access must fail). ESM only: no CommonJS build, no `require` condition |
+| Rename the npm package | `node scripts/rename-package.mjs <name> [--only package,src,examples,notes,readme,docs,site] [--dry]` (safe to run twice; the name is `lite-charts`; product name and `ChartistLite*` globals stay) |
 | All of the above | `npm run check` |
 | Browser smoke + screenshots | `npm run screenshots` (builds, then runs every `scripts/screenshots*.cjs`; needs Playwright importable on the machine; not a dev dependency, not in CI) |
 
@@ -55,6 +57,10 @@ src/
   live/               `./live` entry: `connectLive`, providers (Coinbase, Binance, Kraken), bar building; the only network code
   drawings/           `./drawings` entry: drawing tools (see "Plugin input hooks and drawing tools")
   render/dom.ts       CSSOM style writes with `!important` resets (CSP-safe, immune to page CSS)
+  core/span.ts        calendar spans for range keys (pure): parseSpan, spanStartDay, spanStart, spanFirstIndex, localMidnight
+  widget/             `./widget` entry: createWidget (the ready-made workspace) and <chartist-terminal> (see "Widget")
+  transforms/         `./transforms` entry: chart types (CHART_TYPES, applyChartType) and brick transforms
+  plugins/extras/     `./extras` entry: tooltip, watermark, price alerts, replay, compare, range switcher, go to realtime
 ```
 
 Dependency direction: `core` and `scales` are pure and import nothing from `render`, `series` or `chart`.
@@ -324,3 +330,79 @@ Element: `<chartist-chart live symbol="BTC-USD" interval="1m" provider="coinbase
 `interval` changes switch the stream; removal disconnects. React, without a hook of ours: create the chart in an effect
 (or use the React wrapper's `onReady`), call `connectLive(series, options)` there, and return `() => live.disconnect()`
 as the effect's cleanup.
+
+## Core additions for the widget (2026-11-22, all additive)
+
+| API | What |
+|---|---|
+| `timeScale().setVisibleSpan(span)` | Show a span that ends at the last bar, read in the chart's zone: '1D' / '5D' (the last n SESSIONS in the data), '1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All', or `{ days / weeks / months / years }`. At least five bars. Pure maths in `core/span.ts` (the one source: the extras' range switcher and `rangeStartDay` call it). Kept like any view request when there is no width or data yet |
+| `timeScale().isAtRealTime()`, `subscribeRealTimeChange(fn)` / `unsubscribeRealTimeChange` | The newest bar is in view (`rightOffset >= -0.5`); the event fires once per painted frame when it changes. The extras' go-to-realtime button and the widget's "latest" key use it |
+| `chart.onRemove(fn)` | Called once when `remove()` runs, before the chart's own teardown (plugins drop document listeners there); returns an unsubscribe |
+| `ChartPointerHandler.longPress(e)` | A touch held still for `LONG_PRESS_MS` (350): return true to own the gesture (the chart stops panning). The timer is armed only while some handler implements it |
+| `series.subscribeDataChanged(fn)` / `unsubscribeDataChanged` | After `setData` ('set') and `update` ('update', row): several plugins can watch one series without wrapping its methods (price alerts use it) |
+| `SeriesDefinition.lastValueColor(row, options, colors, prev?)` | The row before, for a tag coloured by change (hollow candles) |
+
+Full screen needs no core change: the chart follows its container (ResizeObserver), checked in
+`scripts/screenshots-widget.cjs`. Not done: an irregular-time axis for brick types (several bricks from one bar); the
+transforms entry still spreads repeated times by one second (`spreadTimes`).
+
+## Widget (2026-11-22)
+
+Entry `lite-charts/widget` (`src/widget/`, IIFE `ChartistLiteWidget`; one-tag terminal build
+`chartist-lite.terminal.iife.min.js`, global `ChartistLiteTerminal`, with live data and drawings bundled and both tags
+registered on load). `createWidget(container, options)` builds a whole workspace around one chart.
+
+| File | Role |
+|---|---|
+| `widget.ts` | `createWidget`: state, data (rows, a feed, or live crypto), chrome, menus, dialogs, indicators, keyboard, undo, persist, API |
+| `types.ts` | public types (options, feed, handle, workspace JSON) |
+| `strings.ts` | every visible word (`strings` option), `{x}` placeholders |
+| `styles.ts` | the one stylesheet, adopted as a constructable sheet in the shadow root (CSP-safe); tokens on `.w`, `.dark` switches |
+| `dom.ts` | element builders; `Layers`: menus, sheets and dialogs (focus in, Tab trapped in dialogs, arrows in menus, Escape returns focus) |
+| `layout.ts` | pure: `collapseBar` (priority collapse into More), `useSheets` |
+| `intervals.ts` | pure: interval text, seconds, digits, `intervalForSpan`, `barsForSpan` |
+| `workspace.ts` | pure: `readWorkspace` (versioned, migrates v1, drops bad fields), `validateParams` |
+| `chart-types.ts` | the transforms' `CHART_TYPES` / `applyChartType` (built in), core fallback, glyph per type |
+| `demo.ts` | seeded demo bars and the built-in crypto list |
+| `icons.ts` | the widget's own 24-grid, 1.8-unit, round-capped single-colour icons |
+| `element.ts` / `auto.ts` | `<chartist-terminal>`; the terminal IIFE (also makes `<chartist-chart widget>` work) |
+
+**Lazy by design.** The entry imports the core, the indicator catalog and the chart types. Drawings, live data and the
+extras come only through `modules` (handed in) or `load` (`{ drawings: () => import('lite-charts/drawings') }`, called
+the first time the part is needed: the pencil key, the bell, Replay, a tooltip or watermark setting, live mode). A page
+that never draws never downloads the drawing code (checked in the browser test).
+
+**Chrome.** All DOM in one open shadow root on a host div; `:host { all: initial }`; one tone of flat bars (top bar,
+bottom bar) around the plot, a rounded card inset 6 px. The drawing rail is the drawings entry's own rail, inside the
+card at the plot's left (a rail in the chrome would need the drawings toolbar to accept a mount point). Controls 28 px
+(44 px on a coarse pointer), capsules, inverted ink for the selected state, plain-text interval / range / scale keys
+(selected in full ink at 600). Responsive: each bar measures its items on a resize (never per frame) and `collapseBar`
+moves the lowest priority into More (top: compare 20, redo 29, undo 30, alert 32, theme 35, screenshot 40, full screen
+42, draw 60, settings 70, chart type 85, indicators 88, interval keys 90; with the keys hidden the menu button names the
+interval); under 560 px (or a narrow coarse pointer) menus and dialogs are bottom sheets.
+
+**Indicators.** Specs from the catalog; outputs become line or histogram series (a histogram with tone 'line' is
+coloured by sign), `band-upper` / `band-lower` pairs get a shaded fill primitive on price, guides become dotted price
+lines. Placement 'overlay' (price pane; an oscillator on price gets its own overlay scale) or 'pane' (own pane, panes
+follow list order). Legend rows are widget DOM over the card (the chart's own legend shows only the main series):
+values of the hovered bar, written only when the text changes; hover (or tap) shows hide, settings, remove, and on a
+pane's first row move up / down, maximise, close. A primitive's `draw` notices pane height changes and re-places the
+rows in the next frame (no DOM read while nothing moved).
+
+**Data.** `data` rows; or `feed.getBars` (+ `subscribeBars`, `searchSymbols`); or `live` (connectLive through its public
+API with a proxy series, so chart types and indicators work on live bars; demo data, said in the status, if every
+provider fails). Range keys pick a fitting interval from what the feed or provider offers and ask for enough bars.
+
+**Keyboard.** Chart focused or chrome focused: `/` symbol search (letters too, except on the chart while the drawing
+tools own the letter keys), `,` interval menu, Alt+I indicators, Alt+S screenshot, digits then Enter an interval in
+minutes (60 = 1h, 1440 = 1D; Escape clears), Ctrl/Cmd+Z and Shift+Z undo and redo (widget changes and drawings, one
+stack). None clashes with the chart's keys (arrows, + -, Home, End, Enter, Space, Escape) or the drawing tools'
+letters. Interval and range keys are radio groups (one tab stop, arrows).
+
+**Persist** is opt-in (`persist: { key }`): the workspace JSON (`format: 'chartist-lite-workspace'`, version 2) in
+localStorage under `chartist-lite-workspace:<key>`, written 300 ms after a change; read at start and wins over the
+options. `save()` / `load(json)` do the same by hand.
+
+**Performance.** No widget work per frame beyond the legend text of the hovered bar and one comparison of pane heights.
+Bench scenario `widget` (10k bars, SMA + Bollinger + RSI, volume): see `docs/PERFORMANCE.md` (script cost only,
+rasterisation not included).

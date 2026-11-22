@@ -2,7 +2,8 @@
 // it was given, so a host that ships a subset of tools bundles only those.
 
 import type { Pt, Rect } from './geometry';
-import type { Drawing, Proj, ToolDefinition, View } from './contract';
+import type { Drawing, Proj, ToolDefinition, ToolId, View } from './contract';
+import { GROUP_ORDER } from './contract';
 
 /** Body hit (as opposed to a handle index). */
 export const BODY = 100;
@@ -59,4 +60,31 @@ export function plainView(rect: Rect, measure?: (t: string) => number): View {
     rect, x: () => Number.NaN, y: () => Number.NaN, logical: () => Number.NaN, bars: null,
     measure: measure ?? (t => t.length * 7), fontSize: 12,
   };
+}
+
+export interface ToolGroup { id: string; label: string; tools: readonly ToolId[] }
+
+/** Rail groups for a set of tools, in rail order, each with its tools in the set's order; empty groups left out. */
+export function groupsFor(defs: readonly ToolDefinition[]): ToolGroup[] {
+  const out: ToolGroup[] = [];
+  const known = new Set(GROUP_ORDER.map(g => g.id));
+  for (const g of GROUP_ORDER) {
+    const tools = defs.filter(t => t.group === g.id).map(t => t.id);
+    if (tools.length) out.push({ id: g.id, label: g.label, tools });
+  }
+  // Tools of your own in a group of your own: one group per new id, after the built-in ones.
+  for (const t of defs) {
+    if (known.has(t.group)) continue;
+    const g = out.find(x => x.id === t.group);
+    if (g) (g.tools as ToolId[]).push(t.id); else out.push({ id: t.group, label: t.group, tools: [t.id] });
+  }
+  return out;
+}
+
+/** Shortcut keys of a set of tools (the first tool to claim a key keeps it). */
+export function keysFor(defs: readonly ToolDefinition[]): Partial<Record<ToolId, string>> {
+  const out: Partial<Record<string, string>> = {};
+  const taken = new Set<string>();
+  for (const t of defs) if (t.key && !taken.has(t.key)) { out[t.id] = t.key; taken.add(t.key); }
+  return out;
 }

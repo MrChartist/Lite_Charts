@@ -4,7 +4,7 @@
 
 import { distToSegment, inBox, inPolygon, type Pt } from '../geometry';
 import type { ToolDefinition } from '../contract';
-import { alpha, colorOf, crispX, crispY, fillPoly, guide, label, labelPx, lineTo, lineYAt, stroke } from '../paint';
+import { alpha, colorOf, crispX, crispY, fillPoly, guide, label, labelPx, lineTo, lineYAt, spaced, stroke } from '../paint';
 import { levelsOf, levelsReader, nearLine, ok, ratioText, ring } from './common';
 
 export const FIB_EXTENSION_LEVELS: readonly number[] = [0, 0.382, 0.618, 1, 1.272, 1.618, 2, 2.618];
@@ -63,7 +63,9 @@ export const fibExtension: ToolDefinition = {
     if (!ok([a, b, c], 3)) return;
     const levels = levelsOf(d.options, FIB_EXTENSION_LEVELS);
     const prices = fibExtensionPrices(d.points[0].price, d.points[1].price, d.points[2].price, levels);
-    levels.forEach((r, i) => label(rc, `${ratioText(r)} (${rc.fmt(prices[i])})`, c.x + 2, c.y + r * (b.y - a.y) - labelPx(rc) / 2 - 4, colorOf(d, rc.colors), 'left'));
+    const ys = levels.map(r => c.y + r * (b.y - a.y));
+    const fits = spaced(ys, labelPx(rc) + 6);
+    levels.forEach((r, i) => { if (fits[i]) label(rc, `${ratioText(r)} (${rc.fmt(prices[i])})`, c.x + 2, ys[i] - labelPx(rc) / 2 - 4, colorOf(d, rc.colors), 'left'); });
   },
   hit(d, [a, b, c], p, tol) {
     if (!ok([a, b, c], 3)) return false;
@@ -100,7 +102,9 @@ export const fibChannel: ToolDefinition = {
     if (!ok([a, b, c], 3)) return;
     const off = c.y - lineYAt(a, b, c.x);
     const left = a.x <= b.x ? a : b;
-    for (const r of levelsOf(d.options, FIB_CHANNEL_LEVELS)) label(rc, ratioText(r), left.x - 4, left.y + r * off, colorOf(d, rc.colors), 'right');
+    const lv = levelsOf(d.options, FIB_CHANNEL_LEVELS);
+    const fits = spaced(lv.map(r => left.y + r * off), labelPx(rc) + 6);
+    lv.forEach((r, i) => { if (fits[i]) label(rc, ratioText(r), left.x - 4, left.y + r * off, colorOf(d, rc.colors), 'right'); });
   },
   hit(d, [a, b, c], p, tol) {
     if (!ok([a, b, c], 3)) return false;
@@ -136,7 +140,9 @@ export const fibFan: ToolDefinition = {
   labels(rc, d, [a, b]) {
     if (!ok([a, b], 2)) return;
     const lv = levelsOf(d.options, FIB_FAN_LEVELS);
-    fanTargets(a, b, lv).forEach((t, i) => label(rc, ratioText(lv[i]), t.x + (b.x >= a.x ? 6 : -6), t.y, colorOf(d, rc.colors), b.x >= a.x ? 'left' : 'right'));
+    const ts = fanTargets(a, b, lv);
+    const fits = spaced(ts.map(t => t.y), labelPx(rc) + 6);
+    ts.forEach((t, i) => { if (fits[i]) label(rc, ratioText(lv[i]), t.x + (b.x >= a.x ? 6 : -6), t.y, colorOf(d, rc.colors), b.x >= a.x ? 'left' : 'right'); });
   },
   hit: (d, [a, b], p, tol, view) => ok([a, b], 2) && fanTargets(a, b, levelsOf(d.options, FIB_FAN_LEVELS)).some(t => nearLine(p, a, t, tol, view, 'ray')),
 };
@@ -161,7 +167,8 @@ export const fibSpeedFan: ToolDefinition = {
   labels(rc, d, [a, b]) {
     if (!ok([a, b], 2)) return;
     const right = b.x >= a.x;
-    for (const r of SPEED_FAN_LEVELS) label(rc, r === 1 ? '1' : r < 0.5 ? '1/3' : '2/3', b.x + (right ? 6 : -6), a.y + r * (b.y - a.y), colorOf(d, rc.colors), right ? 'left' : 'right');
+    const fits = spaced(SPEED_FAN_LEVELS.map(r => a.y + r * (b.y - a.y)), labelPx(rc) + 6);
+    SPEED_FAN_LEVELS.forEach((r, i) => { if (fits[i]) label(rc, r === 1 ? '1' : r < 0.5 ? '1/3' : '2/3', b.x + (right ? 6 : -6), a.y + r * (b.y - a.y), colorOf(d, rc.colors), right ? 'left' : 'right'); });
   },
   hit(_d, [a, b], p, tol, view) {
     if (!ok([a, b], 2)) return false;
@@ -195,7 +202,15 @@ export const fibArcs: ToolDefinition = {
   },
   labels(rc, d, [a, b]) {
     if (!ok([a, b], 2)) return;
-    for (const r of levelsOf(d.options, FIB_ARC_LEVELS)) label(rc, ratioText(r), a.x + r * (b.x - a.x), a.y + r * (b.y - a.y), colorOf(d, rc.colors));
+    // On the a-b line, where each arc crosses it; only those far enough apart to read.
+    const lv = levelsOf(d.options, FIB_ARC_LEVELS);
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    let last = -Infinity;
+    for (const r of lv) {
+      if (r * len - last < labelPx(rc) * 2.2) continue;
+      last = r * len;
+      label(rc, ratioText(r), a.x + r * (b.x - a.x), a.y + r * (b.y - a.y), colorOf(d, rc.colors));
+    }
   },
   hit(d, [a, b], p, tol) {
     if (!ok([a, b], 2)) return false;
@@ -237,7 +252,13 @@ export const fibTimeZones: ToolDefinition = {
   },
   labels(rc, d, [a, b]) {
     if (!ok([a, b], 2)) return;
-    for (const z of timeZoneXs(a.x, b.x, rc.rect.x + rc.rect.width, rc.rect.x)) label(rc, String(z.f), z.x + 3, rc.rect.y + rc.rect.height - labelPx(rc), colorOf(d, rc.colors), 'left');
+    let last = -Infinity;
+    for (const z of timeZoneXs(a.x, b.x, rc.rect.x + rc.rect.width, rc.rect.x)) {
+      const w = rc.measure(String(z.f), 500) + 16;
+      if (Math.abs(z.x - last) < w) continue;
+      last = z.x;
+      label(rc, String(z.f), z.x + 3, rc.rect.y + rc.rect.height - labelPx(rc), colorOf(d, rc.colors), 'left');
+    }
   },
   hit: (_d, [a, b], p, tol, view) => ok([a, b], 2) && (timeZoneXs(a.x, b.x, view.rect.x + view.rect.width, view.rect.x).some(z => Math.abs(p.x - z.x) <= tol) || distToSegment(p, a, b) <= tol),
   handles: (_d, [a, b]) => [a, b],

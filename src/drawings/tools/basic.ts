@@ -3,13 +3,13 @@
 import { formatPercent, MINUS_SIGN } from '../../core/format';
 import { distToPolylineChunked, chunkBoxes, FIB_LEVELS, formatSpan, inBox, measureStats, positionStats, type Pt } from '../geometry';
 import type { Anchor, Proj, ToolDefinition } from '../contract';
-import { alpha, arrowFor, colorOf, crispX, crispY, dirText, font, head, label, labelPx, lineTo, lineYAt, sign, stroke } from '../paint';
+import { alpha, arrowFor, colorOf, crispX, crispY, dirText, font, head, label, labelPx, lineTo, lineYAt, sign, spaced, stroke } from '../paint';
 import { inside, levelsOf, levelsReader, nearLine, ok, ratioText, ring } from './common';
 
-const line = (id: 'trend' | 'ray' | 'extended' | 'arrow', label: string, icon: string, key?: string): ToolDefinition => {
+const line = (id: 'trend' | 'ray' | 'extended' | 'arrow', name: string, icon: string, key?: string): ToolDefinition => {
   const mode = id === 'ray' ? 'ray' : id === 'extended' ? 'extended' : 'segment';
   return {
-    id, label, icon, key, group: id === 'arrow' ? 'annotate' : 'lines', points: 2,
+    id, label: name, icon, key, group: id === 'arrow' ? 'annotate' : 'lines', points: 2,
     bounds: mode === 'segment' ? 'anchors' : 'pane',
     render(rc, d, [a, b], extra) {
       if (!ok([a, b], 2)) return;
@@ -19,7 +19,7 @@ const line = (id: 'trend' | 'ray' | 'extended' | 'arrow', label: string, icon: s
       stroke(rc, d, color, extra);
       if (id === 'arrow') head(rc, a, b, 9 + 2 * d.style.width, color);
     },
-    hit: (d, [a, b], p, tol, view) => ok([a, b], 2) && nearLine(p, a, b, tol, view, mode),
+    hit: (_d, [a, b], p, tol, view) => ok([a, b], 2) && nearLine(p, a, b, tol, view, mode),
   };
 };
 
@@ -39,9 +39,9 @@ function positionHandle(pts: readonly Anchor[], i: number, a: Anchor): Anchor[] 
   return out;
 }
 
-const position = (id: 'long' | 'short', label: string, icon: string, key: string): ToolDefinition => ({
-  id, label, icon, key, group: 'positions', points: 2, minPoints: 2, maxPoints: 3,
-  hint: `${label}: entry, then target (the stop starts at half the distance)`,
+const position = (id: 'long' | 'short', name: string, icon: string, key: string): ToolDefinition => ({
+  id, label: name, icon, key, group: 'positions', points: 2, minPoints: 2, maxPoints: 3,
+  hint: `${name}: entry, then target (the stop starts at half the distance)`,
   complete: positionComplete, moveHandle: positionHandle,
   render(rc, d, [a, b, c], extra) {
     if (!ok([a, b, c], 3)) return;
@@ -62,9 +62,12 @@ const position = (id: 'long' | 'short', label: string, icon: string, key: string
     const st = positionStats(d.points[0].price, d.points[1].price, d.points[2].price);
     const x = Math.max(a.x, b.x) - 6;
     const fs = labelPx(rc);
-    label(rc, `Target ${rc.fmt(d.points[1].price)} (${formatPercent(st.targetPct, 2)})`, x, b.y + (b.y < a.y ? fs : -fs), rc.colors.upText, 'right');
-    label(rc, `Stop ${rc.fmt(d.points[2].price)} (${formatPercent(st.stopPct, 2)})`, x, c.y + (c.y < a.y ? fs : -fs), rc.colors.downText, 'right');
-    label(rc, `R:R ${st.ratio.toFixed(2)}`, x, a.y, rc.colors.text, 'right');
+    const yt = b.y + (b.y < a.y ? fs : -fs), ys = c.y + (c.y < a.y ? fs : -fs);
+    // The ratio only when it does not collide with the target or stop label (a short box).
+    const fits = spaced([yt, ys, a.y], fs + 8);
+    label(rc, `Target ${rc.fmt(d.points[1].price)} (${formatPercent(st.targetPct, 2)})`, x, yt, rc.colors.upText, 'right');
+    label(rc, `Stop ${rc.fmt(d.points[2].price)} (${formatPercent(st.stopPct, 2)})`, x, ys, rc.colors.downText, 'right');
+    if (fits[2] && Math.abs(a.y - yt) >= fs + 8 && Math.abs(a.y - ys) >= fs + 8) label(rc, `R:R ${st.ratio.toFixed(2)}`, x, a.y, rc.colors.text, 'right');
   },
   hit(_d, [a, b, c], p, tol) {
     if (!ok([a, b, c], 3)) return false;
@@ -199,10 +202,11 @@ export const fib: ToolDefinition = {
     const levels = levelsOf(d.options, FIB_LEVELS);
     const start = d.points[0].price, end = d.points[1].price;
     const x0 = Math.min(a.x, b.x);
-    for (const lv of levels) {
-      const y = b.y - (b.y - a.y) * lv;
-      label(rc, `${ratioText(lv)} (${rc.fmt(end - (end - start) * lv)})`, x0 + 2, y - labelPx(rc) / 2 - 4, colorOf(d, rc.colors), 'left');
-    }
+    const ys = levels.map(lv => b.y - (b.y - a.y) * lv);
+    const fits = spaced(ys, labelPx(rc) + 6);
+    levels.forEach((lv, i) => {
+      if (fits[i]) label(rc, `${ratioText(lv)} (${rc.fmt(end - (end - start) * lv)})`, x0 + 2, ys[i] - labelPx(rc) / 2 - 4, colorOf(d, rc.colors), 'left');
+    });
   },
   hit(d, [a, b], p, tol) {
     if (!ok([a, b], 2)) return false;

@@ -68,6 +68,8 @@ interface Pt { x: number; y: number }
 
 const WHEEL_ZOOM_PER_PX = 0.0025;
 const DRAG_THRESHOLD = 3;
+/** A touch held this long without moving is a long press (plugins: `ChartPointerHandler.longPress`). */
+export const LONG_PRESS_MS = 350;
 const KINETIC_MIN_SPEED = 0.25; // px per ms
 const KINETIC_FRICTION = 0.92; // per 16 ms
 
@@ -85,6 +87,7 @@ export class InputController {
   private owner: ChartPointerHandler | null = null;
   private ownerPane = -1;
   private off: (() => void)[] = [];
+  private pressTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
   constructor(target: InputTarget) {
     this.t = target;
@@ -94,7 +97,7 @@ export class InputController {
       this.off.push(() => el.removeEventListener(type, fn as EventListener, opts));
     };
     // Passive wherever the handler never calls preventDefault (touch-action decides scrolling); only wheel, dblclick
-    // and keydown can cancel. No timers anywhere: every gesture step is applied at once and painted by the next
+    // and keydown can cancel. No timers on the paint path (only the long-press wait, armed while a plugin asks for it): every gesture step is applied at once and painted by the next
     // requestAnimationFrame, so a 120 Hz or 144 Hz display gets a frame on every refresh.
     const passive = { passive: true };
     on('pointerdown', e => this.down(e), passive);
@@ -111,6 +114,7 @@ export class InputController {
 
   destroy(): void {
     this.stopKinetic();
+    this.clearPress();
     for (const f of this.off) f();
     this.off = [];
   }
@@ -163,6 +167,18 @@ export class InputController {
     const area = this.t.hit(p.x, p.y);
     this.t.gestureStart(p);
     this.mode = !opts.dragPan ? 'none' : area === 'price' ? 'price' : area === 'pane' || area === 'time' ? 'pan' : 'none';
+    // A touch held still for LONG_PRESS_MS: plugins may claim the gesture (`longPress`), the pan then stops.
+    if (e.pointerType !== 'mouse' && this.t.pointerHandlers().some(h => h.longPress)) {
+      const id = e.pointerId;
+      this.pressTimer = this.t.win.setTimeout(() => {
+        this.pressTimer = 0;
+        if (this.moved || this.pointers.size !== 1 || !this.pointers.has(id) || this.owner) return;
+        const ev = this.t.pluginEvent(this.start, e);
+        for (const h of this.t.pointerHandlers()) {
+          if (h.longPress?.(ev)) { this.owner = h; this.ownerPane = ev.paneIndex; this.mode = 'none'; this.capture(id); return; }
+        }
+      }, LONG_PRESS_MS);
+    }
     if (e.pointerType === 'mouse') this.t.setRootCursor(this.mode === 'pan' ? 'grabbing' : this.mode === 'price' ? 'ns-resize' : '');
   }
 
@@ -188,6 +204,7 @@ export class InputController {
     }
     if (this.mode === 'pan' || this.mode === 'price') {
       if (!this.moved && Math.hypot(p.x - this.start.x, p.y - this.start.y) < DRAG_THRESHOLD) return;
+      this.clearPress();
       // Captured only once it is a drag, so a plain click lands where it was aimed.
       if (!this.moved) this.capture(e.pointerId);
       this.moved = true;
@@ -210,7 +227,12 @@ export class InputController {
     }
   }
 
+  private clearPress(): void {
+    if (this.pressTimer) { this.t.win.clearTimeout(this.pressTimer); this.pressTimer = 0; }
+  }
+
   private up(e: PointerEvent, cancelled = false): void {
+    this.clearPress();
     if (!this.pointers.has(e.pointerId)) return;
     this.pointers.delete(e.pointerId);
     try { this.t.root.releasePointerCapture(e.pointerId); } catch { /* not captured */ }

@@ -248,11 +248,11 @@ export class SeriesModel<R extends RowBase = RowBase, O extends object = object>
     return lo;
   }
 
-  /** The last non-whitespace row, or null. */
-  lastRow(): R | null {
+  /** The last non-whitespace row (`skip` = 1: the one before it), or null. */
+  lastRow(skip = 0): R | null {
     for (let i = this.count - 1; i >= 0; i--) {
       const r = this.rows[i];
-      if (r) return r;
+      if (r && skip-- === 0) return r;
     }
     return null;
   }

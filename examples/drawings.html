@@ -16,6 +16,12 @@
     background: var(--card); color: var(--ink); cursor: pointer; }
   button:focus-visible { outline: 2px solid #0066CC; outline-offset: 2px; }
   #chart { height: 520px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
+  #gallery { display: none; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+  .cell { border-radius: 12px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
+  .cell h2 { margin: 0; padding: 8px 12px 0; font-size: 12px; font-weight: 600; color: var(--ink); }
+  .cell .g { height: 220px; }
+  :root.gallery #main, :root.gallery header, :root.gallery > body > p { display: none; }
+  :root.gallery #gallery { display: grid; }
 </style>
 </head>
 <body>
@@ -27,8 +33,9 @@
     <button id="import" type="button">Import last export</button>
   </div>
 </header>
-<p>Pick a tool on the left, then click twice (or press, drag and release). Shift keeps lines level or at 45 degrees; ctrl or cmd turns the magnet off for a point. Select a drawing to move it, drag its handles, style it, or press Delete. With the chart focused: Shift + H adds a horizontal line, arrows nudge the selected drawing, ctrl or cmd + Z undoes.</p>
-<div id="chart"></div>
+<p id="intro">Pick a tool on the left, then click (or press, drag and release). A path ends with a double click or Enter. Shift keeps lines level or at 45 degrees; ctrl or cmd turns the magnet off for a point. Select a drawing to move it, drag its handles, style it, or press Delete. With the chart focused: Shift + H adds a horizontal line, arrows nudge the selected drawing, ctrl or cmd + Z undoes.</p>
+<div id="main"><div id="chart"></div></div>
+<div id="gallery"></div>
 <script src="../dist/chartist-lite.iife.min.js"></script>
 <script src="../dist/chartist-lite-drawings.iife.min.js"></script>
 <script>
@@ -44,7 +51,7 @@
         const open = close;
         close = Math.max(1, open * (1 + (rand() - 0.49) * 0.04));
         bars.push({ time: new Date(day * 1000).toISOString().slice(0, 10), open: +open.toFixed(2), high: +(Math.max(open, close) * (1 + rand() * 0.012)).toFixed(2),
-          low: +(Math.min(open, close) * (1 - rand() * 0.012)).toFixed(2), close: +close.toFixed(2) });
+          low: +(Math.min(open, close) * (1 - rand() * 0.012)).toFixed(2), close: +close.toFixed(2), volume: Math.round(800 + rand() * 1600 + Math.abs(close - open) * 400) });
       }
       day += 86400;
     }
@@ -52,29 +59,100 @@
   }
   const L = ChartistLite;
   const D = ChartistLiteDrawings;
+  const params = new URLSearchParams(location.search);
+  const gallery = params.has('gallery');
+  if (params.get('theme') === 'dark') document.documentElement.dataset.theme = 'dark';
+  const dark = () => document.documentElement.dataset.theme === 'dark';
   const bars = makeBars(400, 11);
-  const chart = L.createChart('chart', { theme: 'light', ariaLabel: 'DEMO daily price chart with drawings' });
-  const candles = chart.addSeries(L.CandlestickSeries, { title: 'DEMO' });
-  candles.setData(bars);
-  chart.timeScale().setVisibleLogicalRange({ from: bars.length - 120, to: bars.length + 8 });
-  const tools = D.createDrawingTools(chart, candles, { toolbar: true });
+
+  function addChart(el, opts) {
+    const chart = L.createChart(el, { theme: dark() ? 'dark' : 'light', ariaLabel: 'DEMO daily price chart with drawings', ...opts });
+    const candles = chart.addSeries(L.CandlestickSeries, { title: 'DEMO' });
+    candles.setData(bars.map(({ volume, ...b }) => b));
+    const volume = chart.addSeries(L.HistogramSeries, { priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false });
+    volume.setData(bars.map(b => ({ time: b.time, value: b.volume })));
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    return { chart, candles, volume };
+  }
   const b = i => bars[bars.length - 1 - i];
-  tools.add({ tool: 'fib', points: [{ time: b(95).time, price: b(95).low }, { time: b(55).time, price: b(55).high }] });
-  tools.add({ tool: 'trend', points: [{ time: b(110).time, price: b(110).low }, { time: b(20).time, price: b(20).low }], style: { color: L.lightTheme.up } });
-  tools.add({ tool: 'long', points: [{ time: b(18).time, price: b(18).close }, { time: b(4).time, price: b(18).close * 1.06 }] });
-  tools.add({ tool: 'horizontal', points: [{ time: b(0).time, price: b(40).high }], text: 'Resistance' });
-  tools.add({ tool: 'text', points: [{ time: b(80).time, price: b(80).high * 1.03 }], text: 'Breakout zone' });
-  let saved = tools.exportJSON();
-  document.getElementById('export').addEventListener('click', () => { saved = tools.exportJSON(); });
-  document.getElementById('import').addEventListener('click', () => tools.importJSON(saved));
-  const themeBtn = document.getElementById('theme');
-  themeBtn.addEventListener('click', () => {
-    const dark = document.documentElement.dataset.theme !== 'dark';
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    chart.applyOptions({ theme: dark ? 'dark' : 'light' });
-    themeBtn.textContent = dark ? 'Light theme' : 'Dark theme';
-  });
-  window.__demo = { chart, candles, tools, bars };
+
+  if (!gallery) {
+    const { chart, candles, volume } = addChart('chart');
+    chart.timeScale().setVisibleLogicalRange({ from: bars.length - 120, to: bars.length + 8 });
+    const tools = D.createDrawingTools(chart, candles, { toolbar: true, tools: D.ALL_TOOLS, volumeSeries: volume });
+    tools.add({ tool: 'fib', points: [{ time: b(95).time, price: b(95).low }, { time: b(55).time, price: b(55).high }] });
+    tools.add({ tool: 'trend', points: [{ time: b(110).time, price: b(110).low }, { time: b(20).time, price: b(20).low }], style: { color: L.lightTheme.up } });
+    tools.add({ tool: 'long', points: [{ time: b(18).time, price: b(18).close }, { time: b(4).time, price: b(18).close * 1.06 }] });
+    tools.add({ tool: 'horizontal', points: [{ time: b(0).time, price: b(40).high }], text: 'Resistance' });
+    tools.add({ tool: 'text', points: [{ time: b(80).time, price: b(80).high * 1.03 }], text: 'Breakout zone' });
+    let saved = tools.exportJSON();
+    document.getElementById('export').addEventListener('click', () => { saved = tools.exportJSON(); });
+    document.getElementById('import').addEventListener('click', () => tools.importJSON(saved));
+    const themeBtn = document.getElementById('theme');
+    themeBtn.textContent = dark() ? 'Light theme' : 'Dark theme';
+    themeBtn.addEventListener('click', () => {
+      const d = !dark();
+      document.documentElement.dataset.theme = d ? 'dark' : 'light';
+      chart.applyOptions({ theme: d ? 'dark' : 'light' });
+      themeBtn.textContent = d ? 'Light theme' : 'Dark theme';
+    });
+    window.__demo = { chart, candles, volume, tools, bars };
+  } else {
+    // Gallery: one small chart per tool, each drawn the way a person would place it on these bars.
+    document.documentElement.classList.add('gallery');
+    const g = document.getElementById('gallery');
+    const N = bars.length;
+    const from = N - 70;
+    const hi = (i, k = 0) => b(i).high * (1 + k);
+    const lo = (i, k = 0) => b(i).low * (1 - k);
+    const P = (i, price) => ({ time: b(i).time, price });
+    // The swings of these bars (bars back from the last): a low at 56, a high at 40, a low at 30, then a rally to 0.
+    const specs = {
+      trend: [P(56, lo(56)), P(30, lo(30))], ray: [P(56, lo(56)), P(30, lo(30))], extended: [P(56, lo(56)), P(30, lo(30))],
+      infoLine: [P(30, lo(30)), P(4, hi(4))], trendAngle: [P(30, lo(30)), P(4, hi(4))],
+      horizontal: [P(40, hi(40))], horizontalRay: [P(40, hi(40))], horizontalSegment: [P(56, hi(40)), P(20, hi(40))],
+      vertical: [P(30, lo(30))], crossLine: [P(40, hi(40))],
+      channel: [P(56, lo(56)), P(30, lo(30)), P(40, hi(40))], regression: [P(60, b(60).close), P(2, b(2).close)],
+      flatChannel: [P(56, lo(56)), P(14, lo(14)), P(40, hi(40))], disjointChannel: [P(56, hi(58)), P(4, hi(4)), P(56, lo(56)), P(14, lo(14))],
+      pitchfork: [P(56, lo(56)), P(40, hi(40)), P(30, lo(30))], schiffPitchfork: [P(56, lo(56)), P(40, hi(40)), P(30, lo(30))],
+      modifiedSchiffPitchfork: [P(56, lo(56)), P(40, hi(40)), P(30, lo(30))], insidePitchfork: [P(56, lo(56)), P(40, hi(40)), P(30, lo(30))],
+      fib: [P(30, lo(30)), P(2, hi(2))], fibExtension: [P(56, lo(56)), P(40, hi(40)), P(30, lo(30))],
+      fibChannel: [P(56, lo(56)), P(30, lo(30)), P(40, hi(40))], fibFan: [P(56, lo(56)), P(10, hi(10))],
+      fibSpeedFan: [P(56, lo(56)), P(10, hi(10))], fibArcs: [P(30, lo(30)), P(10, hi(10))], fibTimeZones: [P(64, lo(64)), P(58, lo(58))],
+      gannFan: [P(56, lo(56)), P(28, hi(28))], gannBox: [P(56, lo(56)), P(30, hi(40))],
+      rectangle: [P(44, hi(40)), P(26, lo(30))], rotatedRectangle: [P(30, lo(30)), P(6, hi(6)), P(24, hi(22, 0.02))],
+      ellipse: [P(46, hi(40, 0.005)), P(26, lo(30, 0.005))], triangle: [P(56, lo(56)), P(40, hi(40)), P(30, lo(30))],
+      polyline: [P(56, lo(56)), P(40, hi(40)), P(30, lo(30)), P(12, hi(12)), P(2, hi(2))],
+      arc: [P(56, lo(56)), P(30, lo(30)), P(42, hi(40, 0.01))], curve: [P(56, lo(56)), P(30, lo(30)), P(43, hi(40, 0.04))],
+      measure: [P(30, lo(30)), P(6, hi(6))], priceRange: [P(30, lo(30)), P(6, hi(6))], dateRange: [P(56, b(56).close), P(30, b(30).close)],
+      datePriceRange: [P(30, lo(30)), P(6, hi(6))], anchoredVwap: [P(56, b(56).close)], volumeProfile: [P(66, b(66).close), P(24, b(24).close)],
+      long: [P(30, b(30).close), P(8, b(30).close * 1.08)], short: [P(40, b(40).close), P(30, b(40).close * 0.96)],
+      text: [P(48, hi(40, 0.015))], anchoredText: [P(40, hi(40))], callout: [P(40, hi(40)), P(56, hi(40, 0.04))],
+      priceLabel: [P(40, hi(40))], priceNote: [P(40, hi(40)), P(52, hi(40, 0.035))], arrowUp: [P(30, lo(30))], arrowDown: [P(40, hi(40))],
+      flag: [P(30, lo(30))], arrow: [P(30, lo(30, 0.01)), P(8, lo(8, 0.01))],
+      brush: Array.from({ length: 30 }, (_, k) => P(44 - k, hi(44 - k, 0.012 + 0.006 * Math.sin(k / 3)))),
+      highlighter: Array.from({ length: 24 }, (_, k) => P(28 - k, b(28 - k).close)),
+    };
+    const extra = { text: { text: 'Breakout zone' }, anchoredText: { text: 'Earnings' }, callout: { text: 'Top' }, arrowUp: { text: 'Buy' }, arrowDown: { text: 'Sell' }, anchoredVwap: { options: { bands: [1, 2] } } };
+    const made = [];
+    for (const t of D.ALL_TOOLS) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      const h = document.createElement('h2');
+      h.textContent = t.label;
+      const box = document.createElement('div');
+      box.className = 'g';
+      cell.append(h, box);
+      g.appendChild(cell);
+      const { chart, candles, volume } = addChart(box, { legend: false, attribution: false });
+      chart.timeScale().setVisibleLogicalRange({ from, to: N + 2 });
+      const tools = D.createDrawingTools(chart, candles, { tools: D.ALL_TOOLS, volumeSeries: volume });
+      const spec = specs[t.id];
+      if (spec) tools.add({ tool: t.id, points: spec, ...(extra[t.id] || {}) });
+      made.push({ id: t.id, chart, tools, ok: !!spec });
+    }
+    window.__gallery = made;
+  }
 </script>
 </body>
 </html>

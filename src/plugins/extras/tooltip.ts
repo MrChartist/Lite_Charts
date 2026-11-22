@@ -350,7 +350,6 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
 
   // ── touch: long-press, then drag ──
   const root = chart.element();
-  const LONG_PRESS_MS = 350;
   const MOVE_SLOP = 8;
   let press: { id: number; sx: number; sy: number; x: number; y: number; timer: number; active: boolean } | null = null;
   const barX = (time: Time): number | null => {
@@ -382,14 +381,8 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     if (e.pointerType !== 'touch' || !e.isTrusted) return;
     if (press) { const was = press.active; clearPress(); if (was) endTouch(); return; } // a second finger: pinch
     const id = e.pointerId;
-    const timer = win.setTimeout(() => {
-      if (!press || press.id !== id) return;
-      press.active = true;
-      // Take the gesture from the chart's own pan: it sees the pointer cancelled and then stays still while we inspect.
-      try { root.dispatchEvent(new (win as unknown as { PointerEvent: typeof PointerEvent }).PointerEvent('pointercancel', { pointerId: id, pointerType: 'touch', bubbles: true })); } catch { /* best effort */ }
-      touchShow(press.x, press.y);
-    }, LONG_PRESS_MS);
-    press = { id, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, timer, active: false };
+    // The chart decides when a touch is a long press (`ChartPointerHandler.longPress` below) and hands us the gesture.
+    press = { id, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, timer: 0, active: false };
   };
   const onMove = (e: PointerEvent): void => {
     if (!press || e.pointerId !== press.id || !e.isTrusted) return;
@@ -413,6 +406,16 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
     ['touchmove', onTouchMove as EventListener, { passive: false }],
   ];
   for (const [t, fn, o] of listeners) root.addEventListener(t, fn, o);
+  // The core's long-press hook claims the gesture (the chart stops panning; no synthetic pointercancel needed).
+  const removeLongPress = chart.addPointerHandler({
+    longPress: () => {
+      if (!press || press.active) return false;
+      press.active = true;
+      touchShow(press.x, press.y);
+      return true;
+    },
+    pointerUp: () => { if (press?.active) { clearPress(); endTouch(); } },
+  });
 
   // The touch crosshair line (the chart draws no crosshair for a long press).
   const prim: ChartPrimitive = {
@@ -447,6 +450,7 @@ export function createTooltip(chart: ChartApi, options: Partial<TooltipOptions> 
   }, () => {
     chart.unsubscribeCrosshairMove(fromCrosshair);
     for (const [t, fn, o] of listeners) root.removeEventListener(t, fn, o);
+    removeLongPress();
     clearPress();
     try { chart.detachPrimitive(prim); } catch { /* chart removed */ }
     dom.destroy();

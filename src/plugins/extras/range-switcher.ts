@@ -7,7 +7,7 @@ import type { ChartApi } from '../../api';
 import type { Removable, UiState } from './common';
 import { createHost, css, focusRing, make, mixColors, reducedMotion, removable, useChartUi, zoneOf } from './common';
 import type { RangeKey, ResolvedRange } from './range';
-import { logicalRangeFor, RANGE_KEYS, resolveRange } from './range';
+import { RANGE_KEYS, resolveRange } from './range';
 
 export interface RangeChange extends ResolvedRange { key: RangeKey }
 
@@ -159,9 +159,8 @@ export function createRangeSwitcher(chart: ChartApi, options: Partial<RangeSwitc
     const visible = ts.getVisibleRange();
     const businessDay = visible ? typeof visible.to !== 'number' : lastTime % 86_400 === 0 && firstTime % 86_400 === 0;
     const r = resolveRange(key, firstTime, lastTime, zoneOf(chart), businessDay);
-    const fromLogical = key === 'All' ? 0 : ts.timeToLogical(r.from) ?? 0;
-    const range = logicalRangeFor(fromLogical, lastLogical, ts.options().rightOffset);
-    ts.setVisibleLogicalRange(range);
+    // The view itself comes from the core (one source of truth for spans: 'nD' are the last n sessions there).
+    if (key === 'All') ts.fitContent(); else ts.setVisibleSpan(key);
     const after = ts.getVisibleLogicalRange();
     if (after) expected = { sp: ts.scrollPosition(), width: after.to - after.from };
     return { key, ...r };

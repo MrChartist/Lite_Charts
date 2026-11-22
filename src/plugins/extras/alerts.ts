@@ -167,21 +167,15 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
     return out;
   };
 
-  // Watch the series: `update` is checked after it is applied, `setData` only re-bases the previous price.
-  const origUpdate = series.update;
-  const origSetData = series.setData;
-  const wrapUpdate = (row: Parameters<typeof origUpdate>[0]): void => {
-    origUpdate.call(series, row);
+  // Watch the series through the core's data hook (no method wrapping, so several plugins can watch one series):
+  // `update` is checked after it is applied, `setData` only re-bases the previous price.
+  const onData = (kind: 'set' | 'update', row?: unknown): void => {
     if (destroyed) return;
-    const v = numberOf(row);
+    if (kind === 'set') { prev = lastValue(); return; }
+    const v = numberOf(row as never);
     if (Number.isFinite(v)) fire(v, (row as { time: Time }).time);
   };
-  const wrapSetData = (data: Parameters<typeof origSetData>[0]): void => {
-    origSetData.call(series, data);
-    if (!destroyed) prev = lastValue();
-  };
-  series.update = wrapUpdate as typeof origUpdate;
-  series.setData = wrapSetData as typeof origSetData;
+  series.subscribeDataChanged(onData);
 
   const priceAt = (y: number): number | null => {
     const p = series.coordinateToPrice(y);
@@ -380,8 +374,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
 
   const dropWatchers = (): void => {
     destroyed = true;
-    if (series.update === wrapUpdate) series.update = origUpdate;
-    if (series.setData === wrapSetData) series.setData = origSetData;
+    series.unsubscribeDataChanged(onData);
   };
 
   let gone = false;

@@ -213,6 +213,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   function chart0Desc(): string { return 'Left and right arrows pan, plus and minus zoom, Home and End jump to the first and last bar. Press Enter to inspect bars one at a time; Escape stops.'; }
   let main: AnySeries | null = null;
   let mainData: readonly Record<string, unknown>[] = [];
+  let mainDef: AnySeriesDefinition | null = null;
   let mainKind: 'series' | 'transform' = 'series';
   let volume: AnySeries | null = null;
   type ToolsLike = { destroy(): void; undo(): boolean; redo(): boolean; canUndo(): boolean; canRedo(): boolean; exportJSON(): string; importJSON(j: string): number; on(e: string, f: () => void): () => void; colors(): unknown };
@@ -249,12 +250,24 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   // ── main series and volume ──
   function buildMain(): void {
     const r = resolveChartType(chartType, rows, transforms());
+    const hadMain = !!main;
+    // Same series type: new rows into the same series (keeps its place under the indicator lines and its primitives).
+    if (main && mainDef === r.definition) {
+      main.applyOptions({ title: symbol.symbol, ...(r.options ?? {}) } as never);
+      mainKind = r.transformed ? 'transform' : 'series';
+      mainData = r.data as readonly Record<string, unknown>[];
+      main.setData(r.data as never);
+      syncVolume();
+      return;
+    }
     if (main) { chart.removeSeries(main); main = null; }
+    mainDef = r.definition;
     main = chart.addSeries(r.definition, { title: symbol.symbol, ...(r.options ?? {}) } as never, 0);
     mainKind = r.transformed ? 'transform' : 'series';
     mainData = r.data as readonly Record<string, unknown>[];
     main.setData(r.data as never);
     syncVolume();
+    if (hadMain) rehomeAlerts();
   }
   function syncVolume(): void {
     // A transform (bricks, lines) has its own times: its rows carry their summed volume, or no volume is shown.
@@ -624,32 +637,6 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   };
   chart.attachPrimitive(watcher);
 
-  // Session breaks: a dotted vertical line where the local day changes (intraday only), visible bars only.
-  const breaks: ChartPrimitive = {
-    zOrder: 'bottom',
-    draw(scope: PrimitiveDrawScope) {
-      if (!settings.sessionBreaks || rows.length < 2 || intervalSeconds(interval) >= 86_400) return;
-      const vr = scope.visibleLogicalRange;
-      if (!vr) return;
-      const zone = zoneName();
-      const from = Math.max(1, Math.floor(vr.from)), to = Math.min(rows.length - 1, Math.ceil(vr.to));
-      const ctx = scope.ctx;
-      ctx.save();
-      ctx.strokeStyle = colors().paneSeparator;
-      ctx.setLineDash([2, 3]);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      let prev = zoneDayNumber(zone, rows[from - 1].time * 1000);
-      for (let i = from; i <= to; i++) {
-        const d = zoneDayNumber(zone, rows[i].time * 1000);
-        if (d !== prev) { const x = scope.logicalToX(i - 0.5); { const xx = Math.round(x) + 0.5; ctx.moveTo(xx, scope.pane.y); ctx.lineTo(xx, scope.pane.y + scope.pane.height); } }
-        prev = d;
-      }
-      ctx.stroke();
-      ctx.restore();
-    },
-  };
-  chart.attachPrimitive(breaks);
 
   // ── overlays (loading, empty, error) ──
   let overlay: HTMLElement | null = null;
@@ -819,19 +806,53 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   }
 
   // ── extras (tooltips, watermark), when the extras module is present ──
-  let extraHandles: { tooltip?: { remove?(): void; destroy?(): void } | null; watermark?: { remove?(): void; destroy?(): void } | null } = {};
+  type Gone = { remove?(): void; destroy?(): void } | null;
+  let extraHandles: { tooltip?: Gone; watermark?: Gone; breaks?: Gone } = {};
   async function syncExtras(): Promise<void> {
-    const needs = settings.tooltip !== 'off' || settings.watermark;
+    const needs = settings.tooltip !== 'off' || settings.watermark || settings.sessionBreaks;
     const x = needs ? await getModule('extras') : modules.extras ?? null;
     if (destroyed) return;
-    const drop = (k: 'tooltip' | 'watermark'): void => { const hd = extraHandles[k]; if (hd) { try { (hd.remove ?? hd.destroy)?.call(hd); } catch { /* ignore */ } } extraHandles[k] = null; };
-    drop('tooltip'); drop('watermark');
+    const drop = (k: 'tooltip' | 'watermark' | 'breaks'): void => { const hd = extraHandles[k]; if (hd) { try { (hd.remove ?? hd.destroy)?.call(hd); } catch { /* ignore */ } } extraHandles[k] = null; };
+    drop('tooltip'); drop('watermark'); drop('breaks');
     if (!x) return;
     try {
       if (settings.tooltip !== 'off' && typeof x.createTooltip === 'function') extraHandles.tooltip = (x.createTooltip as (c: ChartApi, o: unknown) => never)(chart, { mode: settings.tooltip });
-      if (settings.watermark && typeof x.createWatermark === 'function') extraHandles.watermark = (x.createWatermark as (c: ChartApi, o: unknown) => never)(chart, { text: options.watermark ?? `${symbol.symbol} · ${interval}` });
+      if (settings.watermark && typeof x.createWatermark === 'function') extraHandles.watermark = (x.createWatermark as (c: ChartApi, o: unknown) => never)(chart, { text: options.watermark ?? symbol.symbol, lines: options.watermark ? [] : [[symbol.description, interval].filter(Boolean).join(' · ')] });
+      if (settings.sessionBreaks && intervalSeconds(interval) < 86_400 && typeof x.createSessionBreaks === 'function') extraHandles.breaks = (x.createSessionBreaks as (c: ChartApi, o: unknown) => never)(chart, { lineStyle: 'dotted' });
     } catch (e) { emit('error', e); }
   }
+
+  // ── price alerts (extras): the bell in the top bar adds one at the last price; the axis "+" adds one where you point ──
+  type AlertsLike = { add(p: number): unknown; alerts(): unknown[]; exportJSON(): string; importJSON(j: string): unknown; destroy(): void };
+  let alertsHandle: AlertsLike | null = null;
+  let alertsJSON: string | null = null;
+  const hasExtras = (): boolean => !!(modules.extras || options.load?.extras);
+  async function ensureAlerts(): Promise<AlertsLike | null> {
+    if (alertsHandle) return alertsHandle;
+    const x = await getModule('extras');
+    if (destroyed || !x || typeof x.createPriceAlerts !== 'function' || !main) return null;
+    alertsHandle = (x.createPriceAlerts as (c: ChartApi, s: AnySeries, o: unknown) => AlertsLike)(chart, main, {
+      addButton: true,
+      onTrigger: (t: { price: number; direction: string }) => { live.textContent = `${S.alerts}: ${formatValue(t.price)}`; showTip(`${S.alerts} ${formatValue(t.price)}`); later(() => showTip(null), 4000); emit('status', { alert: t }); },
+      onChange: () => { alertsJSON = alertsHandle?.exportJSON() ?? null; schedulePersist(); },
+    });
+    if (alertsJSON) { try { alertsHandle.importJSON(alertsJSON); } catch { /* ignore */ } }
+    return alertsHandle;
+  }
+  async function addAlert(): Promise<void> {
+    const a = await ensureAlerts();
+    const last = rows[rows.length - 1];
+    if (a && last) { a.add(last.close); live.textContent = `${S.alerts}: ${formatValue(last.close)}`; }
+  }
+  /** The main series was rebuilt (chart type): alerts move to the new one. */
+  function rehomeAlerts(): void {
+    if (!alertsHandle) return;
+    alertsJSON = alertsHandle.exportJSON();
+    alertsHandle.destroy();
+    alertsHandle = null;
+    void ensureAlerts();
+  }
+  let replayHandle: { exit(): void; destroy?(): void; pick(on?: boolean): void; start(at: number): void; info(): { active: boolean } } | null = null;
 
   // ── drawings ──
   async function ensureTools(): Promise<void> {
@@ -972,6 +993,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   const typeBtn = btn(doc, { icon: chartTypeIcon(chartType), label: S.chartType, attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, onClick: ev => openChartTypeMenu(ev.currentTarget as HTMLElement) });
   const indBtn = btn(doc, { icon: 'indicators', text: S.indicators, label: `${S.indicators} (Alt+I)`, attrs: { 'aria-haspopup': 'dialog' }, onClick: ev => openIndicators(ev.currentTarget as HTMLElement) });
   const cmpBtn = btn(doc, { icon: 'compare', label: S.compare, attrs: { 'aria-haspopup': 'dialog' }, onClick: ev => openSymbolSearch(ev.currentTarget as HTMLElement, '', true) });
+  const alertBtn = btn(doc, { icon: 'bell', label: S.alerts, onClick: () => void addAlert() });
   const drawBtn = btn(doc, { icon: 'pencil', label: S.draw, attrs: { 'aria-pressed': 'false' }, onClick: () => void setDrawings(!drawingsOn) });
   const undoBtn = btn(doc, { icon: 'undo', label: `${S.undo} (Ctrl+Z)`, onClick: () => void undo() });
   const redoBtn = btn(doc, { icon: 'redo', label: `${S.redo} (Ctrl+Shift+Z)`, onClick: () => void redo() });
@@ -1019,6 +1041,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     { id: 'chartType', el: typeBtn, pri: 85, label: S.chartType, icon: 'candles', run: o => openChartTypeMenu(o) },
     { id: 'indicators', el: indBtn, pri: 88, label: S.indicators, icon: 'indicators', run: o => openIndicators(o) },
     { id: 'compare', el: cmpBtn, pri: 20, label: S.compare, icon: 'compare', run: o => openSymbolSearch(o, '', true) },
+    { id: 'alerts', el: alertBtn, pri: 32, label: S.alerts, icon: 'bell', run: () => void addAlert() },
     { id: 'draw', el: drawBtn, pri: 60, label: S.draw, icon: 'pencil', run: () => void setDrawings(!drawingsOn), on: () => drawingsOn },
     { id: 'spacer', el: h(doc, 'span', 'sp'), pri: KEEP },
     { id: 'undo', el: undoBtn, pri: 30, label: S.undo, icon: 'undo', run: () => void undo() },
@@ -1029,14 +1052,17 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     { id: 'settings', el: setBtn, pri: 70, label: S.settings, icon: 'sliders', run: o => openSettings(o) },
     { id: 'more', el: moreBtn, pri: KEEP },
   ];
-  const partOf: Record<string, keyof typeof parts | null> = { symbol: 'symbol', status: 'status', intervals: 'intervals', ivMore: 'intervals', chartType: 'chartType', indicators: 'indicators', compare: 'compare', draw: 'draw', undo: 'undo', redo: 'undo', screenshot: 'screenshot', fullscreen: 'fullscreen', theme: 'theme', settings: 'settings' };
+  const partOf: Record<string, keyof typeof parts | null> = { symbol: 'symbol', status: 'status', intervals: 'intervals', ivMore: 'intervals', chartType: 'chartType', indicators: 'indicators', compare: 'compare', alerts: 'alerts', draw: 'draw', undo: 'undo', redo: 'undo', screenshot: 'screenshot', fullscreen: 'fullscreen', theme: 'theme', settings: 'settings' };
   for (const d of topDef) { items.set(d.id, d.el); top.appendChild(d.el); }
 
   function enabledTop(id: string): boolean {
     const p = partOf[id];
     if (p && !parts[p]) return false;
     if (id === 'compare') return canCompare();
+    // Fixed rows (no feed, no live data) have one interval: no keys unless the host lists some.
+    if ((id === 'intervals' || id === 'ivMore') && !feed && !liveOpt && !options.intervals) return false;
     if (id === 'draw') return !!(modules.drawings || options.load?.drawings);
+    if (id === 'alerts') return hasExtras();
     if (id === 'status') return !!(liveOpt || feed?.subscribeBars) && parts.status;
     return true;
   }
@@ -1173,7 +1199,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
         d.el.classList.toggle('hide', !en || res.overflow.includes(d.id));
       }
       // Separators next to nothing go too.
-      more.classList.toggle('hide', !res.overflow.some(id => defs.find(d => d.id === id)?.run));
+      more.classList.toggle('hide', !res.overflow.some(id => defs.find(d => d.id === id)?.run) && !(bar === top && hasExtras()));
     }
     // With the keys collapsed, the menu button names the interval.
     const ivHidden = overflowTop.includes('intervals');
@@ -1281,11 +1307,22 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
         m.append(menuItem(label, { icon, onPick: () => { close(); d.run!(opener); } }));
       }
       const x = modules.extras;
-      if (which === 'top' && x && typeof x.createReplay === 'function') m.append(menuItem(S.replay, { icon: 'replay', onPick: () => { close(); startReplay(); } }));
+      if (which === 'top' && (x && typeof x.createReplay === 'function' || (!x && options.load?.extras))) m.append(menuItem(S.replay, { icon: 'replay', onPick: () => { close(); void startReplay(); } }));
     }, 'end', which === 'top' ? 'below' : 'above');
   }
-  function startReplay(): void {
-    try { (modules.extras!.createReplay as (c: ChartApi, s: AnySeries, o: unknown) => unknown)(chart, main as AnySeries, { data: rows }); } catch (e) { emit('error', e); }
+  async function startReplay(): Promise<void> {
+    const x = await getModule('extras');
+    if (!x || typeof x.createReplay !== 'function' || !main || rows.length < 2 || mainKind !== 'series') return;
+    replayHandle?.destroy?.();
+    const data = (resolveChartType(chartType, rows, transforms()).data) as never;
+    try {
+      replayHandle = (x.createReplay as (c: ChartApi, s: AnySeries, o: unknown) => typeof replayHandle)(chart, main, {
+        data,
+        onState: (info: { active: boolean }) => { if (!info.active) { const h = replayHandle; replayHandle = null; later(() => h?.destroy?.(), 0); } },
+      });
+      // Start a fifth of the way back; the strip's own controls play, step and exit.
+      replayHandle?.start(Math.floor(rows.length * 0.8));
+    } catch (e) { emit('error', e); }
   }
 
   // ── dialogs ──
@@ -1507,7 +1544,6 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     d.body.append(sw(S.vertGrid, () => settings.vertGrid, v => { settings.vertGrid = v; }));
     d.body.append(pills(S.crosshair, [['normal', S.crosshairNormal], ['magnet', S.crosshairMagnet], ['hidden', S.crosshairHidden]], () => settings.crosshair, v => { settings.crosshair = v; }));
     d.body.append(sw(S.volume, () => settings.volume, v => { settings.volume = v; }));
-    d.body.append(sw(S.sessionBreaks, () => settings.sessionBreaks, v => { settings.sessionBreaks = v; }));
     d.body.append(h(doc, 'div', 'fs', {}, [S.scaleMode]));
     d.body.append(pills(S.scaleMode, [['linear', S.scaleLinear], ['log', S.scaleLog], ['percent', S.scalePercent]], () => settings.scaleMode, v => { settings.scaleMode = v; }));
     d.body.append(sw(S.scaleAutoLong, () => settings.autoScale, v => { settings.autoScale = v; }));
@@ -1519,6 +1555,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       d.body.append(h(doc, 'div', 'fs', {}, [S.tooltip]));
       d.body.append(pills(S.tooltip, [['off', S.tooltipOff], ['floating', S.tooltipFloating], ['tracking', S.tooltipTracking], ['magnifier', S.tooltipMagnifier]], () => settings.tooltip, v => { settings.tooltip = v; }));
       d.body.append(sw(S.watermark, () => settings.watermark, v => { settings.watermark = v; }));
+      d.body.append(sw(S.sessionBreaks, () => settings.sessionBreaks, v => { settings.sessionBreaks = v; }));
     }
     const resetB = btn(doc, { text: S.reset, label: S.reset, onClick: () => { close(); record(() => { settings = { ...defaultSettings(), ...(options.settings ?? {}) }; for (const i of inds) teardownIndicator(i); inds.length = 0; maximised = -1; }); applySettings(); rebuildIndicators(); chart.timeScale().resetTimeScale(); emit('indicators', api.indicators()); } });
     d.foot.append(resetB, btn(doc, { text: S.done, label: S.done, cls: 'on', onClick: () => close() }));
@@ -1833,7 +1870,9 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
       for (const id of timers) clearTimeout(id);
       timers.clear();
-      for (const k of ['tooltip', 'watermark'] as const) { const hd = extraHandles[k]; if (hd) { try { (hd.remove ?? hd.destroy)?.call(hd); } catch { /* ignore */ } } }
+      alertsHandle?.destroy(); alertsHandle = null;
+      replayHandle?.destroy?.(); replayHandle = null;
+      for (const k of ['tooltip', 'watermark', 'breaks'] as const) { const hd = extraHandles[k]; if (hd) { try { (hd.remove ?? hd.destroy)?.call(hd); } catch { /* ignore */ } } }
       extraHandles = {};
       tools?.destroy(); tools = null;
       for (const f of cleanups) { try { f(); } catch { /* keep going */ } }

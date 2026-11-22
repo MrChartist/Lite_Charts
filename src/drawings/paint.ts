@@ -144,3 +144,15 @@ export function font(rc: RenderCtx, weight = 500, px = labelPx(rc)): void {
   rc.ctx.textBaseline = 'middle';
   rc.ctx.direction = 'ltr';
 }
+
+/**
+ * Label y positions that do not overlap: given wanted ys (any order), returns for each whether it fits (at least one
+ * label height from the last kept one, in y order). Used by tools with many level labels.
+ */
+export function spaced(ys: readonly number[], gap: number): boolean[] {
+  const order = ys.map((y, i) => [y, i] as const).sort((a, b) => a[0] - b[0]);
+  const keep = new Array<boolean>(ys.length).fill(false);
+  let last = -Infinity;
+  for (const [y, i] of order) if (Number.isFinite(y) && y - last >= gap) { keep[i] = true; last = y; }
+  return keep;
+}

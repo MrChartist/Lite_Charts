@@ -57,6 +57,11 @@ export interface ChartPointerHandler {
   pointerUp?(e: ChartPointerEvent, cancelled: boolean): void;
   /** A mouse move with no gesture in progress. */
   hover?(e: ChartPointerEvent): void;
+  /**
+   * A touch held still for about 350 ms (`LONG_PRESS_MS`). Return true to claim the gesture: the chart stops panning
+   * and the rest of it (moves, release) goes to `pointerMove` / `pointerUp`. Only asked while no gesture is owned.
+   */
+  longPress?(e: ChartPointerEvent): boolean;
   /** A key while the chart has focus; return true when handled (the chart then ignores it). */
   keyDown?(e: KeyboardEvent): boolean;
   /** While true the chart turns native touch gestures off (`touch-action: none`), e.g. while a drawing tool is armed. */
@@ -130,6 +135,12 @@ export interface SeriesApi<D extends AnySeriesDefinition> {
   detachPrimitive(primitive: ChartPrimitive): void;
   /** The pane the series draws in (0 = top). */
   paneIndex(): number;
+  /**
+   * Called after `setData` (kind 'set') and after `update` (kind 'update', with the row as given). Lets several plugins
+   * watch one series without wrapping its methods.
+   */
+  subscribeDataChanged(handler: (kind: 'set' | 'update', row?: unknown) => void): void;
+  unsubscribeDataChanged(handler: (kind: 'set' | 'update', row?: unknown) => void): void;
   /** Move the series to another pane (an index past the last pane adds one); an emptied pane below the top is removed. */
   moveToPane(paneIndex: number): void;
 }

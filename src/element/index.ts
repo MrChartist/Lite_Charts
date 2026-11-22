@@ -26,7 +26,7 @@ export type { SeriesTypeName } from './series-map';
 export interface ChartistReadyDetail { chart: ChartApi }
 export interface ChartistErrorDetail { message: string; error: unknown }
 
-const OBSERVED = ['type', 'theme', 'height', 'time-zone', 'volume', 'attribution', 'src', 'aria-label', 'live', 'symbol', 'interval', 'provider'] as const;
+const OBSERVED = ['type', 'theme', 'height', 'time-zone', 'volume', 'attribution', 'src', 'aria-label', 'live', 'symbol', 'interval', 'provider', 'widget', 'indicators'] as const;
 
 /** The live connector, registered by the element-live build (`auto-live.ts`); absent in the plain element build. */
 type LiveConnect = (series: SeriesApi<AnySeriesDefinition>, options: Record<string, unknown>) => {
@@ -35,6 +35,11 @@ type LiveConnect = (series: SeriesApi<AnySeriesDefinition>, options: Record<stri
 let liveConnect: LiveConnect | null = null;
 /** Called by the element-live build so `<chartist-chart live>` can stream. */
 export function setElementLive(fn: LiveConnect): void { liveConnect = fn; }
+
+/** The widget, registered by the terminal build (`src/widget/auto.ts`) so `<chartist-chart widget>` is the full workspace. */
+type WidgetFactory = (frame: HTMLElement, get: (n: string) => string | null, has: (n: string) => boolean) => { chart: ChartApi; destroy(): void; on(e: string, f: (d: unknown) => void): () => void };
+let widgetFactory: WidgetFactory | null = null;
+export function setElementWidget(fn: WidgetFactory): void { widgetFactory = fn; }
 
 const LIVE_TEXT: Record<string, string> = { connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
 
@@ -211,7 +216,7 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       if (oldValue === value) return;
       if (name === 'height') { this.syncHeight(); return; }
       if (!this.started) return;
-      if (name === 'live') { this.teardown(); this.start(); return; }
+      if (name === 'live' || name === 'widget' || this.widgetApi) { this.teardown(); this.start(); return; }
       if (this.liveHandle) {
         if (name === 'symbol' && value) { this.liveHandle.setSymbol(value); return; }
         if (name === 'interval' && value) { this.liveHandle.setInterval(value); return; }
@@ -243,8 +248,11 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       this.style.setProperty('height', height);
     }
 
+    private widgetApi: ReturnType<WidgetFactory> | null = null;
+
     private start(): void {
       this.started = true;
+      if (this.hasAttribute('widget')) { this.startWidget(); return; }
       if (this.hasAttribute('live')) { this.startLive(); return; }
       const doc = this.ownerDocument;
       if (doc.readyState === 'loading') {
@@ -267,6 +275,8 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       this.abort = null;
       this.liveHandle?.disconnect();
       this.liveHandle = null;
+      this.widgetApi?.destroy();
+      this.widgetApi = null;
       if (this.statusEl) this.statusEl.hidden = true;
       this.mainSeries = null;
       this.volSeries = null;
@@ -335,6 +345,19 @@ export function defineChartistElement(tagName = 'chartist-chart'): CustomElement
       const firstDraw = !this.ready;
       this.wrap.classList.add('ready');
       if (firstDraw) this.dispatchEvent(new CustomEvent<ChartistReadyDetail>('chartist-ready', { bubbles: true, composed: true, detail: { chart } }));
+    }
+
+    /** `widget`: the whole workspace (needs the terminal build, which registers the widget). */
+    private startWidget(): void {
+      try {
+        if (!widgetFactory) throw new Error('Chartist Lite: <chartist-chart widget> needs the terminal build (chartist-lite.terminal.iife.min.js)');
+        const w = widgetFactory(this.frame, n => this.getAttribute(n), n => this.hasAttribute(n));
+        this.widgetApi = w;
+        this.chartApi = w.chart;
+        this.wrap.classList.add('ready');
+        w.on('ready', () => this.dispatchEvent(new CustomEvent<ChartistReadyDetail>('chartist-ready', { bubbles: true, composed: true, detail: { chart: w.chart } })));
+        w.on('error', e => this.dispatchEvent(new CustomEvent<ChartistErrorDetail>('chartist-error', { bubbles: true, composed: true, detail: { message: e instanceof Error ? e.message : String(e), error: e } })));
+      } catch (e) { this.fail(e); }
     }
 
     /** `live`: history and a stream from a public exchange API, straight from the visitor's browser. */

@@ -26,27 +26,32 @@ export function parseSpan(s: SpanInput): Span | null {
   return null;
 }
 
-/** UNIX seconds of local midnight of day number `days` in zone `tz` (DST-safe: offset read at the result). */
+/** UNIX seconds of the first instant of day number `days` in zone `tz` (DST-safe; a change AT midnight skips ahead). */
 export function localMidnight(tz: string, days: number): number {
   const local = days * DAY_MS;
-  const off = zoneOffsetMs(tz, local - zoneOffsetMs(tz, local));
-  return (local - off) / 1000;
+  let t = local - zoneOffsetMs(tz, local - zoneOffsetMs(tz, local));
+  if (zoneDayNumber(tz, t) < days) t += 3_600_000;
+  return Math.round(t / 1000);
+}
+
+/** Day number of the first calendar day a span shows when it ends on day `day` ('D' counts calendar days); null for 'ALL'. */
+export function spanStartDay(span: Span, day: number): number | null {
+  if (span.unit === 'ALL') return null;
+  if (span.unit === 'D') return day - (span.n - 1);
+  if (span.unit === 'W') return day - 7 * span.n;
+  const key = civilKeyFromDays(day);
+  const y = Math.floor(key / 10_000), m = Math.floor(key / 100) % 100, d = key % 100;
+  if (span.unit === 'YTD') return daysFromCivil(y, 1, 1);
+  const mi = y * 12 + (m - 1) - (span.unit === 'M' ? span.n : 12 * span.n);
+  const y2 = Math.floor(mi / 12), m2 = mi - y2 * 12 + 1;
+  const len = daysFromCivil(m2 === 12 ? y2 + 1 : y2, m2 === 12 ? 1 : m2 + 1, 1) - daysFromCivil(y2, m2, 1);
+  return daysFromCivil(y2, m2, Math.min(d, len));
 }
 
 /** Start (UNIX seconds) of a calendar span that ends at `lastSec`. 'D' here is calendar days; 'ALL' gives -Infinity. */
 export function spanStart(span: Span, lastSec: number, tz: string): number {
-  if (span.unit === 'ALL') return -Infinity;
-  const day = zoneDayNumber(tz, lastSec * 1000);
-  const key = civilKeyFromDays(day);
-  const y = Math.floor(key / 10_000), m = Math.floor(key / 100) % 100, d = key % 100;
-  if (span.unit === 'D') return localMidnight(tz, day - (span.n - 1));
-  if (span.unit === 'W') return localMidnight(tz, day - 7 * span.n);
-  if (span.unit === 'YTD') return localMidnight(tz, daysFromCivil(y, 1, 1));
-  const back = span.unit === 'M' ? span.n : 12 * span.n;
-  const mi = y * 12 + (m - 1) - back;
-  const y2 = Math.floor(mi / 12), m2 = mi - y2 * 12 + 1;
-  const len = daysFromCivil(m2 === 12 ? y2 + 1 : y2, m2 === 12 ? 1 : m2 + 1, 1) - daysFromCivil(y2, m2, 1);
-  return localMidnight(tz, daysFromCivil(y2, m2, Math.min(d, len)));
+  const start = spanStartDay(span, zoneDayNumber(tz, lastSec * 1000));
+  return start === null ? -Infinity : localMidnight(tz, start);
 }
 
 /**

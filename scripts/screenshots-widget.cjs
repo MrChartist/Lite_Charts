@@ -39,6 +39,8 @@ const COUNT_LISTENERS = () => {
   const ready = page => page.waitForFunction(() => window.__widget && window.__widget.chart.panes()[0].getSeries()[0]?.data().length > 50, null, { timeout: 20000 });
   const openLayer = page => page.locator('[data-chartist-widget] .menu, [data-chartist-widget] .dlg').count();
   const activeLabel = page => page.evaluate(() => { const s = document.querySelector('[data-chartist-widget]').shadowRoot; const a = s.activeElement; return a ? (a.getAttribute('aria-label') || a.textContent || a.tagName).slice(0, 40) : null; });
+  // Before a picture: no focus ring left from the last key press, the pointer out of the chart.
+  const calm = async page => { await page.evaluate(() => { const h = document.querySelector('[data-chartist-widget]'); h?.shadowRoot?.activeElement?.blur?.(); document.activeElement?.blur?.(); }); await page.mouse.move(2, 2); await page.waitForTimeout(150); };
   const visibleRange = page => page.evaluate(() => window.__widget.chart.timeScale().getVisibleLogicalRange());
 
   // ── 1280 light: pointer flows ──
@@ -192,7 +194,7 @@ const COUNT_LISTENERS = () => {
   await page.locator('[data-chartist-widget] button[aria-label="Drawing tools"]').click();
   await page.waitForFunction(() => !!document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('[data-chartist-drawing-ui]'), null, { timeout: 5000 }).catch(() => {});
   check(!hadDrawings && await page.evaluate(() => !!window.ChartistLiteDrawings), 'drawing code loads only when the rail is first opened');
-  await page.screenshot({ path: path.join(out, 'widget-light.png') });
+  { await calm(page); await page.screenshot({ path: path.join(out, 'widget-drawings.png') }); }
 
   // Destroy leaves nothing behind.
   const counts = await page.evaluate(() => {
@@ -203,6 +205,49 @@ const COUNT_LISTENERS = () => {
   });
   check(counts.left === 0 && counts.after.length === 0, 'destroy removes every node and window/document listener', counts);
   await page.context().close();
+
+  // ── extras in the widget: price alert from the bell, replay from More ──
+  page = await newPage(1280, 800);
+  await page.goto(url('widget.html'));
+  await ready(page);
+  await page.locator('[data-chartist-widget] button[aria-label="Price alert"]').click();
+  const alerted = await page.waitForFunction(() => !!window.ChartistLiteExtras, null, { timeout: 5000 }).then(() => true).catch(() => false);
+  await page.waitForTimeout(300);
+  check(alerted, 'the Alert button loads the extras on first use and adds an alert');
+  await page.locator('[data-chartist-widget] .top button[aria-label="More"]').click();
+  const replayItem = page.locator('[data-chartist-widget] .menu [role="menuitem"]', { hasText: 'Replay' });
+  const hasReplay = await replayItem.count();
+  if (hasReplay) await replayItem.click();
+  await page.waitForTimeout(400);
+  const shown = await page.evaluate(() => window.__widget.chart.panes()[0].getSeries()[0].data().length);
+  check(hasReplay === 1 && shown > 0, 'Replay starts from the More menu', { shown });
+  await page.context().close();
+
+  // ── hostile page: strict CSP, right to left, broad CSS; tooltip and watermark on, three panes; desk and phone ──
+  for (const [w, h] of [[1280, 900], [390, 844]]) {
+    page = await newPage(w, h);
+    const csp = [];
+    page.on('console', m => { if (/Content Security Policy|Refused/i.test(m.text())) csp.push(m.text()); });
+    await page.goto(url('widget-hostile.html'));
+    await ready(page);
+    await page.waitForTimeout(400);
+    const box = await page.evaluate(() => { const r = document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.card').getBoundingClientRect(); const p = window.__widget.chart.panes().map(x => x.getHeight()); return { x: r.x, y: r.y, w: r.width, h: r.height, panes: p }; });
+    // Hover in the last pane (an oscillator): the tooltip card stays inside the card.
+    const lastTop = box.panes.slice(0, -1).reduce((a, b) => a + b + 1, 0);
+    await page.mouse.move(box.x + box.w * 0.5, box.y + lastTop + box.panes[box.panes.length - 1] * 0.5);
+    await page.waitForTimeout(200);
+    const tip = await page.evaluate(() => {
+      const root = window.__widget.chart.element();
+      const hosts = [...root.querySelectorAll('*')].filter(e => e.shadowRoot);
+      for (const hst of hosts) for (const el of hst.shadowRoot.querySelectorAll('div')) { const st = getComputedStyle(el); if (st.display !== 'none' && el.getAttribute('aria-hidden') === 'true' && el.textContent.length > 10) { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, text: el.textContent.slice(0, 40) }; } }
+      return null;
+    });
+    check(csp.length === 0, `hostile ${w}: no CSP violations`, csp.slice(0, 2));
+    check(box.panes.length >= 3, `hostile ${w}: three panes`, box.panes);
+    check(!!tip && tip.l >= box.x - 1 && tip.r <= box.x + box.w + 1 && tip.t >= box.y - 1 && tip.b <= box.y + box.h + 1, `hostile ${w}: tooltip shows inside the card over a lower pane`, tip);
+    if (w === 1280) await page.screenshot({ path: path.join(out, 'widget-hostile.png') });
+    await page.context().close();
+  }
 
   // ── save, reload, restore (persist) ──
   page = await newPage(1280, 800);
@@ -232,18 +277,20 @@ const COUNT_LISTENERS = () => {
         return { over, scrollX: document.documentElement.scrollWidth - document.documentElement.clientWidth };
       });
       check(geo.over.every(x => x <= 1) && geo.scrollX <= 0, `${name} ${theme}: bars fit, no page scroll`, geo);
+      if (name === 'desk' && theme === 'light') { await calm(page); await page.screenshot({ path: path.join(out, 'widget-light.png') }); }
+      if (name === 'desk' && theme === 'dark') { await calm(page); await page.screenshot({ path: path.join(out, 'widget-dark.png') }); }
+      if (name === 'phone' && theme === 'light') { await calm(page); await page.screenshot({ path: path.join(out, 'widget-phone.png') }); }
+      if (name === 'tablet' && theme === 'light') { await calm(page); await page.screenshot({ path: path.join(out, 'widget-tablet.png') }); }
       // The More menu (when present) opens as a bottom sheet on a phone.
       const more = page.locator('[data-chartist-widget] .top button[aria-label="More"]:not(.hide)');
       if (await more.count()) {
         await more.click();
         const sheet = await page.locator('[data-chartist-widget] .menu.sheet').count();
         if (name === 'phone') check(sheet === 1, 'phone: menus open as bottom sheets');
+        await page.waitForTimeout(350);
         if (name === 'phone' && theme === 'light') await page.screenshot({ path: path.join(out, 'widget-phone-menu.png') });
         await page.keyboard.press('Escape');
       }
-      if (name === 'desk' && theme === 'dark') await page.screenshot({ path: path.join(out, 'widget-dark.png') });
-      if (name === 'phone' && theme === 'light') await page.screenshot({ path: path.join(out, 'widget-phone.png') });
-      if (name === 'tablet' && theme === 'light') await page.screenshot({ path: path.join(out, 'widget-tablet.png') });
       await page.context().close();
     }
   }
@@ -267,7 +314,16 @@ const COUNT_LISTENERS = () => {
   await page.keyboard.press('Enter');
   await ready(page);
   await page.waitForTimeout(1500);
-  await page.screenshot({ path: path.join(out, 'widget-live-dark.png') });
+  { await calm(page); await page.screenshot({ path: path.join(out, 'widget-live-dark.png') }); }
+  await page.context().close();
+
+  // ── zero JavaScript: <chartist-terminal live> and <chartist-chart widget live> ──
+  page = await newPage(1280, 1200);
+  await page.goto(url('widget-element.html', ''));
+  const both = await page.waitForFunction(() => ['t1', 't2'].every(id => { const el = document.getElementById(id); const c = el && el.chart; return c && c.panes()[0].getSeries().some(s => s.data().length > 50); }), null, { timeout: 25000 }).then(() => true).catch(() => false);
+  check(both, 'zero-JS tags: <chartist-terminal live> and <chartist-chart widget live> both draw');
+  await page.evaluate(() => document.getElementById('t2').remove());
+  check(await page.evaluate(() => !document.querySelectorAll('chartist-chart [data-chartist-widget]').length), 'removing the element tears the widget down');
   await page.context().close();
 
   check(errors.length === 0, 'no page errors', errors.slice(0, 5));

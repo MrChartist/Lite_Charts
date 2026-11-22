@@ -1,7 +1,8 @@
 // Visible-range maths for the range switcher: pure, no chart and no DOM. A span ends at the last bar and starts at
 // local midnight of a calendar date read in the chart's time zone (a business-day chart reads its dates as they are).
 
-import { civilKeyFromDays, daysFromCivil, zoneOffsetMs, zoneDayNumber } from '../../core/zone';
+import { civilKeyFromDays, zoneDayNumber } from '../../core/zone';
+import { localMidnight, parseSpan, spanStartDay } from '../../core/span';
 
 export const RANGE_KEYS = ['1D', '5D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'All'] as const;
 export type RangeKey = typeof RANGE_KEYS[number];
@@ -34,31 +35,13 @@ export function addMonths(c: Civil, n: number): Civil {
  * date (clamped to month end), YTD starts on 1 January of the last day's year.
  */
 export function rangeStartDay(key: RangeKey, lastDay: number): number | null {
-  const last = civilOfDay(lastDay);
-  const back = (months: number): number => { const c = addMonths(last, -months); return daysFromCivil(c.year, c.month, c.day); };
-  switch (key) {
-    case '1D': return lastDay;
-    case '5D': return lastDay - 4;
-    case '1M': return back(1);
-    case '3M': return back(3);
-    case '6M': return back(6);
-    case '1Y': return back(12);
-    case '5Y': return back(60);
-    case 'YTD': return daysFromCivil(last.year, 1, 1);
-    default: return null;
-  }
+  // The core's span maths (src/core/span.ts) is the one source; this keeps the extras' day-number signature.
+  const span = parseSpan(key);
+  return span ? spanStartDay(span, lastDay) : null;
 }
 
-/** UNIX seconds of local midnight that starts day `dayNum` in `zone` (the first instant of that day). */
-export function zoneMidnightSeconds(zone: string, dayNum: number): number {
-  const utc = dayNum * 86_400_000;
-  let t = utc - zoneOffsetMs(zone, utc);
-  const off = zoneOffsetMs(zone, t);
-  if (utc - off !== t) t = utc - off;
-  // A zone whose change falls at midnight: step to the first instant that reads this day.
-  if (zoneDayNumber(zone, t) < dayNum) t += 3_600_000;
-  return Math.round(t / 1000);
-}
+/** UNIX seconds of local midnight that starts day `dayNum` in `zone` (the first instant of that day): the core's `localMidnight`. */
+export const zoneMidnightSeconds = (zone: string, dayNum: number): number => localMidnight(zone, dayNum);
 
 export interface ResolvedRange {
   /** Seconds of the span's first instant, not before the first bar. */

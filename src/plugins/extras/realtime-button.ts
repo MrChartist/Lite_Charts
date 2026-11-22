@@ -19,7 +19,7 @@ export interface GoToRealtimeHandle extends Removable {
   visible(): boolean;
 }
 
-/** The newest bar is out of view once its centre has left the plot: `scrollPosition` is the bars between it and the right edge. */
+/** The newest bar is out of view once its centre has left the plot (the core's `isAtRealTime()` rule, as a pure function). */
 export function newestBarHidden(scrollPosition: number): boolean {
   return scrollPosition < -0.5;
 }
@@ -53,7 +53,7 @@ export function createGoToRealtimeButton(chart: ChartApi, options: Partial<GoToR
   const sync = (): void => {
     const s = ui.state();
     paintTheme();
-    const want = newestBarHidden(chart.timeScale().scrollPosition()) && s.plot.width > SIZE * 3;
+    const want = !chart.timeScale().isAtRealTime() && s.plot.width > SIZE * 3;
     const x = Math.round(s.plot.x + s.plot.width - SIZE - opts.right);
     const y = Math.round(s.plot.y + s.plot.height - SIZE - opts.bottom);
     css(btn, { transform: `translate(${x}px, ${y}px)` });

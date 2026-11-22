@@ -10,7 +10,8 @@
 import * as drawings from '../drawings/index';
 import { connectLive } from '../live/connect';
 import { createWidget as baseCreate } from './widget';
-import { defineTerminalElement, setTerminalModules } from './element';
+import { defineTerminalElement, setTerminalModules, terminalOptions } from './element';
+import { defineChartistElement, setElementWidget } from '../element/index';
 import type { Widget, WidgetOptions } from './types';
 
 const bundled = { drawings, live: { connectLive } } as never;
@@ -27,6 +28,9 @@ function autoDefine(): void {
   const script = document.currentScript;
   if (script && script.hasAttribute('data-manual')) return;
   defineTerminalElement(script?.getAttribute('data-tag') || 'chartist-terminal');
+  // <chartist-chart widget ...> is the same workspace (and plain <chartist-chart> still works).
+  setElementWidget((frame, get, has) => createWidget(frame, { ...terminalOptions(get, has), height: undefined }) as never);
+  defineChartistElement('chartist-chart');
 }
 autoDefine();
 

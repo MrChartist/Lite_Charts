@@ -1,7 +1,10 @@
-// Browser checks of the drawing tools (examples/drawings.html) with real pointer input in Chromium: every tool created
-// from the toolbar, move, handle resize, delete, undo, export / import, touch creation, keyboard-only horizontal line,
-// the toolbar's roving focus, and light / dark screenshots (docs/screenshots/drawings-*.png). Needs Playwright importable
-// here and a build (`npm run build`): `node scripts/screenshots-drawings.cjs`.
+// Browser checks of the drawing tools (examples/drawings.html) with real pointer input in Chromium: every one of the 53
+// tools created from the toolbar, move, handle resize, delete, undo, export / import, a text note's one undo step and
+// its cancel, touch creation, keyboard-only horizontal line, the toolbar's roving focus, a phone-width chart with touch
+// emulation (a selected drawing dragged vertically by a finger; style bar, flyout and editor inside the chart), a
+// 260 x 220 chart, the drag cost of every tool at 20 drawings, and screenshots (docs/screenshots/drawings-*.png,
+// drawings-all-tools.png is the gallery). Needs Playwright importable here and a build (`npm run build`):
+// `node scripts/screenshots-drawings.cjs`.
 const { chromium } = require('playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -30,23 +33,24 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   const btn = label => ui().locator(`button[aria-label="${label}"]`);
   // Arm a tool the way a person would: its group button, or the group's flyout (opened from the corner mark).
   const groups = await page.evaluate(() => null);
-  const pickTool = async (id, label) => {
-    const group = ui().locator('button[aria-haspopup="menu"], button[aria-label]').filter({ hasNot: page.locator('xyz') });
-    const all = await ui().locator('button').all();
-    for (const b of all) {
-      const l = (await b.getAttribute('aria-label')) || '';
-      const hasMenu = (await b.getAttribute('aria-haspopup')) === 'menu';
-      if (!hasMenu && l.startsWith(label)) { await b.click(); return; }
-    }
-    // In a flyout: open each group's menu from its corner mark until the tool is listed.
-    for (const b of await ui().locator('button[aria-haspopup="menu"]').all()) {
+  const pickTool = async (id, label, pg = page) => {
+    const u = pg.locator('#chart [data-chartist-drawing-ui]');
+    // In a flyout: open each group's menu from its corner mark until the tool is listed (exact name).
+    for (const b of await u.locator('button[aria-haspopup="menu"]').all()) {
       const r = await b.boundingBox();
-      await page.mouse.click(r.x + r.width - 4, r.y + r.height - 4);
-      const item = ui().locator('[role="menu"] [role="menuitemradio"]', { hasText: label });
-      if (await item.count()) { await item.first().click(); return; }
-      await page.keyboard.press('Escape');
+      await pg.mouse.click(r.x + r.width - 4, r.y + r.height - 4);
+      const items = await u.locator('[role="menu"] [role="menuitemradio"]').all();
+      for (const it of items) {
+        const name = await it.evaluate(el => el.children[1].textContent);
+        if (name === label) {
+          await it.scrollIntoViewIfNeeded();
+          await it.click();
+          if (await pg.evaluate(() => window.__demo.tools.tool()) !== id) throw new Error(`picked ${label} but ${await pg.evaluate(() => window.__demo.tools.tool())} is armed`);
+          return;
+        }
+      }
+      await pg.mouse.click(r.x + r.width - 4, r.y + r.height - 4); // close it again
     }
-    void group; void id;
     throw new Error(`no way to arm ${label}`);
   };
   void groups;
@@ -54,38 +58,50 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   // Start from an empty chart.
   await page.evaluate(() => window.__demo.tools.clear());
   const tools = await page.evaluate(() => window.__demo.tools.tools().map(t => [t.id, t.label, t.points]));
-  // Every tool from its toolbar button with real clicks (brush: a press, a move, a release).
-  let made = 0;
-  for (const [id, label, n] of tools) {
+  check(tools.length === 53, 'the example offers all 53 tools', tools.length);
+  // Every tool from its toolbar flyout with real clicks (freehand: a press, moves, a release; a path: clicks, then a
+  // double click). Each is checked, then cleared, so the next one starts on an empty chart.
+  const editorOpen = () => page.waitForFunction(() => { const h = document.querySelector('#chart [data-chartist-drawing-ui]'); return h && h.shadowRoot.activeElement && h.shadowRoot.activeElement.tagName === 'INPUT'; });
+  for (const [id, label, n, open, hasText] of await page.evaluate(() => window.__demo.tools.tools().map(t => [t.id, t.label, t.points, !!t.open, t.text !== undefined]))) {
     await pickTool(id, label);
-    const y0 = 0.3 + (made % 5) * 0.1;
-    const x0 = 0.3 + Math.floor(made / 5) * 0.2;
     if (n === 0) {
-      const a = at(x0, y0);
+      const a = at(0.4, 0.5);
       await page.mouse.move(a.x, a.y);
       await page.mouse.down();
-      for (let k = 1; k <= 12; k++) await page.mouse.move(a.x + k * 6, a.y + Math.sin(k) * 8);
+      for (let k = 1; k <= 14; k++) await page.mouse.move(a.x + k * 8, a.y + Math.sin(k / 2) * 18);
       await page.mouse.up();
+    } else if (open) {
+      for (let k = 0; k < 3; k++) { const p = at(0.35 + k * 0.08, 0.5 - (k % 2) * 0.12); await page.mouse.click(p.x, p.y); }
+      const p = at(0.59, 0.4);
+      await page.mouse.dblclick(p.x, p.y);
     } else {
-      for (let k = 0; k < n; k++) {
-        const p = at(x0 + k * 0.06, y0 - k * 0.05);
-        await page.mouse.click(p.x, p.y);
-      }
+      const pts = [[0.4, 0.55], [0.55, 0.4], [0.62, 0.6], [0.7, 0.45]];
+      for (let k = 0; k < n; k++) { const p = at(pts[k][0], pts[k][1]); await page.mouse.click(p.x, p.y); }
     }
-    if (id === 'text') {
-      await page.waitForFunction(() => { const h = document.querySelector('#chart [data-chartist-drawing-ui]'); return h && h.shadowRoot.activeElement && h.shadowRoot.activeElement.tagName === 'INPUT'; });
-      await page.keyboard.type('Note');
-      await page.keyboard.press('Enter');
-    }
-    made++;
-    const now = await count();
-    check(now === made, `created a ${label.toLowerCase()} with the pointer`, now);
+    if (hasText) { await editorOpen(); await page.keyboard.type('Note'); await page.keyboard.press('Enter'); }
+    const got = await page.evaluate(() => window.__demo.tools.drawings().map(d => ({ tool: d.tool, n: d.points.length, text: d.text })));
+    const want = open ? 4 : n === 0 ? null : (id === 'long' || id === 'short') ? 3 : n;
+    check(got.length === 1 && got[0].tool === id && (want === null || got[0].n === want) && (!hasText || got[0].text === 'Note'), `created a ${label.toLowerCase()} with the pointer`, got);
+    check(await page.evaluate(() => window.__demo.tools.tool()) === null, `${label}: back to the cursor after the drawing`);
+    await page.evaluate(() => window.__demo.tools.clear());
   }
-  const texts = await page.evaluate(() => window.__demo.tools.drawings().filter(d => d.tool === 'text').map(d => d.text));
-  check(texts[0] === 'Note', 'the text note editor takes typed text', texts);
-  check(await page.evaluate(() => window.__demo.tools.tool()) === null, 'the tool returns to the cursor after a drawing');
-  await page.mouse.move(5, 5);
-  await page.screenshot({ path: path.join(out, 'drawings-all-tools.png') });
+
+  // A text note: one undo step (placing and typing), and a cancelled note leaves nothing.
+  await page.evaluate(() => { const t = window.__demo.tools; t.importJSON(t.exportJSON()); });
+  await pickTool('text', 'Text note');
+  let p0 = at(0.5, 0.5);
+  await page.mouse.click(p0.x, p0.y);
+  await editorOpen();
+  await page.keyboard.type('One');
+  await page.keyboard.press('Enter');
+  const one = await page.evaluate(() => { const t = window.__demo.tools; const n = t.drawings().length; t.undo(); return { n, after: t.drawings().length }; });
+  check(one.n === 1 && one.after === 0, 'placing and typing a note is one undo step', one);
+  await pickTool('text', 'Text note');
+  await page.mouse.click(p0.x, p0.y);
+  await editorOpen();
+  await page.keyboard.press('Escape');
+  const cancelled = await page.evaluate(() => ({ n: window.__demo.tools.drawings().length, redo: window.__demo.tools.canRedo() }));
+  check(cancelled.n === 0, 'a cancelled note leaves no empty note behind', cancelled);
 
   // Move a drawing by dragging its body, then resize it by a handle.
   await page.evaluate(() => { window.__demo.tools.clear(); window.__demo.tools.setMagnet(false); });
@@ -138,7 +154,7 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   check(/^Lines/.test(focused), 'arrow keys move along the toolbar (roving tab index)', focused);
   await page.keyboard.press('ArrowRight');
   const menuOpen = await page.evaluate(() => { const h = document.querySelector('#chart [data-chartist-drawing-ui]'); const m = h.shadowRoot.querySelector('[role="menu"]'); return { shown: getComputedStyle(m).display !== 'none', items: m.querySelectorAll('[role="menuitemradio"]').length, focus: h.shadowRoot.activeElement && h.shadowRoot.activeElement.getAttribute('role') }; });
-  check(menuOpen.shown && menuOpen.items === 6 && menuOpen.focus === 'menuitemradio', 'ArrowRight opens the Lines flyout with focus in it', menuOpen);
+  check(menuOpen.shown && menuOpen.items === 10 && menuOpen.focus === 'menuitemradio', 'ArrowRight opens the Lines flyout with focus in it', menuOpen);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   check(await page.evaluate(() => window.__demo.tools.tool()) === 'ray', 'a flyout item picked by keyboard arms that tool', await page.evaluate(() => window.__demo.tools.tool()));
@@ -156,10 +172,12 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   await page.waitForTimeout(450);
   await page.mouse.up();
   const shapeItems = ui().locator('[role="menu"] [role="menuitemradio"]');
-  check(await shapeItems.count() === 2, 'press and hold opens a flyout', await shapeItems.count());
+  check(await shapeItems.count() === 7, 'press and hold opens a flyout', await shapeItems.count());
+  const inBox = await page.evaluate(() => { const h = document.querySelector('#chart [data-chartist-drawing-ui]'); const m = h.shadowRoot.querySelector('[role="menu"]').getBoundingClientRect(); const c = document.querySelector('#chart').getBoundingClientRect(); return m.left >= c.left && m.right <= c.right && m.top >= c.top && m.bottom <= c.bottom; });
+  check(inBox, 'the flyout is inside the chart box');
   await page.screenshot({ path: path.join(out, 'drawings-flyout.png') });
-  await shapeItems.filter({ hasText: 'Parallel channel' }).click();
-  check(await page.evaluate(() => window.__demo.tools.tool()) === 'channel', 'a flyout item picked by pointer arms that tool');
+  await shapeItems.filter({ hasText: 'Ellipse' }).click();
+  check(await page.evaluate(() => window.__demo.tools.tool()) === 'ellipse', 'a flyout item picked by pointer arms that tool');
   // Single-key shortcuts while the chart has focus.
   await page.locator('#chart [role="application"]').focus();
   await page.keyboard.press('Escape');
@@ -201,6 +219,147 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   }, [300 - 1]);
   check(tr.price !== undefined && Math.abs(tr.price - tr.lifted) < Math.abs(tr.price - tr.under), 'on touch the point is placed above the finger', tr);
   await touch.close();
+
+  // Phone width with touch emulation: a tap selects a drawing, a finger drags it vertically (touch-action is none while
+  // something is selected), and the style bar, a flyout and the text editor stay inside the chart.
+  const phone = await browser.newPage({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
+  phone.on('pageerror', e => errors.push(e.message));
+  await phone.goto(url);
+  await phone.addStyleTag({ content: 'body { padding: 8px; } #chart { height: 460px !important; }' });
+  await phone.waitForTimeout(400);
+  const inside = (pg, sel) => pg.evaluate(s => {
+    const h = document.querySelector('#chart [data-chartist-drawing-ui]');
+    const els = [...h.shadowRoot.querySelectorAll(s)].filter(e => getComputedStyle(e).display !== 'none');
+    const c = document.querySelector('#chart').getBoundingClientRect();
+    return els.length > 0 && els.every(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.left >= c.left - 0.5 && r.right <= c.right + 0.5 && r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5; });
+  }, sel);
+  const hline = await phone.evaluate(() => {
+    const { tools, chart, candles } = window.__demo;
+    tools.clear(); tools.setMagnet(false);
+    const d = tools.add({ tool: 'horizontal', points: [{ time: window.__demo.bars[390].time, price: window.__demo.bars[399].close }] });
+    const c = chart.element().getBoundingClientRect();
+    return { id: d.id, price: d.points[0].price, x: c.left + chart.priceScale('left').width() + chart.timeScale().width() / 2, y: c.top + candles.priceToCoordinate(d.points[0].price) };
+  });
+  await phone.touchscreen.tap(hline.x, hline.y);
+  const sel = await phone.evaluate(() => ({ sel: window.__demo.tools.selected() && window.__demo.tools.selected().id, ta: window.__demo.chart.element().style.touchAction }));
+  check(sel.sel === hline.id && sel.ta === 'none', 'a tap selects the drawing; touch-action is none while it is selected', sel);
+  const cdp = await phone.context().newCDPSession(phone);
+  const finger = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+  await finger('touchStart', hline.x, hline.y);
+  for (let k = 1; k <= 8; k++) await finger('touchMove', hline.x, hline.y + k * 8);
+  await finger('touchEnd');
+  const dragged = await phone.evaluate(() => window.__demo.tools.drawings()[0].points[0].price);
+  check(dragged < hline.price, 'a finger drags the selected line down (vertical drag is not taken by the page scroll)', { before: hline.price, after: dragged });
+  await phone.waitForTimeout(100);
+  check(await inside(phone, '[role="toolbar"][aria-label="Drawing style"]'), 'at 390 px the style bar (compact) is inside the chart');
+  await phone.screenshot({ path: path.join(out, 'drawings-phone.png') });
+  const annotate = phone.locator('#chart [data-chartist-drawing-ui] button[aria-label^="Annotate"]');
+  await annotate.scrollIntoViewIfNeeded();
+  await phone.waitForTimeout(150);
+  const ab = await annotate.boundingBox();
+  await phone.touchscreen.tap(ab.x + ab.width - 4, ab.y + ab.height - 4);
+  await phone.waitForTimeout(100);
+  check(await inside(phone, '[role="menu"]'), 'at 390 px the Annotate flyout (11 tools) is inside the chart', await phone.evaluate(() => { const m = document.querySelector('#chart [data-chartist-drawing-ui]').shadowRoot.querySelector('[role="menu"]').getBoundingClientRect(); return [m.top, m.bottom, m.height]; }));
+  await phone.screenshot({ path: path.join(out, 'drawings-phone-flyout.png') });
+  await phone.locator('#chart [data-chartist-drawing-ui] [role="menuitemradio"]', { hasText: 'Text note' }).first().tap();
+  const right = await phone.evaluate(() => { const c = window.__demo.chart.element().getBoundingClientRect(); return { x: c.right - 70, y: c.top + 40 }; });
+  await phone.touchscreen.tap(right.x, right.y + 36);
+  await phone.waitForTimeout(150);
+  check(await inside(phone, 'input'), 'at 390 px the text editor near the right edge is inside the chart');
+  await phone.keyboard.press('Escape');
+  await phone.close();
+
+  // A 260 x 220 chart: compact style bar, its panel, a flyout and the editor all inside.
+  const tiny = await browser.newPage({ viewport: { width: 400, height: 400 } });
+  tiny.on('pageerror', e => errors.push(e.message));
+  await tiny.goto(url);
+  await tiny.addStyleTag({ content: '#chart { width: 260px !important; height: 220px !important; }' });
+  await tiny.waitForTimeout(400);
+  await tiny.evaluate(() => { const t = window.__demo.tools; t.select(t.drawings()[2].id); });
+  await tiny.waitForTimeout(100);
+  check(await inside(tiny, '[role="toolbar"][aria-label="Drawing style"]'), '260 x 220: the compact style bar is inside the chart');
+  await tiny.locator('#chart [data-chartist-drawing-ui] button[aria-label="More style options"]').click();
+  check(await inside(tiny, '[role="group"][aria-label="Drawing style options"]'), '260 x 220: the style panel wraps inside the chart');
+  await tiny.locator('#chart [data-chartist-drawing-ui] [role="group"] button[aria-label="Red"]').click();
+  check(await tiny.evaluate(() => window.__demo.tools.selected().style.color) === await tiny.evaluate(() => window.ChartistLite.lightTheme.down), 'the compact panel sets the colour');
+  await tiny.screenshot({ path: path.join(out, 'drawings-tiny.png') });
+  await tiny.evaluate(() => window.__demo.tools.select(null));
+  const fib = tiny.locator('#chart [data-chartist-drawing-ui] button[aria-label^="Fibonacci"]');
+  await fib.scrollIntoViewIfNeeded();
+  await tiny.waitForTimeout(150);
+  const fb = await fib.boundingBox();
+  await tiny.mouse.click(fb.x + fb.width - 4, fb.y + fb.height - 4);
+  check(await inside(tiny, '[role="menu"]'), '260 x 220: a flyout of nine tools fits inside (it scrolls)');
+  await tiny.screenshot({ path: path.join(out, 'drawings-tiny-flyout.png') });
+  await tiny.mouse.click(fb.x + fb.width - 4, fb.y + fb.height - 4); // the corner mark closes it again
+  await tiny.evaluate(() => window.__demo.tools.setTool('text'));
+  const tb2 = await tiny.locator('#chart').boundingBox();
+  await tiny.mouse.click(tb2.x + tb2.width - 80, tb2.y + 120);
+  await tiny.waitForTimeout(100);
+  check(await inside(tiny, 'input'), '260 x 220: the text editor is inside the chart');
+  await tiny.close();
+
+  // Drag cost per tool at 20 drawings: the drawing handler's move plus a synchronous paint (script cost only,
+  // rasterisation not included), measured on the production build.
+  const bench = await browser.newPage({ viewport: { width: 1200, height: 700 } });
+  bench.on('pageerror', e => errors.push(e.message));
+  await bench.goto(url);
+  await bench.waitForTimeout(300);
+  const perf = await bench.evaluate(() => {
+    const { chart, candles, tools, bars } = window.__demo;
+    const h = chart.pointerHandlers().find(x => x.blocksTouch);
+    const ts = chart.timeScale();
+    const out = {};
+    const N = bars.length;
+    for (const t of tools.tools()) {
+      tools.clear();
+      tools.setMagnet(false);
+      const n = t.points === 0 ? 40 : t.open ? 5 : t.points;
+      for (let k = 0; k < 20; k++) {
+        const pts = Array.from({ length: n }, (_, i) => { const b = bars[N - 160 + k * 4 + i * (t.points === 0 ? 1 : 6)]; return { time: b.time, price: b.close * (1 + (i % 2 ? 0.02 : -0.01)) }; });
+        tools.add({ tool: t.id, points: pts, text: 'Note', options: t.id === 'anchoredVwap' ? { bands: [1, 2] } : undefined });
+      }
+      const d = tools.drawings()[19];
+      const p = d.points[0];
+      const l = ts.timeToLogical(p.time);
+      // Press on its first handle (or the body): select it, then drag.
+      tools.select(d.id);
+      const hs = { x: ts.logicalToCoordinate(l), y: candles.priceToCoordinate(p.price) };
+      const ev = (x, y) => ({ point: { x, y }, paneIndex: 0, logical: ts.coordinateToLogical(x), area: 'pane', pointerType: 'mouse', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false });
+      if (!h.pointerDown(ev(hs.x, hs.y))) { out[t.id] = null; continue; }
+      const times = [];
+      for (let k = 1; k <= 60; k++) {
+        const t0 = performance.now();
+        h.pointerMove(ev(hs.x + k * 2, hs.y + Math.sin(k / 5) * 30));
+        chart.paint();
+        times.push(performance.now() - t0);
+        // Rasterise outside the timing (as scripts/bench.cjs does): read one pixel of each canvas.
+        for (const c of chart.element().querySelectorAll('canvas')) c.getContext('2d').getImageData(0, 0, 1, 1);
+      }
+      h.pointerUp(ev(hs.x + 120, hs.y), false);
+      times.sort((a, b) => a - b);
+      out[t.id] = { p95: +times[Math.floor(times.length * 0.95)].toFixed(2), max: +times[times.length - 1].toFixed(2) };
+    }
+    tools.clear();
+    return out;
+  });
+  const worst = Object.entries(perf).filter(([, v]) => v).sort((a, b) => b[1].p95 - a[1].p95);
+  console.log('drag cost per tool, 20 drawings (p95 ms, script only):', JSON.stringify(Object.fromEntries(worst.map(([k, v]) => [k, v.p95]))));
+  check(Object.values(perf).every(v => v !== null), 'every tool can be pressed and dragged', Object.entries(perf).filter(([, v]) => !v).map(([k]) => k));
+  check(worst.length && worst[0][1].p95 < 8.33, 'dragging any tool at 20 drawings stays under 8.33 ms p95 (script cost only)', worst.slice(0, 3));
+  await bench.close();
+
+  // The gallery: every tool drawn on its own small chart (docs/screenshots/drawings-all-tools.png), light 1x, dark 2x.
+  for (const [theme, scale] of [['light', 1], ['dark', 2]]) {
+    const g = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: scale });
+    g.on('pageerror', e => errors.push(e.message));
+    await g.goto(url + `?gallery&theme=${theme}`);
+    await g.waitForTimeout(700);
+    const bad = await g.evaluate(() => window.__gallery.filter(x => !x.ok || x.tools.drawings().length !== 1).map(x => x.id));
+    check(bad.length === 0, `gallery (${theme}): all 53 tools drawn`, bad);
+    await g.screenshot({ path: path.join(out, theme === 'light' ? 'drawings-all-tools.png' : 'drawings-all-tools-dark.png'), fullPage: true });
+    await g.close();
+  }
 
   // Screenshots, light and dark, with a selection.
   for (const theme of ['light', 'dark']) {
