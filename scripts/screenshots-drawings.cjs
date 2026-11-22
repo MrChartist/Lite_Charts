@@ -296,7 +296,7 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   const tb2 = await tiny.locator('#chart').boundingBox();
   await tiny.mouse.click(tb2.x + tb2.width - 80, tb2.y + 120);
   await tiny.waitForTimeout(100);
-  check(await inside(tiny, 'input'), '260 x 220: the text editor is inside the chart');
+  check(await inside(tiny, 'input'), '260 x 220: the text editor is inside the chart', await tiny.evaluate(() => { const h = document.querySelector('#chart [data-chartist-drawing-ui]'); const i = h.shadowRoot.querySelector('input'); return { n: window.__demo.tools.drawings().length, tool: window.__demo.tools.tool(), input: i && i.getBoundingClientRect().toJSON(), chart: document.querySelector('#chart').getBoundingClientRect().toJSON(), menu: getComputedStyle(h.shadowRoot.querySelector('[role="menu"]')).display }; }));
   await tiny.close();
 
   // Drag cost per tool at 20 drawings: the drawing handler's move plus a synchronous paint (script cost only,
