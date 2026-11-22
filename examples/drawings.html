@@ -22,6 +22,10 @@
   .cell .g { height: 220px; }
   :root.gallery #main, :root.gallery header, :root.gallery > body > p { display: none; }
   :root.gallery #gallery { display: grid; }
+  /* ?mounted: the rail in a host's own left bar (toolbar.container), the host's bar is the surface. */
+  :root.mounted #main { display: flex; height: 520px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--bg); }
+  :root.mounted #leftbar { flex: none; width: 52px; }
+  :root.mounted #chart { flex: 1 1 auto; height: auto; border: 0; border-radius: 0; min-width: 0; }
 </style>
 </head>
 <body>
@@ -34,7 +38,7 @@
   </div>
 </header>
 <p id="intro">Pick a tool on the left, then click (or press, drag and release). A path ends with a double click or Enter. Shift keeps lines level or at 45 degrees; ctrl or cmd turns the magnet off for a point. Select a drawing to move it, drag its handles, style it, or press Delete. With the chart focused: Shift + H adds a horizontal line, arrows nudge the selected drawing, ctrl or cmd + Z undoes.</p>
-<div id="main"><div id="chart"></div></div>
+<div id="main"><div id="leftbar" hidden></div><div id="chart"></div></div>
 <div id="gallery"></div>
 <script src="../dist/chartist-lite.iife.min.js"></script>
 <script src="../dist/chartist-lite-drawings.iife.min.js"></script>
@@ -79,7 +83,9 @@
   if (!gallery) {
     const { chart, candles, volume } = addChart('chart');
     chart.timeScale().setVisibleLogicalRange({ from: bars.length - 120, to: bars.length + 8 });
-    const tools = D.createDrawingTools(chart, candles, { toolbar: true, tools: D.ALL_TOOLS, volumeSeries: volume });
+    const mounted = params.has('mounted');
+    if (mounted) { document.documentElement.classList.add('mounted'); document.getElementById('leftbar').hidden = false; }
+    const tools = D.createDrawingTools(chart, candles, { toolbar: mounted ? { container: document.getElementById('leftbar'), variant: 'rail' } : true, tools: D.ALL_TOOLS, volumeSeries: volume });
     tools.add({ tool: 'fib', points: [{ time: b(95).time, price: b(95).low }, { time: b(55).time, price: b(55).high }] });
     tools.add({ tool: 'trend', points: [{ time: b(110).time, price: b(110).low }, { time: b(20).time, price: b(20).low }], style: { color: L.lightTheme.up } });
     tools.add({ tool: 'long', points: [{ time: b(18).time, price: b(18).close }, { time: b(4).time, price: b(18).close * 1.06 }] });

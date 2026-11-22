@@ -111,3 +111,19 @@ repository, which imports both). No third-party code, nothing taken from another
 | `src/series/kagi.ts` | `chartTypeReversalRenderers.ts` (`drawKagi`: yang 3 px / yin 1.25 px, colour with thickness, the horizontal turn carries the thickness at the turn) | New drawing code: two continuous strokes on whole device pixels, dense fold. |
 | `src/series/point-figure.ts` | `chartTypeReversalRenderers.ts` (`drawPointFigure`: X for up, O for down, one mark per box level) | New drawing code with three looks (glyphs, bars, fold). |
 | `src/transforms/chart-types.ts`, `incremental.ts`, `time-spread.ts` | New code for this package | |
+
+## Drawing tools added 2026-11-22 (`src/drawings/tools/`)
+
+Ported from the host engine (same owner) and simplified to what this package paints; no code from other libraries.
+Constructions run in pixel space on the projected anchors (x is linear in the logical index).
+
+| File in this package | Source in the host | What changed |
+|---|---|---|
+| `src/drawings/contract.ts`, `engine.ts`, `paint.ts`, `tools/basic.ts` | Idea of `drawingToolCatalog.ts` (one entry per tool) | New code: one declarative `ToolDefinition` per tool (points, completion, handle moves, render, labels, hit, handles, icon, group); the first fifteen rewritten as definitions with unchanged behaviour. |
+| `src/drawings/tools/channels.ts` (`leastSquares`, flat and disjoint channels, `pitchforkLines`) | `drawingGeometry/channelsAndPitchforks.ts` (`regressionTrendChannel`: least squares, population deviation of residuals; `flatTopBottomChannel`; `disjointChannel`) and `drawingGeometry/pitchforkConstruction.ts` (Andrews, Schiff, modified Schiff, inside: origin, target, tine anchors) | Pixel vectors instead of slope-intercept; regression over the series' closes between the two anchor times, cached per data version; drawn bands at 2 deviations (option). |
+| `src/drawings/tools/fibonacci.ts` | `drawingGeometry/fibonacci.ts` (`fibTrendExtension`, `fibChannel`, `fibTimeZones` with the deduplicated sequence, `fibSpeedResistanceFan`, `fibSpeedResistanceArcs`, ratio sets) and `drawingGeometry/gann.ts` (`GANN_ANGLE_RATIOS` as multiples of the person's own 1x1, `gannBox`) | Arcs are circles in pixels facing the move; time zones stop at the pane edge (16 at most); the Gann box uses 0, 0.25, 0.382, 0.5, 0.618, 0.75, 1; speed resistance fan at thirds in price and time; labels spaced so none overlap. |
+| `src/drawings/tools/shapes.ts`, `geometry.ts` (`sampleBezier`, `rotatedRectCorners`, `arcThrough`) | `drawingGeometry/curveSampling.ts` (`sampleBezier` de Casteljau, `rotatedRectCorners`) | Bezier reduced to the quadratic form; arc through three points is new code. |
+| `src/drawings/tools/ranges.ts` (`anchoredVwap`, `volumeProfile`, range figures) | `drawingGeometry/anchoredVWAP.ts` (typical price, missing volume adds no weight), `vwapBands.ts` (volume-weighted deviation, clamped variance), `measurement.ts` (price and date range figures), `volumeProfile.ts` (volume spread over each bar's range, point of control, 70% value area) | One pass with cumulative sums cached per data version, projected for the bars on screen only; time-weighted (and labelled so) when the series has no volume; 24 bins. |
+| `src/drawings/tools/lines.ts`, `annotations.ts` | Host house rules only (`docs/features/chart-drawings/README.md`: direction figures in the up / down colours with sign and arrow) | New code. |
+| Tool icons (`icon` of every definition) | Host house style (24 grid, 1.8 round-capped line, one idea per glyph) | New path data drawn for this package. |
+

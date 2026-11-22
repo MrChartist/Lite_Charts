@@ -272,6 +272,81 @@ function initConnect() {
   });
 }
 
+// ---------- the hero: the real widget on real crypto ----------
+// The terminal bundle (the widget with live data and drawing tools) loads after the page has loaded, behind a static
+// poster. It connects to the exchange's public feed (BTC-USD) unless the reader chose demo data (remembered), the
+// browser asks to save data, or it is offline; if no exchange answers it shows invented demo data with a quiet line.
+const HERO_PREF = 'cl-hero-data';
+const HERO_WORDS = { off: 'Demo data', loading: 'Loading', connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting', offline: 'Offline', error: 'Error' };
+const PROVIDER_NAMES = { coinbase: 'Coinbase', binance: 'Binance', kraken: 'Kraken' };
+function heroHold() {
+  try { if (localStorage.getItem(HERO_PREF) === 'demo') return 'pref'; } catch (e) { /* storage blocked */ }
+  const c = navigator.connection;
+  if ((c && c.saveData) || (window.matchMedia && matchMedia('(prefers-reduced-data: reduce)').matches)) return 'save';
+  if (navigator.onLine === false) return 'offline';
+  return '';
+}
+function initHero() {
+  const box = $('[data-hero-widget]');
+  if (!box) return;
+  const mount = $('[data-hero-mount]', box);
+  const stage = box.closest('[data-stage]');
+  const word = $('.live-word', stage); const st = $('.live-state', stage);
+  const label = $('[data-hero-source]', stage); const note = $('[data-hero-live-note]', stage); const demoBtn = $('[data-hero-demo]', stage);
+  const liveNote = note.textContent;
+  const state = { widget: null, mode: '', status: 'loading', provider: '', ready: false };
+  const show = (s, message) => {
+    state.status = s;
+    st.dataset.s = s;
+    word.textContent = HERO_WORDS[s] || s;
+    const live = state.mode === 'live';
+    label.textContent = live ? `Real market data · ${PROVIDER_NAMES[state.provider] || 'Coinbase'}` : 'Invented demo data';
+    demoBtn.setAttribute('aria-pressed', String(!live));
+    note.textContent = message || (live ? liveNote : 'Invented prices. Switch off "Use demo data" to load real prices from the exchange, straight to your browser.');
+  };
+  const entry = { charts: [], tools: [], hero: state, restyle(t) { if (state.widget) state.widget.setTheme(t); } };
+  registry.push(entry);
+  function build(mode, message) {
+    const T = window.ChartistLiteTerminal;
+    if (state.widget) { try { state.widget.destroy(); } catch (e) { /* gone */ } state.widget = null; }
+    state.mode = mode; state.provider = 'coinbase'; state.ready = false;
+    const opts = {
+      theme: currentTheme(), interval: '1h', indicators: ['ema'], timeZone: 'local',
+      load: { extras: () => loadScript(`${ASSETS}chartist-lite-extras.iife.min.js`).then(() => window.ChartistLiteExtras) },
+      strings: {},
+    };
+    if (mode === 'live') Object.assign(opts, { live: { provider: 'coinbase', symbol: 'BTC-USD' }, symbol: 'BTC-USD' });
+    else Object.assign(opts, { data: T.demoBars('DEMO', '1h', 600), symbol: { symbol: 'DEMO', description: 'Invented demo data' } });
+    const w = T.createWidget(mount, opts);
+    state.widget = w;
+    entry.charts = [w.chart];
+    w.on('ready', () => { state.ready = true; box.classList.add('is-ready'); });
+    w.on('theme', (t) => { if (t !== currentTheme() && (t === 'dark' || t === 'light')) applyTheme(t, true); });
+    w.on('status', (d) => {
+      if (!d || d.alert || state.widget !== w) return;
+      if (d.demo) { build('demo', 'No exchange answered from this browser, so this is invented demo data.'); return; }
+      if (d.provider) state.provider = d.provider;
+      if (d.status) show(d.status);
+    });
+    show(mode === 'live' ? 'connecting' : 'off', message);
+    // The data arrives with the first frame; the poster stays until then.
+    requestAnimationFrame(() => requestAnimationFrame(() => box.classList.add('is-ready')));
+  }
+  demoBtn.addEventListener('click', () => {
+    if (!window.ChartistLiteTerminal) return;
+    const toDemo = state.mode === 'live';
+    try { if (toDemo) localStorage.setItem(HERO_PREF, 'demo'); else localStorage.removeItem(HERO_PREF); } catch (e) { /* storage blocked */ }
+    build(toDemo ? 'demo' : 'live');
+  });
+  const start = () => loadScript(`${ASSETS}chartist-lite.terminal.iife.min.js`).then(() => {
+    const hold = heroHold();
+    build(hold ? 'demo' : 'live', hold === 'save' ? 'Invented demo data, because your browser asks to save data. Switch off "Use demo data" to load real prices.' : hold === 'offline' ? 'Invented demo data: this browser is offline.' : '');
+  }).catch(() => { $('[data-hero-loading]', box).textContent = 'The chart script could not be loaded.'; });
+  // After the page itself has loaded, so the poster and the text come first.
+  if (document.readyState === 'complete') start(); else window.addEventListener('load', start, { once: true });
+  window.addEventListener('pagehide', () => { if (state.widget) state.widget.destroy(); });
+}
+
 // ---------- copy buttons ----------
 const status = document.createElement('div');
 status.className = 'visually-hidden'; status.setAttribute('role', 'status');
@@ -683,6 +758,6 @@ function start() {
   const toggle = $('#theme-toggle');
   if (toggle) toggle.addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true));
   applyTheme(currentTheme(), false);
-  initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initConnect(); initCharts(); initMeter();
+  initCopy(); initTabs(); initDialogs(); initGuideNav(); initSearch(); initChapters(); initApiFilter(); initGallery(); initControls(); initConnect(); initCharts(); initMeter(); initHero();
 }
 start();

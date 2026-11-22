@@ -25,6 +25,16 @@ Chartist Lite runs in the browser. A report should describe the input or steps t
   `data-stream.binance.vision`; `api.kraken.com` and `ws.kraken.com`. No API keys, no proxy, no server of ours, nothing
   stored. Requests carry no cookies (`credentials: 'omit'`); the exchange sees the visitor's IP address and the
   page's origin, as with any request the browser makes.
+- **Input to URLs:** a symbol is mapped to the exchange's form and then checked against a strict pattern (letters and
+  digits, with one dash or slash where the exchange uses one) and URL-encoded; anything else is refused before any
+  request, so no symbol can reach another path or query parameter. Every request has a 10 s timeout and an
+  AbortController.
+- **Being a good citizen:** reconnects back off (1 s doubling to 30 s, reset only after a tick or 30 s open), history is
+  not reloaded within 10 s of the last load, permanent failures (4xx, unknown symbol, no bars) stop after three rounds
+  until the page calls `retry()`, and at most 30 starts happen per hour.
+- **Bounded drawings:** `importJSON` and `persist` accept at most 4 million characters, 2000 drawings and 2000 points
+  per freehand stroke; beyond that an `error` event says what was left out. Saved data that cannot be read is left
+  untouched (never overwritten).
 - **Strict Content-Security-Policy:** allow the provider hosts you use in `connect-src` (for example
   `connect-src https://api.exchange.coinbase.com wss://ws-feed.exchange.coinbase.com`).
 - **Terms and rate limits:** the exchanges' own terms of use and rate limits apply to anyone who ships the live entry.

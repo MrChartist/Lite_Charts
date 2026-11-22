@@ -291,13 +291,42 @@ const check = (ok, what, detail) => { if (!ok) failures.push(what); console.log(
   await tiny.mouse.click(fb.x + fb.width - 4, fb.y + fb.height - 4);
   check(await inside(tiny, '[role="menu"]'), '260 x 220: a flyout of nine tools fits inside (it scrolls)');
   await tiny.screenshot({ path: path.join(out, 'drawings-tiny-flyout.png') });
-  await tiny.mouse.click(fb.x + fb.width - 4, fb.y + fb.height - 4); // the corner mark closes it again
+  await tiny.mouse.click(390, 390); // a press outside the chart closes it (in a chart this small it covers the rail)
   await tiny.evaluate(() => window.__demo.tools.setTool('text'));
   const tb2 = await tiny.locator('#chart').boundingBox();
   await tiny.mouse.click(tb2.x + tb2.width - 80, tb2.y + 120);
   await tiny.waitForTimeout(100);
   check(await inside(tiny, 'input'), '260 x 220: the text editor is inside the chart', await tiny.evaluate(() => { const h = document.querySelector('#chart [data-chartist-drawing-ui]'); const i = h.shadowRoot.querySelector('input'); return { n: window.__demo.tools.drawings().length, tool: window.__demo.tools.tool(), input: i && i.getBoundingClientRect().toJSON(), chart: document.querySelector('#chart').getBoundingClientRect().toJSON(), menu: getComputedStyle(h.shadowRoot.querySelector('[role="menu"]')).display }; }));
   await tiny.close();
+
+  // The rail mounted in a host's own left bar (toolbar.container): no card look, flyouts open over the chart, tools work.
+  const host = await browser.newPage({ viewport: { width: 1000, height: 640 } });
+  host.on('pageerror', e => errors.push(e.message));
+  await host.goto(url + '?mounted');
+  await host.waitForTimeout(400);
+  const m = await host.evaluate(() => {
+    const bar = document.getElementById('leftbar');
+    const h = bar.querySelector('[data-chartist-drawing-ui]');
+    const rail = h && h.shadowRoot.querySelector('[role="toolbar"]');
+    const br = bar.getBoundingClientRect(), rr = rail && rail.getBoundingClientRect();
+    return { inBar: !!rail && rr.left >= br.left && rr.right <= br.right + 0.5 && rr.bottom <= br.bottom + 0.5, bg: rail && getComputedStyle(rail).backgroundColor, scrolls: rail && rail.scrollHeight > rail.clientHeight };
+  });
+  check(m.inBar && /rgba\(0, 0, 0, 0\)|transparent/.test(m.bg), 'toolbar.container: the rail fills the host bar with no card of its own', m);
+  await host.evaluate(() => window.__demo.tools.clear());
+  const lines = host.locator('#leftbar [data-chartist-drawing-ui] button[aria-label^="Lines"]');
+  const lb = await lines.boundingBox();
+  await host.mouse.click(lb.x + lb.width - 4, lb.y + lb.height - 4);
+  const fly = await host.evaluate(() => { const h = document.querySelector('#chart [data-chartist-drawing-ui]'); const mm = h.shadowRoot.querySelector('[role="menu"]').getBoundingClientRect(); const c = document.querySelector('#chart').getBoundingClientRect(); return { inside: mm.width > 0 && mm.left >= c.left && mm.right <= c.right && mm.top >= c.top && mm.bottom <= c.bottom }; });
+  check(fly.inside, 'toolbar.container: a flyout opens over the chart, inside it', fly);
+  await host.locator('#chart [data-chartist-drawing-ui] [role="menuitemradio"]', { hasText: 'Info line' }).click();
+  const cb = await host.locator('#chart').boundingBox();
+  await host.mouse.click(cb.x + cb.width * 0.3, cb.y + cb.height * 0.6);
+  await host.mouse.click(cb.x + cb.width * 0.55, cb.y + cb.height * 0.4);
+  check(await host.evaluate(() => window.__demo.tools.drawings().map(d => d.tool).join()) === 'infoLine', 'toolbar.container: a tool armed from the mounted rail draws');
+  await host.screenshot({ path: path.join(out, 'drawings-mounted.png') });
+  await host.evaluate(() => window.__demo.chart.remove());
+  check(await host.evaluate(() => !document.querySelector('#leftbar [data-chartist-drawing-ui]')), 'chart.remove() tears the mounted rail down (chart.onRemove)');
+  await host.close();
 
   // Drag cost per tool at 20 drawings: the drawing handler's move plus a synchronous paint (script cost only,
   // rasterisation not included), measured on the production build.

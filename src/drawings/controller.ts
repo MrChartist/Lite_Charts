@@ -32,8 +32,13 @@ export interface DrawingSpec {
 }
 
 export interface DrawingToolsOptions {
-  /** The built-in toolbar: `true` (left rail) or `{ position: 'left' | 'top' }`. Default false. */
-  toolbar?: boolean | { position?: 'left' | 'top' };
+  /**
+   * The built-in toolbar: `true` (a rail floating at the left of the plot) or `{ position: 'left' | 'top' }`. A host
+   * with chrome of its own passes `container` (its left bar, a bottom sheet): the rail is mounted there with no card
+   * look (the host's bar is the surface) as a column (`variant: 'rail'`) or a row (`'bar'`), and scrolls inside it;
+   * flyouts still open over the chart. `styleContainer` places the selected drawing's style bar too. Default false.
+   */
+  toolbar?: boolean | { position?: 'left' | 'top'; container?: HTMLElement; variant?: 'rail' | 'bar'; styleContainer?: HTMLElement };
   /** The tools on offer: `BASIC_TOOLS` (default, the first fifteen), `ALL_TOOLS`, or any subset or tools of your own. */
   tools?: readonly ToolDefinition[];
   /** Snap points to the nearest open, high, low or close (ctrl / cmd held inverts it). Default true. */
@@ -513,13 +518,8 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
       attached(h) { entry.host = h; },
       detached() {
         entry.host = null;
-        // The chart was removed (every primitive is detached and the root leaves the page): tidy up our listeners.
-        queueMicrotask(() => {
-          if (destroyed) return;
-          let gone = false;
-          try { const root = chart.element(); gone = !root.isConnected && root.parentNode === null; } catch { gone = true; }
-          if (gone) ctl.destroy(); else { syncPanes(true); repaint(); }
-        });
+        // A series removed (a pane gone): pane indexes and primitives follow. The chart's removal is `chart.onRemove`.
+        queueMicrotask(() => { if (!destroyed) { syncPanes(true); repaint(); } });
       },
       draw(scope) {
         syncPanes();
@@ -987,8 +987,11 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
       try { if (cursor !== null) chart.setCursor(null); } catch { /* removed chart */ }
       ui?.destroy();
       ui = null;
+      unRemove?.();
+      unRemove = null;
     },
   } as DrawingToolsController;
+  let unRemove: (() => void) | null = null;
 
   /** The chart reads `blocksTouch()` when the cursor is set: re-set it so touch-action follows the selection. */
   function syncTouch(): void {
@@ -1045,6 +1048,9 @@ export function createDrawingTools(chart: ChartApi, series: AnySeries, options: 
   syncPanes(true);
   let ui: DrawingToolsUi | null = null;
   const tb = options.toolbar;
-  if (tb) ui = createToolbar(chart, ctl, typeof tb === 'object' && tb.position === 'top' ? 'top' : 'left');
+  if (tb) ui = createToolbar(chart, ctl, typeof tb === 'object' && tb.position === 'top' ? 'top' : 'left', typeof tb === 'object' ? tb : {});
+  // The chart's removal tears everything down (the toolbar's document listener included).
+  const offRemove = (chart as { onRemove?: (fn: () => void) => () => void }).onRemove?.(() => ctl.destroy()) ?? null;
+  unRemove = offRemove;
   return ctl;
 }

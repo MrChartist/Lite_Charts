@@ -63,25 +63,51 @@ export function backoffMs(attempt: number, rand: number): number {
   return Math.round(base * (0.7 + 0.6 * rand));
 }
 
-/**
- * The guard on everything that reaches the chart (history bars, streamed bars and trades). A value is dropped when:
- * - its time is not finite or is later than `nowSec + intervalSec` (one bad clock or one bad timestamp would otherwise
- *   open a bar in the future that every later tick is "older" than, freezing the chart);
- * - a price is not finite or not positive, or a bar's high is under its low;
- * - with a reference price `ref` (the last close), a price is more than 10 times or less than a tenth of it. That is a
- *   deliberately loose guard (a real market does not move a whole decade between two ticks); it only catches unit
- *   mistakes and corrupt messages, never a fast market.
- */
-export function plausibleTick(t: LiveTick, nowSec: number, intervalSec: number, ref: number | null): boolean {
-  const limit = nowSec + intervalSec;
-  const near = (p: number): boolean => ref === null || !(ref > 0) || (p <= ref * 10 && p >= ref / 10);
-  if (t.kind === 'trade') return Number.isFinite(t.time) && t.time <= limit && Number.isFinite(t.price) && t.price > 0 && near(t.price);
-  return plausibleBar(t.bar, nowSec, intervalSec) && near(t.bar.close);
+/** The bad-print guard's settings (`LiveOptions.guard`). */
+export interface TickGuard {
+  /**
+   * A price is dropped when it is further from the last close than `maxJump` times the recent range (the high-low span
+   * of the last 50 bars, never taken as under 5% of the price). Default 20: with a calm range that is a full 100% of the
+   * price in ONE tick, which no real fast market prints, while a unit mistake (x100) or a corrupt message is caught.
+   */
+  maxJump: number;
+  /** Seconds of tolerance past the reference time (the later of the clock and the newest bar plus one interval). Default 900, or two intervals if longer. */
+  futureSeconds: number;
 }
 
-/** A bar passes when its time is finite and not after `nowSec + intervalSec`, and its prices are positive with high >= low. */
-export function plausibleBar(b: LiveBar, nowSec: number, intervalSec: number): boolean {
-  if (!Number.isFinite(b.time) || b.time > nowSec + intervalSec) return false;
+export const DEFAULT_GUARD: TickGuard = { maxJump: 20, futureSeconds: 900 };
+
+/** High-low span of the last `n` bars (0 for none). */
+export function recentRange(bars: readonly LiveBar[], n = 50): number {
+  let lo = Infinity, hi = -Infinity;
+  for (let i = Math.max(0, bars.length - n); i < bars.length; i++) { if (bars[i].low < lo) lo = bars[i].low; if (bars[i].high > hi) hi = bars[i].high; }
+  return hi > lo ? hi - lo : 0;
+}
+
+/**
+ * The guard on everything that reaches the chart (history bars, streamed bars and trades). Deliberately generous: it
+ * only drops what cannot be a real print.
+ * - a time that is not finite or is far in the future: later than `ref` (the later of the visitor's clock and the newest
+ *   bar's time plus one interval, so a slow clock does not drop real ticks) plus max(`futureSeconds`, two intervals).
+ *   One such time would otherwise open a bar in the future that every later tick is "older" than, freezing the chart;
+ * - a price that is not finite or not positive, or a bar whose high is under its low;
+ * - with a last close `last`, a price further from it than `guard.maxJump` x max(`range`, 5% of `last`) (see
+ *   `TickGuard`). Pass `guard: null` to keep only the time and positivity rules.
+ */
+export function plausibleTick(t: LiveTick, nowSec: number, intervalSec: number, last: number | null, range = 0, guard: TickGuard | null = DEFAULT_GUARD, newestBar = -Infinity): boolean {
+  const g = guard ?? DEFAULT_GUARD;
+  const limit = Math.max(nowSec, newestBar + intervalSec) + Math.max(g.futureSeconds, 2 * intervalSec);
+  const near = (p: number): boolean => {
+    if (!guard || last === null || !(last > 0)) return true;
+    return Math.abs(p - last) <= guard.maxJump * Math.max(range, last * 0.05);
+  };
+  if (t.kind === 'trade') return Number.isFinite(t.time) && t.time <= limit && Number.isFinite(t.price) && t.price > 0 && near(t.price);
+  return plausibleBar(t.bar, limit) && near(t.bar.close);
+}
+
+/** A bar passes when its time is finite and not after `limit`, and its prices are positive with high >= low. */
+export function plausibleBar(b: LiveBar, limit: number): boolean {
+  if (!Number.isFinite(b.time) || b.time > limit) return false;
   for (const v of [b.open, b.high, b.low, b.close]) if (!Number.isFinite(v) || !(v > 0)) return false;
   return b.high >= b.low;
 }

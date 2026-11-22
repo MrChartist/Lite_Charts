@@ -12,7 +12,7 @@
 import { build, transform } from 'esbuild';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { codeBlock, esc, parseFrontMatter, renderMarkdown } from './markdown.mjs';
 import { makeBars } from './src/demo-data.js';
@@ -42,6 +42,16 @@ function rel(from, to) {
 }
 const rootOf = (p) => { const d = path.posix.dirname(p); return d === '.' ? '' : d.split('/').map(() => '..').join('/') + '/'; };
 
+function jpegSize(file) {
+  const b = readFileSync(file);
+  for (let i = 2; i < b.length - 9;) {
+    if (b[i] !== 0xFF) { i++; continue; }
+    const m = b[i + 1];
+    if (m >= 0xC0 && m <= 0xC3) return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return { width: 1280, height: 640 };
+}
 function pngSize(file) {
   const b = readFileSync(file);
   if (b.length < 24 || b.toString('ascii', 1, 4) !== 'PNG') return null;
@@ -90,7 +100,25 @@ const DRAWINGS = existsSync(path.join(pkg, 'src', 'drawings', 'index.ts')) && ex
 // appear when both are built. Every live demo is click-to-connect: nothing reaches an exchange until the reader asks.
 const LIVE = existsSync(path.join(pkg, 'src', 'live', 'index.ts')) && existsSync(path.join(pkg, 'dist', 'chartist-lite-live.iife.min.js'))
   && existsSync(path.join(pkg, 'dist', 'chartist-lite.element-live.iife.min.js'));
-const DRAWING_TOOLS = DRAWINGS ? Array.from(read('src/drawings/tools.ts').matchAll(/^\s*\{ id: '(\w+)', label: '([^']+)', points: \d+ \}/gm)).map((m) => ({ id: m[1], label: m[2] })) : [];
+// Facts read from the source at build time, never typed in: the indicator catalog, the chart types and every drawing
+// tool. The modules are bundled with esbuild and imported here (they touch no DOM on import).
+async function loadFacts() {
+  const parts = [
+    ['src/indicators/catalog.ts', "export { INDICATORS } from './src/indicators/catalog.ts';"],
+    ['src/transforms/chart-types.ts', "export { CHART_TYPES } from './src/transforms/chart-types.ts';"],
+    ['src/drawings/index.ts', "export { TOOLS, BASIC_TOOLS } from './src/drawings/index.ts';"],
+  ].filter(([f]) => existsSync(path.join(pkg, f)));
+  const res = await build({ absWorkingDir: pkg, stdin: { contents: parts.map((x) => x[1]).join('\n'), resolveDir: pkg, loader: 'ts' }, bundle: true, format: 'esm', platform: 'neutral', write: false, logLevel: 'silent' });
+  return import(`data:text/javascript;base64,${Buffer.from(res.outputFiles[0].text).toString('base64')}`);
+}
+const FACTS = await loadFacts();
+const CATALOG = (FACTS.INDICATORS || []).map((x) => ({ id: x.id, name: x.name, shortName: x.shortName, category: x.category, overlay: x.overlay, inputs: x.inputs, outputs: x.outputs, guides: x.guides || [] }));
+const CHART_TYPES = (FACTS.CHART_TYPES || []).map((t) => ({ id: t.id, name: t.name, kind: t.kind, irregularTime: t.irregularTime, inputs: t.inputs }));
+const DRAWING_TOOLS = DRAWINGS && FACTS.TOOLS ? FACTS.TOOLS.map((t) => ({ id: t.id, label: t.label })) : [];
+const BASIC_TOOL_COUNT = FACTS.BASIC_TOOLS ? FACTS.BASIC_TOOLS.length : DRAWING_TOOLS.length;
+const WIDGET = existsSync(path.join(pkg, 'src', 'widget', 'index.ts')) && existsSync(path.join(pkg, 'dist', 'chartist-lite.terminal.iife.min.js'));
+const EXTRAS = existsSync(path.join(pkg, 'dist', 'chartist-lite-extras.iife.min.js'));
+const TRANSFORMS = existsSync(path.join(pkg, 'dist', 'chartist-lite-transforms.iife.min.js'));
 
 function benchHtml() {
   if (!PERF) return `<h3 id="bench-h">Measured, not claimed</h3><p>The package has a frame benchmark (<code>npm run bench</code>). Its recorded figures appear here when they are published with the package; until then, the meter beside this card is the honest number, on your device.</p>`;
@@ -123,33 +151,65 @@ const GLYPH = {
   pulse: svg('<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>'),
 };
 
+/**
+ * Every entry, measured now: bundled and minified with esbuild as a bundler would, then gzip (level 9) and brotli
+ * (quality 11) with Node's zlib. Rows: [label, min KB, gzip KB, id, brotli KB, line]. `typical` adds what three typical
+ * pages load. The script-tag files are read from dist/ as built.
+ */
 async function measureSizes() {
   const gz = (buf) => gzipSync(buf, { level: 9 }).length;
+  const br = (buf) => brotliCompressSync(buf, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11, [zlibConstants.BROTLI_PARAM_SIZE_HINT]: buf.length } }).length;
   const kb = (n) => (n / 1024).toFixed(1);
   const rows = [];
+  const bundle = async (entryOrCode) => {
+    const opts = { absWorkingDir: pkg, bundle: true, format: 'esm', minify: true, target: 'es2020', write: false, legalComments: 'none', logLevel: 'silent' };
+    const res = await build(entryOrCode.endsWith('.ts') ? { ...opts, entryPoints: [entryOrCode] } : { ...opts, stdin: { contents: entryOrCode, resolveDir: pkg, loader: 'ts' } });
+    return Buffer.from(res.outputFiles[0].contents);
+  };
   const ENTRIES = [
-    ['Core (ES module, createChart and the six series)', 'src/index.ts'],
-    ['Indicators entry', 'src/indicators/index.ts'],
-    ['Element entry (includes the chart)', 'src/element/index.ts'],
-    ['React entry (includes the chart)', 'src/react/index.ts'],
-    ...(existsSync(path.join(pkg, 'src', 'drawings', 'index.ts')) ? [['Drawings entry', 'src/drawings/index.ts']] : []),
-    ...(LIVE ? [['Live entry', 'src/live/index.ts']] : []),
+    ['Core (ES module, createChart and the six series)', 'src/index.ts', 'core', 'lite-charts', 'createChart, the six series, price lines, markers, themes, legend, keyboard'],
+    ['Indicators entry', 'src/indicators/index.ts', 'indicators', 'lite-charts/indicators', `${CATALOG.length || 'The'} indicators and the catalogue; import one function to keep only it`],
+    ...(existsSync(path.join(pkg, 'src', 'drawings', 'index.ts')) ? [['Drawings entry', 'src/drawings/index.ts', 'drawings', 'lite-charts/drawings', `${DRAWING_TOOLS.length} drawing tools, the toolbar, undo and JSON`]] : []),
+    ...(LIVE ? [['Live entry', 'src/live/index.ts', 'live', 'lite-charts/live', 'connectLive and the Coinbase, Binance and Kraken providers']] : []),
+    ...(existsSync(path.join(pkg, 'src', 'transforms', 'index.ts')) ? [['Transforms entry', 'src/transforms/index.ts', 'transforms', 'lite-charts/transforms', `${CHART_TYPES.length} chart types: Renko, Kagi, point and figure, line break, range bars and more`]] : []),
+    ...(existsSync(path.join(pkg, 'src', 'plugins', 'extras', 'index.ts')) ? [['Extras entry', 'src/plugins/extras/index.ts', 'extras', 'lite-charts/extras', 'Tooltips, watermark, alerts, compare, replay, bands, custom series']] : []),
+    ...(existsSync(path.join(pkg, 'src', 'widget', 'index.ts')) ? [['Widget entry (includes the chart)', 'src/widget/index.ts', 'widget', 'lite-charts/widget', 'The ready-made chart: toolbar, indicators dialog, ranges; drawings and live load on demand']] : []),
+    ['Element entry (includes the chart)', 'src/element/index.ts', 'element', 'lite-charts/element', 'The <chartist-chart> tag'],
+    ['React entry (includes the chart)', 'src/react/index.ts', 'react', 'lite-charts/react', 'A component and a hook'],
   ];
-  for (const [label, entry] of ENTRIES) {
-    const res = await build({ absWorkingDir: pkg, entryPoints: [entry], bundle: true, format: 'esm', minify: true, target: 'es2020', write: false, legalComments: 'none', logLevel: 'silent' });
-    const code = res.outputFiles[0].contents;
-    rows.push([label, kb(code.length), kb(gz(code))]);
+  for (const [label, entry, id, name, line] of ENTRIES) {
+    const code = await bundle(entry);
+    rows.push({ label, id, name, line, min: kb(code.length), gzip: kb(gz(code)), brotli: kb(br(code)) });
   }
-  for (const [label, file] of [
-    ['Script tag: chartist-lite.iife.min.js', 'dist/chartist-lite.iife.min.js'],
-    ['Script tag: chartist-lite-indicators.iife.min.js', 'dist/chartist-lite-indicators.iife.min.js'],
-    ['Script tag: chartist-lite.element.iife.min.js', 'dist/chartist-lite.element.iife.min.js'],
-    ...(LIVE ? [['Script tag: chartist-lite.element-live.iife.min.js', 'dist/chartist-lite.element-live.iife.min.js']] : []),
-  ]) {
+  const FILES = [
+    ['Script tag: chartist-lite.iife.min.js', 'dist/chartist-lite.iife.min.js', 'iife-core'],
+    ['Script tag: chartist-lite-indicators.iife.min.js', 'dist/chartist-lite-indicators.iife.min.js', 'iife-indicators'],
+    ['Script tag: chartist-lite.element.iife.min.js', 'dist/chartist-lite.element.iife.min.js', 'iife-element'],
+    ...(LIVE ? [['Script tag: chartist-lite.element-live.iife.min.js', 'dist/chartist-lite.element-live.iife.min.js', 'iife-element-live']] : []),
+    ...(WIDGET ? [['Script tag: chartist-lite.terminal.iife.min.js', 'dist/chartist-lite.terminal.iife.min.js', 'terminal']] : []),
+  ];
+  for (const [label, file, id] of FILES) {
     const buf = readFileSync(path.join(pkg, file));
-    rows.push([label, kb(buf.length), kb(gz(buf))]);
+    rows.push({ label, id, name: path.basename(file), line: '', min: kb(buf.length), gzip: kb(gz(buf)), brotli: kb(br(buf)) });
   }
+  // What typical pages load, bundled as a page would import them.
+  const typical = [];
+  const page = async (label, code, line) => { const b = await bundle(code); typical.push({ label, line, gzip: kb(gz(b)), brotli: kb(br(b)) }); };
+  await page('Core only', "export { createChart, CandlestickSeries } from './src/index.ts';", 'createChart and candlesticks');
+  await page('Core and three indicators', "export { createChart, CandlestickSeries, LineSeries } from './src/index.ts'; export { sma, ema, rsi } from './src/indicators/index.ts';", 'Candles, two averages and RSI');
+  const term = rows.find((r) => r.id === 'terminal');
+  if (term) typical.push({ label: 'The full terminal', line: 'One script tag: widget, chart types, live data and drawing tools', gzip: term.gzip, brotli: term.brotli });
+  rows.typical = typical;
   return rows;
+}
+const sizeOf = (rows, id) => rows.find((r) => r.id === id) || null;
+
+// Sizes and posters, measured once, used by the home page, the guides (tokens) and the comparison page.
+const SIZES = await measureSizes();
+const POSTERS = {};
+for (const theme of ['dark', 'light']) {
+  const own = path.join(here, 'assets', 'img', `hero-poster-${theme}.jpg`);
+  if (existsSync(own)) { POSTERS[theme] = { path: `assets/img/hero-poster-${theme}.jpg`, size: jpegSize(own), src: own }; }
 }
 
 // ---------- guides ----------
@@ -427,6 +487,16 @@ ${page.body}
 `;
 }
 
+/** The "what you load" tables: every entry with gzip and brotli, then three typical pages. */
+function sizeTables(sizes, p) {
+  const entries = sizes.filter((r) => r.line && !r.id.startsWith('iife') && r.id !== 'terminal');
+  const term = sizeOf(sizes, 'terminal');
+  const rows = [...entries, ...(term ? [{ ...term, name: 'chartist-lite.terminal.iife.min.js', line: 'One script tag: the widget with chart types, live data and drawing tools, and the tags' }] : [])];
+  const t1 = `<div class="table-wrap" role="region" tabindex="0" aria-label="Table: size of every entry"><table class="sizes"><caption class="visually-hidden">Size of every entry</caption><thead><tr><th scope="col">Entry</th><th scope="col">What it brings</th><th scope="col" class="num">gzip</th><th scope="col" class="num">brotli</th></tr></thead><tbody>${rows.map((r) => `<tr><td><code>${esc(r.name)}</code></td><td>${esc(r.line)}</td><td class="num">${r.gzip} KB</td><td class="num">${r.brotli} KB</td></tr>`).join('')}</tbody></table></div>`;
+  const t2 = `<div class="typical">${sizes.typical.map((r) => `<div class="card typical-card"><p class="k">${esc(r.label)}</p><p class="v"><span class="num">${r.gzip}</span> KB gzip</p><p class="sub"><span class="num">${r.brotli}</span> KB brotli · ${esc(r.line)}</p></div>`).join('')}</div>`;
+  return `${t2}${t1}<p class="note-line">Measured when this site was built: each entry bundled and minified with esbuild as a bundler would, then compressed with Node's zlib (gzip level 9, brotli quality 11). The script tag files are the ones in <code>dist/</code>. Run <code>npm run size</code> for the gzip figures.</p>`;
+}
+
 // ---------- pages ----------
 const pages = [];
 const liveBundles = new Map(); // page path -> [fn source]
@@ -593,10 +663,10 @@ ${cards}
 
 // Home: the product story in chapters.
 {
-  const sizes = await measureSizes();
-  const coreGzip = sizes[0][2];
-  const indGzip = sizes[1][2];
-  const liveGzip = sizes.find((r) => /^Live entry/.test(r[0]))?.[2] ?? '';
+  const sizes = SIZES;
+  const coreGzip = sizeOf(sizes, 'core').gzip;
+  const indGzip = sizeOf(sizes, 'indicators').gzip;
+  const liveGzip = sizeOf(sizes, 'live')?.gzip ?? '';
   const p = 'index.html';
   const g = (s) => rel(p, guideBySlug(s).out);
   const homeBars = makeBars(60, 19, 120);
@@ -624,7 +694,7 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
 </div>`;
   const CH = [
     ['what', 'What it is'], ['move', 'See it move'], ['series', 'Series'], ['panes', 'Indicators and panes'],
-    ...(DRAWINGS ? [['drawings', 'Drawing tools']] : []), ['embed', 'Embed anywhere'], ...(LIVE ? [['live', 'Live data']] : []), ['speed', 'Speed'], ['start', 'Get started'],
+    ...(DRAWINGS ? [['drawings', 'Drawing tools']] : []), ['embed', 'Embed anywhere'], ...(LIVE ? [['live', 'Live data']] : []), ['load', 'What you load'], ['speed', 'Speed'], ['start', 'Get started'],
   ];
   const chapter = (key, h2, lead, content) => {
     const i = CH.findIndex((c) => c[0] === key);
@@ -632,16 +702,16 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
   };
   const win = (title, inner, extra = '') => `<div class="window" data-stage><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="window-title">${title}</span>${extra}</div>${inner}</div>`;
   const STANDOUT = [
-    ...(PERF ? [[1, 'gauge', `<b>120 Hz frame budget, measured:</b> worst p95 ${PERF.worst.toFixed(1)} ms of ${PERF.budget.toFixed(2)}`, rel(p, PERF_PAGE)]] : []),
-    ...(DRAWINGS ? [[2, 'pen', `<b>Drawing tools included:</b> ${DRAWING_TOOLS.length} tools, undo and JSON export`, '#ch-drawings']] : []),
-    [3, 'wave', `<b>${INDICATOR_NAMES.length} indicators built in,</b> plus Heikin-Ashi and aggregation`, g('indicators')],
-    [4, 'code', '<b>One HTML tag to embed:</b> <code>&lt;chartist-chart&gt;</code>', g('embedding')],
-    [5, 'clock', '<b>Exchange time zones</b> without session gaps', g('time-and-time-zones')],
+    ...(WIDGET ? [[1, 'frame', '<b>A ready-made chart in one call:</b> toolbar, indicators dialog, ranges, drawing rail', g('widget')]] : []),
+    [2, 'candles', `<b>${CHART_TYPES.length || SERIES_COUNT} chart types,</b> Renko, Kagi and point and figure included`, g('chart-types')],
+    [3, 'wave', `<b>${CATALOG.length} indicators</b> in a searchable catalogue`, g('indicator-catalogue')],
+    ...(DRAWINGS ? [[4, 'pen', `<b>${DRAWING_TOOLS.length} drawing tools,</b> undo and JSON export`, g('drawing-tools')]] : []),
+    ...(PERF ? [[5, 'gauge', `<b>120 Hz frame budget, measured:</b> worst p95 ${PERF.worst.toFixed(1)} ms of ${PERF.budget.toFixed(2)}`, rel(p, PERF_PAGE)]] : []),
     [1, 'keys', '<b>Keyboard and screen reader</b> inspect mode', g('accessibility')],
   ].slice(0, 6);
   const apart = [
     [1, 'gauge', 'Built for 120 Hz', PERF ? `The costliest frame (p95) of ${PERF.scenarios} measured gestures takes ${PERF.worst.toFixed(2)} ms of the ${PERF.budget.toFixed(2)} ms a 120 Hz screen allows, in headless Chromium. Measure your own device.` : 'Each frame paints only what changed, and dense history folds into one column per pixel. Measure your own device.', '#ch-speed', 'See the meter'],
-    [2, 'wave', 'Indicators built in', `${INDICATOR_NAMES.length} indicators as plain functions in a ${indGzip} KB entry, with live forms that cost the same per tick.`, g('indicators'), 'Indicators guide'],
+    [2, 'wave', 'Indicators built in', `${CATALOG.length} indicators as plain functions, with a catalogue a UI can be built on, in a ${indGzip} KB entry.`, g('indicators'), 'Indicators guide'],
     [3, 'panes', 'Stacked panes', 'RSI or MACD in its own pane, sharing the time axis and the crosshair, with a divider you can drag or move by keyboard.', g('panes-and-scales'), 'Panes guide'],
     [4, 'clock', 'Exchange time, no gaps', 'One slot per bar, so nights and weekends take no space; labels in any IANA zone, daylight saving included.', g('time-and-time-zones'), 'Time guide'],
     [5, 'code', 'A tag, no code', 'Write <code>&lt;chartist-chart&gt;</code> with a data source. The fallback table inside it is what crawlers read.', g('embedding'), 'Embedding guide'],
@@ -649,18 +719,34 @@ ${install.map(([id, , lang, code, note], i) => `<div class="tabpanel" role="tabp
     [2, 'shield', 'Safe on strict pages', 'Works under a <code>style-src \'self\'</code> policy; hostile page CSS and right-to-left pages do not reach it.', g('embedding') + '#strict-content-security-policy-hostile-page-css-right-to-left-pages', 'What was checked'],
     [3, 'minus', 'Numbers that read right', 'A true minus sign (<span class="num">−2.35</span>), no grouping commas (<span class="num">12345.60</span>), tabular figures on the axes.', g('time-and-time-zones') + '#numbers-on-the-axis', 'Number rules'],
   ];
-  const body = `<section class="hero-panel" aria-labelledby="hero-h"><div class="wrap hero">
+  const STATS = [
+    [CATALOG.length, 'Indicators', g('indicator-catalogue')],
+    [DRAWING_TOOLS.length, 'Drawing tools', g('drawing-tools')],
+    [CHART_TYPES.length || SERIES_COUNT, 'Chart types', g('chart-types')],
+    [`${coreGzip} KB`, 'Core, gzip', '#ch-load'],
+    [RUNTIME_DEPS, 'Dependencies', '#ch-what'],
+    ...(PERF ? [[`${PERF.worst.toFixed(1)} ms`, `Worst p95 of ${PERF.budget.toFixed(2)}`, rel(p, PERF_PAGE)]] : []),
+  ];
+  const poster = (theme) => {
+    const src = POSTERS[theme];
+    return src ? `<img class="hero-poster hero-poster--${theme}" src="${rel(p, src.path)}" width="${src.size.width}" height="${src.size.height}" alt="The ready-made chart: a candlestick chart with its toolbar, range keys and indicators" loading="lazy" decoding="async">` : '';
+  };
+  const heroStage = WIDGET
+    ? `<div class="hero-widget" data-hero-widget data-label="The ready-made chart, live">${poster('dark')}${poster('light')}<div class="hero-mount" data-hero-mount></div><p class="hero-loading js-only" data-hero-loading>Loading the chart</p><noscript><p class="hero-loading">The live chart needs JavaScript. The picture shows what it looks like.</p></noscript></div>
+<div class="hero-bar js-only"><span class="live-state" data-s="off" role="status"><span class="dot" aria-hidden="true"></span><span class="live-word">Loading</span></span><span class="hero-source" data-hero-source>Real market data · Coinbase</span><button class="chip" type="button" data-hero-demo aria-pressed="false"><span class="dot" aria-hidden="true"></span>Use demo data</button><p class="hero-live-note" data-hero-live-note>Prices come straight from the exchange's public feed to your browser, with nothing in between and nothing stored. Indicative, not advice.</p></div>`
+    : `<div class="chart" data-demo="home" data-label="Demo daily candlestick chart"></div>`;
+  const body = `<section class="hero-panel" aria-labelledby="hero-h"><div class="wrap hero hero--product">
 <div class="hero-text">
-<p class="pill"><span class="tile tile--5">${GLYPH.candles}</span>Open source charting, version ${esc(VERSION)}</p>
-<h1 id="hero-h">Financial charts <span class="serif-frame">that stay light.</span></h1>
-<p class="lead">Candlesticks, indicators, ${DRAWINGS ? 'drawing tools, ' : ''}stacked panes and exchange time zones on one canvas. ${coreGzip} KB gzip, no runtime dependencies, and every chart works from the keyboard.</p>
-<div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Get started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'examples.html')}">Browse examples</a></div>
+<div class="hero-title"><p class="pill"><span class="tile tile--5">${GLYPH.candles}</span>Open source charting, version ${esc(VERSION)}</p>
+<h1 id="hero-h">Financial charts <span class="serif-frame">that stay light.</span></h1></div>
+<div class="hero-copy"><p class="lead">A complete chart product in one call, or just the canvas: ${CHART_TYPES.length || SERIES_COUNT} chart types, ${CATALOG.length} indicators, ${DRAWING_TOOLS.length} drawing tools and exchange time zones. ${coreGzip} KB gzip core, no runtime dependencies, and every chart works from the keyboard.</p>
+<div class="actions"><a class="btn btn--primary btn--lg" href="${g('getting-started')}">Get started ${ICON.arrow}</a><a class="btn btn--lg" href="${rel(p, 'examples.html')}">See the gallery</a></div></div>
 </div>
 <div class="hero-visual">
-${win('', `<div class="chart" data-demo="home" data-label="Demo daily candlestick chart with a 20-bar moving average"><noscript><img src="${rel(p, 'assets/img/basic-light.png')}" width="${ogImage.size.width}" height="${ogImage.size.height}" alt="${esc(OG_ALT)}"></noscript></div>
-<div class="demo-bar js-only"><div class="seg" role="group" aria-label="Series type"><button type="button" data-hero-type="candles" aria-pressed="true">Candles</button><button type="button" data-hero-type="bars" aria-pressed="false">Bars</button><button type="button" data-hero-type="line" aria-pressed="false">Line</button><button type="button" data-hero-type="area" aria-pressed="false">Area</button></div><div class="hero-controls" role="group" aria-label="Indicators"><button class="chip" type="button" data-hero-ind="sma" aria-pressed="true"><span class="dot" aria-hidden="true"></span>SMA 20</button><button class="chip" type="button" data-hero-ind="bb" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Bollinger</button><button class="chip" type="button" data-hero-ind="volume" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Volume</button><button class="chip" type="button" data-hero-ind="rsi" aria-pressed="false"><span class="dot" aria-hidden="true"></span>RSI pane</button></div>${LIVE ? `<div class="seg hero-symbols" role="group" aria-label="Pair, in US dollars" data-hero-symbols hidden>${[['BTC-USD', 'BTC'], ['ETH-USD', 'ETH'], ['SOL-USD', 'SOL']].map(([v, l], i) => `<button type="button" data-hero-symbol="${v}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div><div class="hero-live"><span class="live-state" data-s="off" role="status"><span class="dot" aria-hidden="true"></span><span class="live-word">Demo data</span></span><span class="hero-source" data-hero-source>Invented demo data</span><button class="chip" type="button" data-hero-demo aria-pressed="true"><span class="dot" aria-hidden="true"></span>Use demo data</button></div><p class="hero-live-note" data-hero-live-note>Real prices load here from Coinbase's public feed, straight to your browser. Indicative, not advice.</p>` : ''}</div>`, `<span class="js-only"><span class="seg" role="group" aria-label="Theme"><button type="button" data-set-theme="dark" aria-pressed="true">Dark</button><button type="button" data-set-theme="light" aria-pressed="false">Light</button></span></span>`)}
-<div class="hero-chips"><span class="fact-chip fc-1"><span class="k">Size</span><span class="v">${coreGzip} KB gzip</span></span><a class="fact-chip fc-2" href="${rel(p, PERF_PAGE)}"><span class="k">${PERF && PERF.over === 0 ? '120 Hz ready' : 'Series'}</span><span class="v">${PERF && PERF.over === 0 ? `worst p95 ${PERF.worst.toFixed(1)} ms of ${PERF.budget.toFixed(2)}` : `${SERIES_COUNT} types`}</span></a><span class="fact-chip fc-3"><span class="k">Dependencies</span><span class="v">${RUNTIME_DEPS === 0 ? 'None' : RUNTIME_DEPS}</span></span></div>
+<div class="window hero-window" data-stage>${heroStage}</div>
+<p class="hero-hint">This is the real widget, not a picture: pick a symbol, draw, add indicators, change the range. <a href="${g('widget')}">The ready-made chart</a></p>
 </div>
+<ul class="stats" aria-label="Measured facts">${STATS.map(([v, k, href]) => `<li><a class="stat" href="${href}"><span class="v">${esc(String(v))}</span><span class="k">${esc(k)}</span></a></li>`).join('')}</ul>
 </div></section>
 
 <section class="wrap standout" aria-labelledby="standout-h"><h2 id="standout-h" class="eyebrow">What stands out</h2><ul class="standout-list">${STANDOUT.map(([c, icon, text, href]) => `<li><a class="standout-item" href="${href}"><span class="tile tile--${c}">${GLYPH[icon]}</span><span>${text}</span></a></li>`).join('')}</ul></section>
@@ -675,7 +761,7 @@ ${chapter('what', 'What it <span class="serif-frame">is.</span>', '', `<div clas
 <div class="fact-card"><span class="tile tile--4">${GLYPH.code}</span><span><span class="k">Comes as</span><span class="v">Module, React, a tag</span></span></div>
 <div class="fact-card"><span class="tile tile--5">${GLYPH.book}</span><span><span class="k">Licence</span><span class="v">${esc(config.license.name)}</span></span></div>
 </div></div>
-<div class="intro-side"><p>${SERIES_COUNT} series types, ${INDICATOR_NAMES.length} indicators, stacked panes, exchange time zones and a legend that reads the bar under the pointer. It has no runtime dependencies, and the core never fetches data on its own${LIVE ? '; live prices come from an optional entry, only when you call it' : ''}.</p><p>It is written from scratch by ${esc(config.author.name)}. Many names will feel familiar if you know Lightweight Charts, on purpose; the code is its own, and the guide lists where behaviour differs.</p></div></div>
+<div class="intro-side"><p>${CHART_TYPES.length || SERIES_COUNT} chart types, ${CATALOG.length} indicators, ${DRAWING_TOOLS.length} drawing tools, stacked panes, exchange time zones and a legend that reads the bar under the pointer. It has no runtime dependencies, and the core never fetches data on its own${LIVE ? '; live prices come from an optional entry, only when you call it' : ''}.</p><p>It is written from scratch by ${esc(config.author.name)}. Many names will feel familiar if you know Lightweight Charts, on purpose; the code is its own, and the guide lists where behaviour differs.</p></div></div>
 <div class="apart">${apart.map(([c, icon, t, text, href, link], i) => `<div class="apart-item"><span class="tile tile--${c}">${GLYPH[icon]}</span><div><h3 id="apart-${i + 1}">${t}</h3><p>${text} <a href="${href}">${link}</a></p></div></div>`).join('')}</div>`)}
 
 ${chapter('move', 'See it <span class="serif-frame">move.</span>', 'Two things a canvas usually cannot do: read exchange time, and be read aloud.', `<div class="duo">
@@ -691,7 +777,7 @@ ${chapter('panes', 'Indicators and <span class="serif-frame">panes.</span>', `Ov
 <div>${win('Volume overlay and an RSI pane', `<div class="chart h-360" data-demo="panes" data-label="Demo candlestick chart with volume and an RSI pane below"></div><div class="demo-bar js-only"><span class="group-label">Price scale</span>${controlsHtml('scale')}</div>`)}<div class="duo-text"><h3 id="panes-panes">A pane is one argument</h3><p>Pass a pane index to <code>addSeries</code>. Drag the divider, or focus it and press the arrow keys.</p><a href="${g('panes-and-scales')}">Panes and scales</a></div></div>
 </div>`)}
 
-${DRAWINGS ? chapter('drawings', 'Drawing <span class="serif-frame">tools.</span>', `${DRAWING_TOOLS.length} tools in a separate entry of ${sizes.find((r) => /Drawings/.test(r[0]))?.[2] ?? ''} KB gzip, on the chart's own pointer and keyboard hooks. Pick a tool on the rail, or click the chart and press T, then draw.`, `<div class="playground">
+${DRAWINGS ? chapter('drawings', 'Drawing <span class="serif-frame">tools.</span>', `${DRAWING_TOOLS.length} tools in a separate entry of ${sizeOf(sizes, 'drawings')?.gzip ?? ''} KB gzip, on the chart's own pointer and keyboard hooks. Pick a tool on the rail, or click the chart and press T, then draw.`, `<div class="playground">
 ${win('Playground: the real toolbar on a real chart', `<div class="chart h-480" data-demo="draw" data-label="Demo chart with drawing tools: pick a tool on the left rail and draw"></div><div class="demo-bar js-only">${controlsHtml('draw')}</div><pre class="out js-only" data-out tabindex="0" aria-live="polite" aria-label="Exported drawings">Export JSON shows the drawings here, as the text you would save.</pre>`)}
 <div class="playground-side"><div class="duo-text"><h3 id="draw-tools">Every tool</h3><p>${DRAWING_TOOLS.map((t) => esc(t.label)).join(', ')}.</p><h3 id="draw-keys">Keys, with the chart focused</h3><ul class="key-list"><li><kbd>T</kbd> trend, <kbd>H</kbd> horizontal, <kbd>F</kbd> Fibonacci, <kbd>R</kbd> rectangle, <kbd>L</kbd> long, <kbd>N</kbd> note</li><li><kbd>Delete</kbd> removes the selected drawing</li><li><kbd>Esc</kbd> drops the tool or the selection</li><li><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> nudge it (<kbd>Shift</kbd> for 10)</li><li><kbd>Ctrl</kbd> <kbd>Z</kbd> undo, <kbd>Ctrl</kbd> <kbd>Y</kbd> redo</li><li><kbd>Shift</kbd> <kbd>H</kbd> adds a horizontal line</li></ul><a href="${g('drawing-tools')}">Drawing tools guide</a></div></div>
 </div>`) : ''}
@@ -722,6 +808,8 @@ ${LIVE ? chapter('live', 'Live prices in <span class="serif-frame">one tag.</spa
 <p class="live-honest">Prices are indicative and not advice. Using exchange data in a commercial or redistributed product is subject to each exchange's terms, which are yours to check.</p>
 <a href="${g('live-data')}">Live data guide</a></div>
 </div>`) : ''}
+
+${chapter('load', 'You load what <span class="serif-frame">you need.</span>', 'Every part is its own entry. A page that only draws candles never downloads the drawing tools, and the ready-made chart loads its drawing, live and extras code the first time someone asks for it.', sizeTables(sizes, p))}
 
 ${chapter('speed', 'Built for <span class="serif-frame">120 Hz.</span>', PERF ? `A 120 Hz screen gives each frame ${PERF.budget.toFixed(2)} ms. In ${PERF.scenarios} measured gestures, up to ${PERF.panBars} bars, the costliest frame of our code took ${PERF.worst.toFixed(2)} ms at p95, and ${PERF.over === 0 ? 'none' : PERF.over} went over. The meter times this chart on your own device.` : 'A 120 Hz screen gives each frame 8.33 ms. The meter times this chart on your own device while it pans and zooms through 5000 bars.', `<div class="speed">
 ${win('Frame meter, on your device', `<div class="chart h-280" data-demo="meter" data-label="Demo chart of 5000 bars used to time pan and zoom frames on this device"></div><div class="meter js-only" id="meter"><canvas id="meter-canvas" width="600" height="96" aria-hidden="true"></canvas><div class="meter-read" role="status" id="meter-read">The meter runs when the chart is on screen.</div><div class="meter-legend"><span>Each bar is one frame: the time to move the view and paint it.</span><span>The line is the 8.33 ms budget of a 120 Hz frame.</span></div></div>`, `<span class="js-only"><button class="btn btn--sm" type="button" id="meter-run">Run again</button></span>`)}
@@ -768,13 +856,15 @@ copyFileSync(path.join(here, 'assets', 'site.css'), path.join(out, 'assets', 'si
 copyFileSync(path.join(here, 'assets', 'fonts.css'), path.join(out, 'assets', 'fonts.css'));
 cpSync(path.join(here, 'assets', 'fonts'), path.join(out, 'assets', 'fonts'), { recursive: true });
 for (const f of ['chartist-lite.iife.min.js', 'chartist-lite-indicators.iife.min.js', 'chartist-lite.element.iife.min.js', ...(DRAWINGS ? ['chartist-lite-drawings.iife.min.js'] : []),
-  ...(LIVE ? ['chartist-lite-live.iife.min.js', 'chartist-lite.element-live.iife.min.js'] : [])]) {
+  ...(LIVE ? ['chartist-lite-live.iife.min.js', 'chartist-lite.element-live.iife.min.js'] : []),
+  ...(WIDGET ? ['chartist-lite.terminal.iife.min.js', 'chartist-lite-widget.iife.min.js'] : []), ...(EXTRAS ? ['chartist-lite-extras.iife.min.js'] : []), ...(TRANSFORMS ? ['chartist-lite-transforms.iife.min.js'] : [])]) {
   const src = path.join(pkg, 'dist', f);
   if (!existsSync(src)) throw new Error(`dist/${f} is missing: run "npm run build" in the package folder first`);
   copyFileSync(src, path.join(out, 'assets', f));
 }
 copyFileSync(path.join(pkg, config.ogImageSource), path.join(out, ogImage.path));
 copyFileSync(path.join(pkg, 'docs/screenshots/basic-light.png'), path.join(out, 'assets/img/basic-light.png'));
+for (const t of Object.keys(POSTERS)) copyFileSync(POSTERS[t].src, path.join(out, POSTERS[t].path));
 for (const [dest, src] of assets) { mkdirSync(path.dirname(path.join(out, dest)), { recursive: true }); copyFileSync(src, path.join(out, dest)); }
 
 for (const page of pages) {

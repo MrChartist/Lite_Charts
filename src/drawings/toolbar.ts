@@ -108,10 +108,37 @@ export function placeFlyout(button: { left: number; top: number; right: number; 
     if (top + height > chartBox.height - M) top = button.top - 6 - height; // above the button
     if (top < M) top = Math.max(M, chartBox.height - M - height);
   }
+  // A button outside the chart (a rail mounted in the host's own bar): the flyout still opens over the chart.
+  left = Math.min(left, chartBox.width - M - width);
+  top = Math.min(top, chartBox.height - M - height);
   return { left: Math.max(M, left), top: Math.max(M, top), width, height };
 }
 
-export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, position: 'left' | 'top'): DrawingToolsUi {
+/** Where the toolbar goes: inside the chart (default), or a host's own containers (see `DrawingToolsOptions.toolbar`). */
+export interface ToolbarMount {
+  /** The host's element for the rail (its left chrome bar, a bottom sheet); the rail fills it and scrolls inside it. */
+  container?: HTMLElement;
+  /** 'rail' (a column) or 'bar' (a row), for a rail in `container`. */
+  variant?: 'rail' | 'bar';
+  /** The host's element for the style bar of the selected drawing; default: floating over the chart. */
+  styleContainer?: HTMLElement;
+}
+
+/** A shadow host for toolbar parts placed in a host's element (CSSOM styles, page CSS cannot reach them). */
+type El = HTMLElement;
+type Mounted = { host: El; shadow: ShadowRoot | El };
+function mountHost(doc: Document, parent: El, fill: boolean): Mounted {
+  const host = doc.createElement('div');
+  host.setAttribute('data-chartist-drawing-ui', 'mounted');
+  cssReset(host, fill ? { display: 'block', position: 'relative', width: '100%', height: '100%', 'min-width': '0', 'min-height': '0', overflow: 'hidden' } : { display: 'block', position: 'relative' });
+  let shadow: ShadowRoot | HTMLElement = host;
+  try { shadow = host.attachShadow({ mode: 'open' }); } catch { shadow = host; }
+  for (const t of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'dblclick', 'keydown']) host.addEventListener(t, ev => ev.stopPropagation());
+  parent.appendChild(host);
+  return { host, shadow };
+}
+
+export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, position: 'left' | 'top', mount: ToolbarMount = {}): DrawingToolsUi {
   const defs = ctl.tools();
   const byId = new Map(defs.map(t => [t.id, t]));
   const TOOL_GROUPS = groupsFor(defs);
@@ -124,7 +151,8 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
   const ic = (name: string, px?: number): SVGSVGElement => icon(doc, byId.get(name)?.icon ?? UI_ICONS[name] ?? '', px);
   const win = doc.defaultView;
   const coarse = (): boolean => { try { return !!win?.matchMedia?.('(pointer: coarse)').matches; } catch { return false; } };
-  const vertical = position === 'left';
+  const external = !!mount.container;
+  const vertical = external ? mount.variant !== 'bar' : position === 'left';
 
   const host = doc.createElement('div');
   host.setAttribute('data-chartist-drawing-ui', '');
@@ -139,7 +167,9 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
   rail.setAttribute('role', 'toolbar');
   rail.setAttribute('aria-label', 'Drawing tools');
   rail.setAttribute('aria-orientation', vertical ? 'vertical' : 'horizontal');
-  shadow.appendChild(rail);
+  const railMount = mount.container ? mountHost(doc, mount.container, true) : null;
+  const styleMount = mount.styleContainer ? mountHost(doc, mount.styleContainer, false) : null;
+  (railMount ? railMount.shadow : shadow).appendChild(rail);
 
   const buttons: Btn[] = [];
   const seps: HTMLElement[] = [];
@@ -383,7 +413,7 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
   const bar = doc.createElement('div');
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', 'Drawing style');
-  shadow.appendChild(bar);
+  (styleMount ? styleMount.shadow : shadow).appendChild(bar);
   const swatchEls: HTMLButtonElement[] = [];
   for (let i = 0; i < 5; i++) {
     const b = doc.createElement('button');
@@ -482,7 +512,15 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     const p0h = chart.panes()[0]?.getHeight() ?? 0;
     const top = Math.max(INSET, legendBottom() + INSET);
     const maxLen = vertical ? p0h - top - INSET : chart.timeScale().width() - 2 * INSET;
-    cssReset(rail, {
+    if (external) {
+      // In the host's bar: the bar is the surface (no card look); the rail fills it and scrolls inside it.
+      cssReset(rail, {
+        position: 'absolute', left: '0', top: '0', right: '0', bottom: '0', display: 'flex', 'flex-direction': vertical ? 'column' : 'row',
+        'align-items': 'center', 'justify-content': 'flex-start', gap: `${GAP}px`, padding: `${PAD}px`, background: 'transparent', border: '0',
+        'border-radius': '0', 'box-shadow': 'none', [vertical ? 'overflow-y' : 'overflow-x']: 'auto', [vertical ? 'overflow-x' : 'overflow-y']: 'hidden',
+        'scrollbar-width': 'none', 'pointer-events': 'auto', 'box-sizing': 'border-box',
+      });
+    } else cssReset(rail, {
       position: 'absolute', display: 'flex', 'flex-direction': vertical ? 'column' : 'row', 'align-items': 'center', gap: `${GAP}px`,
       padding: `${PAD}px`, background: c.background, border: `1px solid ${c.paneSeparator}`,
       // Concentric with the buttons: the button radius plus the padding.
@@ -539,14 +577,15 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
     const cell = size + 2;
     const fullW = 10 * cell + 8 + 2;
     // Narrow plot: the compact form (colour, more, delete), its options in a panel that wraps inside the chart.
-    arrange(fullW > plotW - 8);
+    arrange(fullW > (styleMount ? (mount.styleContainer as HTMLElement).clientWidth || plotW : plotW - 8));
     const barW = (compact ? 3 * cell : 10 * cell) + 8 + 2;
     const barH = size + 8 + 2;
     const pos = selectionPoint(sel);
     // Inside the plot: never over the price axis; above the drawing, else below its top, always inside the chart box.
     const left = Math.max(plotLeft() + 4, Math.min(plotLeft() + plotW - barW - 4, pos.x - barW / 2));
     const barTop = Math.max(4, Math.min(boxH - barH - 4, pos.y - size - 22));
-    cssReset(bar, {
+    if (styleMount) cssReset(bar, { position: 'static', display: 'flex', 'flex-direction': 'row', 'align-items': 'center', gap: '2px', padding: '0', background: 'transparent', border: '0', 'pointer-events': 'auto' });
+    else cssReset(bar, {
       position: 'absolute', display: 'flex', 'flex-direction': 'row', 'align-items': 'center', gap: '2px', padding: '4px',
       background: c.background, border: `1px solid ${c.paneSeparator}`, 'border-radius': '12px', left: `${left}px`, top: `${barTop}px`,
       'pointer-events': 'auto', 'box-sizing': 'border-box',
@@ -556,7 +595,7 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
       const rows = Math.ceil(9 / Math.max(1, Math.floor((panelW - 10) / cell)));
       const panelH = rows * cell + 8 + 2;
       const pLeft = Math.max(plotLeft() + 4, Math.min(plotLeft() + plotW - panelW - 4, left));
-      let pTop = barTop + barH + 4;
+      let pTop = styleMount ? 4 : barTop + barH + 4;
       if (pTop + panelH > boxH - 4) pTop = Math.max(4, barTop - panelH - 4);
       cssReset(panel, {
         position: 'absolute', display: 'flex', 'flex-wrap': 'wrap', 'align-items': 'center', gap: '2px', padding: '4px', 'box-sizing': 'border-box',
@@ -669,7 +708,7 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
   return {
     sync,
     editText,
-    destroy() { editor?.remove(); doc.removeEventListener('pointerdown', outside, true); host.remove(); },
+    destroy() { editor?.remove(); doc.removeEventListener('pointerdown', outside, true); host.remove(); railMount?.host.remove(); styleMount?.host.remove(); },
   };
 }
 

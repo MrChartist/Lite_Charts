@@ -8,11 +8,12 @@
 // reloaded when the last load is under 10 s old; three rounds in a row that fail permanently (a 4xx, an unknown or
 // malformed symbol, no bars) stop with status 'error' until `retry()`; and no more than 30 starts happen in an hour.
 // Every request times out after 10 s (then the next provider is tried), a socket must open within 10 s, and a stream
-// that goes quiet for max(60 s, 3 intervals capped at 5 min) is reconnected.
+// that goes quiet for max(60 s, 3 intervals capped at 5 min) is reconnected. A generous bad-print guard (`guard`, see
+// `plausibleTick` in bars.ts) drops only what cannot be a real print.
 
 import type { AnySeriesDefinition, ChartApi, SeriesApi } from '../api';
 import type { LogicalRange } from '../scales/time-scale';
-import { BarBuilder, backoffMs, plausibleBar, plausibleTick } from './bars';
+import { BarBuilder, backoffMs, DEFAULT_GUARD, plausibleBar, plausibleTick, recentRange, type TickGuard } from './bars';
 import { dedupe, INTERVAL_SECONDS, LiveError, PROVIDERS, type LiveBar, type LiveInterval, type LiveProvider, type LiveTick } from './providers';
 
 type AnySeries = SeriesApi<AnySeriesDefinition>;
@@ -36,6 +37,11 @@ export interface LiveOptions {
   onError?: (error: Error) => void;
   /** After history is loaded ('history') and after each frame's updates ('update'), with the bars that changed. */
   onBars?: (kind: 'history' | 'update', bars: readonly LiveBar[]) => void;
+  /**
+   * The bad-print guard (see `plausibleTick`): `{ maxJump, futureSeconds }` to tune it, `false` to keep only the rules
+   * that cannot drop a real print (finite, positive prices; no far-future time). Default `{ maxJump: 20, futureSeconds: 900 }`.
+   */
+  guard?: Partial<TickGuard> | false;
   /** Injection points (tests, other environments). Default: the browser's. */
   fetch?: typeof fetch;
   WebSocket?: typeof WebSocket;
@@ -170,6 +176,9 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
   let noOlder = false;
   let loadingOlder = false;
 
+  const guard: TickGuard | null = options.guard === false ? null : { ...DEFAULT_GUARD, ...(options.guard ?? {}) };
+  const futureSlack = (): number => Math.max(guard?.futureSeconds ?? DEFAULT_GUARD.futureSeconds, 2 * seconds());
+  let range = 0;
   const seconds = (): number => INTERVAL_SECONDS[interval];
   const nowSec = (): number => env.now() / 1000;
   const ohlc = (): boolean => { try { const t = series.seriesType(); return t === 'candlestick' || t === 'bar'; } catch { return true; } };
@@ -242,12 +251,13 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
 
   /** History bars that pass the plausibility guard (a bar in the future or with a non-positive price is dropped). */
   function clean(list: LiveBar[]): LiveBar[] {
-    const now = nowSec();
-    return list.filter(b => plausibleBar(b, now, seconds()));
+    const limit = nowSec() + futureSlack();
+    return list.filter(b => plausibleBar(b, limit));
   }
 
   function setAll(list: LiveBar[]): void {
     bars = list;
+    range = recentRange(bars);
     try {
       series.setData(list.map(row) as never);
       options.volumeSeries?.setData(list.map(volRow) as never);
@@ -270,6 +280,7 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
         } catch (e) { report(e); }
       }
       bars = dedupe(bars.concat(fresh));
+      range = recentRange(bars);
     } else if (reload && bars.length && last > newest) {
       setAll(dedupe(bars.filter(b => b.time < list[0].time).concat(list)));
     } else setAll(list);
@@ -400,8 +411,8 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
 
   function onTick(t: LiveTick): void {
     if (!builder) return;
-    const ref = builder.last ? builder.last.close : null;
-    if (!plausibleTick(t, nowSec(), seconds(), ref)) return;
+    const last = builder.last;
+    if (!plausibleTick(t, nowSec(), seconds(), last ? last.close : null, range, guard, last ? last.time : -Infinity)) return;
     const b = builder.apply(t);
     if (!b) return;
     pending.set(b.time, b);
@@ -421,7 +432,7 @@ export function connectLive(series: AnySeries, options: LiveOptions = {}): LiveH
         series.update(row(b) as never);
         options.volumeSeries?.update(volRow(b) as never);
       } catch (e) { report(e); continue; }
-      if (b.time === last) bars[bars.length - 1] = b; else bars.push(b);
+      if (b.time === last) bars[bars.length - 1] = b; else { bars.push(b); range = recentRange(bars); }
     }
     try { options.onBars?.('update', changed); } catch { /* ignore */ }
   }

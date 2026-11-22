@@ -451,7 +451,7 @@ describe('connectLive: review of 2026-11-22', () => {
     ws.msg({ type: 'match', trade_id: 2, price: '9999', size: '1', time: t(86400 * 365) }); // a year ahead
     ws.msg({ type: 'match', trade_id: 3, price: '-5', size: '1', time: t(1) });
     ws.msg({ type: 'match', trade_id: 4, price: '0', size: '1', time: t(1) });
-    ws.msg({ type: 'match', trade_id: 5, price: '100000', size: '1', time: t(1) }); // 1000 times the last close
+    ws.msg({ type: 'match', trade_id: 5, price: '100000', size: '1', time: t(1) }); // 1000 times the last close (a unit mistake)
     expect(w.frames.length).toBe(0);
     ws.msg({ type: 'match', trade_id: 6, price: '101', size: '1', time: t(2) });
     w.frame();
@@ -550,13 +550,24 @@ describe('connectLive: review of 2026-11-22', () => {
     live.disconnect();
   });
 
-  it('plausibility rules', () => {
-    expect(plausibleTick({ kind: 'trade', time: 1000, price: 5, size: 1 }, 1000, 60, null)).toBe(true);
-    expect(plausibleTick({ kind: 'trade', time: 1061, price: 5, size: 1 }, 1000, 60, null)).toBe(false);
-    expect(plausibleTick({ kind: 'trade', time: 1000, price: 51, size: 1 }, 1000, 60, 5)).toBe(false);
-    expect(plausibleTick({ kind: 'trade', time: 1000, price: 49, size: 1 }, 1000, 60, 5)).toBe(true);
-    expect(plausibleTick({ kind: 'trade', time: 1000, price: 0.4, size: 1 }, 1000, 60, 5)).toBe(false);
-    expect(plausibleBar({ time: 900, open: 1, high: 0.5, low: 1, close: 1, volume: 0 }, 1000, 60)).toBe(false);
-    expect(plausibleBar({ time: 900, open: 1, high: 2, low: 1, close: Number.NaN, volume: 0 }, 1000, 60)).toBe(false);
+  it('plausibility rules: generous, configurable, never dropping a real fast-market move', () => {
+    const tr = (time: number, price: number) => ({ kind: 'trade' as const, time, price, size: 1 });
+    // Time: up to max(15 min, two intervals) past the later of the clock and the newest bar plus one interval.
+    expect(plausibleTick(tr(1000 + 900, 5), 1000, 60, null)).toBe(true);
+    expect(plausibleTick(tr(1000 + 901, 5), 1000, 60, null)).toBe(false);
+    expect(plausibleTick(tr(1000 + 86400 * 365, 5), 1000, 60, null)).toBe(false);
+    // A visitor clock 10 minutes slow does not drop real ticks: the newest bar moves the reference.
+    expect(plausibleTick(tr(1000 + 1500, 5), 1000, 60, null, 0, undefined, 1000 + 600)).toBe(true);
+    // Prices: positive and finite always; jumps beyond 20 x max(range, 5% of the last close) only.
+    expect(plausibleTick(tr(1000, 0), 1000, 60, null)).toBe(false);
+    expect(plausibleTick(tr(1000, -1), 1000, 60, null)).toBe(false);
+    expect(plausibleTick(tr(1000, 50), 1000, 60, 100, 1)).toBe(true); // a 50% crash in one tick still shows
+    expect(plausibleTick(tr(1000, 190), 1000, 60, 100, 1)).toBe(true); // +90% in one tick still shows
+    expect(plausibleTick(tr(1000, 10000), 1000, 60, 100, 1)).toBe(false); // a x100 unit mistake does not
+    expect(plausibleTick(tr(1000, 10000), 1000, 60, 100, 1, null)).toBe(true); // guard off: only the safe rules
+    expect(plausibleTick(tr(1000, 120), 1000, 60, 100, 1, { maxJump: 5, futureSeconds: 900 })).toBe(true);
+    expect(plausibleTick(tr(1000, 130), 1000, 60, 100, 0, { maxJump: 5, futureSeconds: 900 })).toBe(false);
+    expect(plausibleBar({ time: 900, open: 1, high: 0.5, low: 1, close: 1, volume: 0 }, 1000)).toBe(false);
+    expect(plausibleBar({ time: 900, open: 1, high: 2, low: 1, close: Number.NaN, volume: 0 }, 1000)).toBe(false);
   });
 });
