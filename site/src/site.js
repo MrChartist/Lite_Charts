@@ -39,6 +39,8 @@ function chartLibs() {
   const list = [`${ASSETS}chartist-lite.iife.min.js`, `${ASSETS}chartist-lite-indicators.iife.min.js`];
   if (root.hasAttribute('data-drawings')) list.push(`${ASSETS}chartist-lite-drawings.iife.min.js`);
   if (root.hasAttribute('data-live-lib')) list.push(`${ASSETS}chartist-lite-live.iife.min.js`);
+  const LIB_FILES = { extras: 'chartist-lite-extras.iife.min.js', transforms: 'chartist-lite-transforms.iife.min.js', widget: 'chartist-lite-widget.iife.min.js' };
+  for (const l of (root.dataset.libs || '').split(' ').filter(Boolean)) if (LIB_FILES[l]) list.push(`${ASSETS}${LIB_FILES[l]}`);
   if (root.hasAttribute('data-demos')) list.push(`${ASSETS}demos.js`);
   if (root.dataset.live) list.push(`${ASSETS}${root.dataset.live}`);
   return Promise.all(list.map(loadScript));
@@ -51,16 +53,29 @@ window.__CL_LIVE_LIB = liveLib;
 const elementScript = () => `${ASSETS}${root.hasAttribute('data-element-live') ? 'chartist-lite.element-live.iife.min.js' : 'chartist-lite.element.iife.min.js'}`;
 
 // ---------- live charts ----------
-function liveApi(el, charts, tools) {
+function liveApi(el, charts, tools, timers = [], widgets = []) {
   const L = window.ChartistLite;
   const I = window.ChartistLiteIndicators || {};
   const D = window.ChartistLiteDrawings || {};
+  const W = window.ChartistLiteWidget || {};
   const bars = makeBars(220, 7);
+  const longBars = makeBars(900, 23);
   const out = el.closest('[data-stage]') && el.closest('[data-stage]').querySelector('[data-out]');
   return {
     ...L, ...I, bars, intradayBars: makeIntraday(5, 37), benchmark: makeBenchmark(bars),
-    ...(window.ChartistLiteLive || {}),
-    TOOLS: D.TOOLS, drawingsToJSON: D.drawingsToJSON,
+    ...(window.ChartistLiteTransforms || {}), ...(window.ChartistLiteExtras || {}), ...(window.ChartistLiteLive || {}),
+    heikinAshi: I.heikinAshi,
+    TOOLS: D.TOOLS, ALL_TOOLS: D.ALL_TOOLS, BASIC_TOOLS: D.BASIC_TOOLS, drawingsToJSON: D.drawingsToJSON,
+    longBars, compareRows: [31, 47, 59, 71].map((seed, k) => makeBars(220, seed, [60, 240, 140, 30][k]).map((b) => ({ time: b.time, value: b.close }))),
+    demoBars: W.demoBars, CRYPTO_SYMBOLS: W.CRYPTO_SYMBOLS,
+    // A helper of this site: a repeating timer that stops when the example is removed.
+    every(ms, fn) { const id = setInterval(() => { try { fn(); } catch (e) { clearInterval(id); } }, ms); timers.push(id); return id; },
+    // The widget, in the example's own container and the site theme.
+    createWidget(_container, options = {}) {
+      const w = W.createWidget(el, { theme: currentTheme(), ...options });
+      widgets.push(w); charts.push(w.chart);
+      return w;
+    },
     createDrawingTools(...args) { const t = D.createDrawingTools(...args); tools.push(t); return t; },
     // A helper of this site: write a line to the example's output panel.
     output(text) { if (!out) return; if (!out.dataset.used) { out.textContent = ''; out.dataset.used = '1'; } out.textContent = `${String(text)}\n${out.textContent}`.slice(0, 4000); },

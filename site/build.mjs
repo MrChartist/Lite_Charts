@@ -265,11 +265,21 @@ function renderOptions(page, srcFile, extra = {}) {
 }
 
 // ---------- live examples ----------
+// Names a live example may use, by the script that brings them; a page loads that script when its examples use one.
+const EXTRA_NAMES = ['createTooltip', 'createWatermark', 'createImageWatermark', 'createGoToRealtimeButton', 'createRangeSwitcher', 'RANGE_KEYS', 'createPriceAlerts',
+  'createCompare', 'createReplay', 'createBands', 'createPartialPriceLine', 'createSessionBreaks', 'createVerticalLine', 'StackedAreaSeries', 'HeatmapSeries',
+  'RoundedCandlesSeries', 'WhiskerBoxSeries'];
+const TRANSFORM_NAMES = ['CHART_TYPES', 'applyChartType', 'renko', 'lineBreak', 'kagi', 'pointFigure', 'rangeBars', 'HollowCandlestickSeries', 'StepLineSeries',
+  'HlcAreaSeries', 'ColumnSeries', 'HighLowSeries', 'KagiSeries', 'PointFigureSeries'];
+const WIDGET_NAMES = ['createWidget', 'demoBars', 'CRYPTO_SYMBOLS'];
+const usesAny = (fns, names) => fns.some((f) => names.some((n) => new RegExp(`\\b${n}\\b`).test(f.replace(/^[^{]*\{[^}]*\}\s*=\s*api;/, ''))));
 const LIVE_NAMES = ['createChart', 'CandlestickSeries', 'BarSeries', 'LineSeries', 'AreaSeries', 'HistogramSeries', 'BaselineSeries',
   'createPriceLine', 'createSeriesMarkers', 'lightTheme', 'darkTheme', 'formatPrice', 'formatPercent', 'MINUS_SIGN',
   'sma', 'ema', 'wma', 'rsi', 'atr', 'obv', 'vwap', 'bollinger', 'donchian', 'macd', 'stochastic', 'supertrend', 'heikinAshi',
   'aggregate', 'createIndicator', 'bars', 'intradayBars', 'benchmark', 'createDrawingTools', 'TOOLS', 'drawingsToJSON', 'output',
-  'connectLive', 'coinbase', 'binance', 'kraken', 'PROVIDERS', 'INTERVAL_SECONDS'];
+  'connectLive', 'coinbase', 'binance', 'kraken', 'PROVIDERS', 'INTERVAL_SECONDS',
+  // the extras, the transforms, the widget and the catalogue
+  ...EXTRA_NAMES, ...TRANSFORM_NAMES, ...WIDGET_NAMES, 'INDICATORS', 'getIndicator', 'legendLabel', 'longBars', 'compareRows', 'every', 'ALL_TOOLS', 'BASIC_TOOLS'];
 const HEIGHTS = new Set(['220', '260', '280', '320', '360', '420', '480', '560']);
 const ZONES = [['Asia/Kolkata', 'Kolkata'], ['America/New_York', 'New York'], ['UTC', 'UTC']];
 
@@ -409,7 +419,7 @@ function layout(page) {
   const img = baseUrl + ogImage.path;
   const root = rootOf(p);
   const g = (s) => rel(p, guideBySlug(s).out);
-  const dataAttrs = [`data-assets="${root}assets/"`, `data-root="${root}"`, page.live ? `data-live="${page.live}"` : '', page.demos ? 'data-demos' : '', page.drawings ? 'data-drawings' : '', page.liveLib ? 'data-live-lib' : '', page.liveElement ? 'data-element-live' : ''].filter(Boolean).join(' ');
+  const dataAttrs = [`data-assets="${root}assets/"`, `data-root="${root}"`, page.live ? `data-live="${page.live}"` : '', page.demos ? 'data-demos' : '', page.drawings ? 'data-drawings' : '', page.liveLib ? 'data-live-lib' : '', page.liveElement ? 'data-element-live' : '', page.libs && page.libs.length ? `data-libs="${page.libs.join(' ')}"` : ''].filter(Boolean).join(' ');
   return `<!doctype html>
 <html lang="${config.locale}" ${dataAttrs}>
 <head>
@@ -520,6 +530,7 @@ function docPage({ path: p, src, title, description, body, group, prevNext, rela
   if (fns.length) liveBundles.set(p, fns);
   const usesDrawings = fns.some((f) => f.includes('createDrawingTools'));
   const usesLive = LIVE && fns.some((f) => f.includes('connectLive'));
+  const libs = [usesAny(fns, EXTRA_NAMES) && EXTRAS ? 'extras' : '', usesAny(fns, TRANSFORM_NAMES) && TRANSFORMS ? 'transforms' : '', usesAny(fns, WIDGET_NAMES) && WIDGET ? 'widget' : ''].filter(Boolean);
   const usesLiveElement = LIVE && md.html.includes('data-connect="element"');
   const h1Match = /<h1 id="[^"]*">([\s\S]*?)<\/h1>/.exec(md.html);
   let html = md.html.replace(/<h1 id="[^"]*">[\s\S]*?<\/h1>\n?/, '');
@@ -546,7 +557,7 @@ ${pager}
 ${onward}
 </article>`;
   pages.push({
-    path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', drawings: usesDrawings, liveLib: usesLive, liveElement: usesLiveElement, live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
+    path: p, title: `${title} | ${NAME}`, description, crumbs, ogType: 'article', drawings: usesDrawings, liveLib: usesLive, liveElement: usesLiveElement, libs, live: fns.length ? `live/${p.replace(/\.html$/, '').replace(/\//g, '-')}.js` : null,
     bodyClass: 'docs-page', ld: ldExtra,
     body: `<div class="docs"><nav class="docs-nav" aria-label="Guide">${guideGroupsHtml(p)}</nav>${article}${h2s.length >= 2 ? `<aside class="docs-toc"><nav class="page-toc" aria-label="On this page"><p class="toc-title">On this page</p><ul>${h2s.map((h, i) => `<li><a href="#${h.id}"${i === 0 ? ' aria-current="true"' : ''}>${esc(h.text)}</a></li>`).join('')}</ul></nav></aside>` : ''}</div>`,
   });
