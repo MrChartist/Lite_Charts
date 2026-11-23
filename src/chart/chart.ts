@@ -436,9 +436,9 @@ export class Chart implements ChartApi, InputTarget {
     d.setAttribute('role', 'separator');
     d.setAttribute('aria-orientation', 'horizontal');
     d.setAttribute('aria-label', 'Resize panes');
-    d.setAttribute('aria-valuemin', '0');
-    d.setAttribute('aria-valuemax', '100');
-    cssReset(d, { position: 'absolute', left: '0', height: '11px', cursor: 'row-resize', 'z-index': '2', 'touch-action': 'none', 'border-radius': '4px', display: 'block' });
+    // aria-valuemin / aria-valuemax: a separator's defaults are 0 and 100, the range used here.
+    // A finger gets a 44 px band (pointer: coarse), a mouse 11 px; centred on the line either way.
+    cssReset(d, { position: 'absolute', left: '0', height: this.win.matchMedia?.('(pointer:coarse)').matches ? '44px' : '11px', cursor: 'row-resize', 'z-index': '2', 'touch-action': 'none', 'border-radius': '4px', display: 'block' });
     const indexOf = (): number => this.paneList.findIndex(p => p.divider === d);
     let start: { y: number; heights: number[] } | null = null;
     const stop = (e: Event): void => e.stopPropagation();
@@ -840,7 +840,7 @@ export class Chart implements ChartApi, InputTarget {
       if (!p.divider) return;
       const above = this.paneList[i - 1];
       const st = p.divider.style;
-      st.top = `${p.top - SEPARATOR / 2 - 5.5}px`;
+      st.top = `${p.top - SEPARATOR / 2 - parseFloat(st.height) / 2}px`;
       st.width = `${this.cssW}px`;
       const pct = Math.round((above.height / Math.max(1, above.height + p.height)) * 100);
       p.divider.setAttribute('aria-valuenow', String(pct));

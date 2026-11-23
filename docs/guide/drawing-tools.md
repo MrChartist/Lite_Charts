@@ -186,7 +186,7 @@ chart.addPointerHandler({
 The frame benchmark includes a drawings chart (candles with 20 drawings of every tool) and a gesture that drags a selected horizontal line; see [Performance](../PERFORMANCE.md).
 
 > [!VERIFY]
-> Drawing with touch on real phones and tablets, and in browsers other than Chromium, has not been verified.
+> Drawing with touch is checked in Chromium with phone profiles (`npm run audit:phone`); on real phones and tablets, and in browsers other than Chromium, it has not been verified.
 
 ---
 

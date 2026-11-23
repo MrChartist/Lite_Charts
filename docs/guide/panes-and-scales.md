@@ -47,7 +47,7 @@ lower.getSeries();                  // the series handles in that pane
 
 `setHeight` has no effect while there is only one pane.
 
-Between two panes sits a divider. Drag it with the mouse or a finger, or focus it and press Up or Down to move it by 8 CSS px (40 with Shift). The divider is a focusable element with `role="separator"` and the label "Resize panes". The heights you set by dragging become the stretch factors, so the proportions survive a window resize.
+Between two panes sits a divider. Drag it with the mouse or a finger (its hit band is 11 px tall for a mouse, 44 px on a touch screen, where a vertical swipe that starts on it moves the divider rather than the page), or focus it and press Up or Down to move it by 8 CSS px (40 with Shift). The divider is a focusable element with `role="separator"` and the label "Resize panes". The heights you set by dragging become the stretch factors, so the proportions survive a window resize.
 
 ### Primitives on a pane
 

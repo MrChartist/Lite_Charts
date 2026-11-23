@@ -59,7 +59,10 @@ export class Layers {
     let scrim: HTMLElement | null = null;
     if (opts.scrim || opts.sheet) {
       scrim = h(doc, 'div', `scrim${opts.scrim || opts.sheet ? '' : ' clear'}`);
-      scrim.addEventListener('pointerdown', ev => { ev.preventDefault(); close(true); });
+      // Closed on the click, not the press: a finger's click would otherwise land on the control under the scrim
+      // once it is gone (a tap that closes a sheet must not also open the interval menu under it).
+      scrim.addEventListener('pointerdown', ev => ev.preventDefault());
+      scrim.addEventListener('click', () => close(true));
       this.host.appendChild(scrim);
     }
     if (opts.sheet) { el.classList.add('sheet'); el.prepend(h(doc, 'div', 'grip', { 'aria-hidden': 'true' })); }
@@ -73,9 +76,27 @@ export class Layers {
       if (i >= 0) { for (const l of this.stack.slice(i + 1).reverse()) l.close(false); this.stack.splice(i, 1); }
       el.remove();
       scrim?.remove();
+      if (fit && vv) { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); }
       try { opts.onClose?.(); } catch { /* the caller's hook must not keep a layer open */ }
       if (returnFocus && opts.opener && opts.opener.isConnected) opts.opener.focus();
     };
+    // A sheet stays above the on-screen keyboard: when the visual viewport ends above the widget's bottom edge, the
+    // sheet is lifted by the difference and its height capped to what is still visible.
+    const vv = doc.defaultView?.visualViewport;
+    let fit: (() => void) | null = null;
+    if (opts.sheet && vv) {
+      fit = (): void => {
+        const r = this.host.getBoundingClientRect();
+        const bottom = vv.offsetTop + vv.height;
+        const lift = Math.round(r.bottom - bottom);
+        if (lift > 0) {
+          el.style.setProperty('bottom', `${lift}px`, 'important');
+          el.style.setProperty('max-height', `${Math.max(120, Math.round(bottom - Math.max(r.top, vv.offsetTop) - 8))}px`);
+        } else { el.style.removeProperty('bottom'); el.style.removeProperty('max-height'); }
+      };
+      vv.addEventListener('resize', fit);
+      vv.addEventListener('scroll', fit);
+    }
     const layer: Layer = { el, scrim, opts, close };
     this.stack.push(layer);
     el.addEventListener('keydown', ev => this.key(ev, layer));

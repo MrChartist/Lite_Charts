@@ -26,6 +26,9 @@
   .status[data-s="error"] .dot { background: var(--err); }
   #chart { height: 620px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--card); }
   p.note { color: var(--muted); margin: 10px 2px 0; font-size: 12px; }
+  /* Touch: 44 px targets, 16 px fields (iOS Safari zooms the page on focus below that), a gutter clear of the notch. */
+  body { padding: 16px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  @media (pointer: coarse) { .seg button, select, .btn, .status { height: 44px; min-width: 44px; } select { font-size: 16px; } }
 </style>
 </head>
 <body>

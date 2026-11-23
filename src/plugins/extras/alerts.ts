@@ -316,6 +316,9 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
   const plusHit = (e: ChartPointerEvent): boolean => opts.addButton && plotW > 0 && Math.hypot(e.point.x - (plotW - PLUS_X), 0) <= PLUS_R + 2 && Math.abs(e.point.y - (hover ? hover.y : e.point.y)) <= PLUS_R + 2;
 
   const setCursor = (c: string | null): void => { if (c !== cursor) { cursor = c; chart.setCursor(c); } };
+  /** The chart reads `blocksTouch()` when a cursor is set: re-set ours when the selection changes. */
+  let touchBlocked = false;
+  const syncTouch = (): void => { if (destroyed || touchBlocked === (selected !== null)) return; touchBlocked = selected !== null; try { chart.setCursor(cursor); } catch { /* removed chart */ } };
   const mine = (e: ChartPointerEvent): boolean => e.paneIndex === series.paneIndex() && series.options().visible;
 
   const removeAlert = (id: string): boolean => {
@@ -323,7 +326,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
     if (i < 0) return false;
     list.splice(i, 1);
     chips.delete(id);
-    if (selected === id) selected = null;
+    if (selected === id) { selected = null; syncTouch(); }
     changed();
     return true;
   };
@@ -352,16 +355,20 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
       if (chip?.close) { removeAlert(chip.id); return true; }
       if (!chip && plusHit(e)) {
         const p = full() ? null : priceAt(hover ? hover.y : e.point.y);
-        if (p !== null) { const a = addAlert(p); selected = a.id; host?.requestUpdate(); }
+        if (p !== null) { const a = addAlert(p); selected = a.id; host?.requestUpdate(); syncTouch(); }
         return true;
       }
       const id = chip ? chip.id : lineAt(e);
-      if (!id) { if (selected) { selected = null; host?.requestUpdate(); } return false; }
+      if (!id) { if (selected) { selected = null; host?.requestUpdate(); syncTouch(); } return false; }
       selected = id;
       drag = { id, moved: false };
       host?.requestUpdate();
+      syncTouch();
       return true;
     },
+    // A finger drags a selected alert in any direction: while one is selected the chart's native touch gestures are
+    // off (a tap on the chip selects it; a tap on empty space deselects it and gives the page its scroll back).
+    blocksTouch: () => selected !== null,
     pointerMove(e) {
       if (!drag) return;
       const p = priceAt(e.point.y);
@@ -388,7 +395,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
     keyDown(e) {
       if (!selected || e.altKey || e.ctrlKey || e.metaKey) return false;
       if (e.key === 'Delete' || e.key === 'Backspace') { removeAlert(selected); return true; }
-      if (e.key === 'Escape') { selected = null; host?.requestUpdate(); return true; }
+      if (e.key === 'Escape') { selected = null; host?.requestUpdate(); syncTouch(); return true; }
       return false;
     },
   };
@@ -427,7 +434,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
     if (key === groupKey) return;
     groupKey = key;
     if (!groups.length) { openGroup = null; if (ui) { ui.destroy(); ui = null; } return; }
-    if (!ui) ui = createHost(chart, 'alert-groups', true, 4);
+    if (!ui) ui = createHost(chart, 'alert-groups', true, 5); // above the tooltip (4): an open list is what the finger is on
     const root = ui.root;
     const active = (root as { activeElement?: Element | null }).activeElement ?? null;
     const focusedGroup = active?.getAttribute?.('data-group') ?? null;
@@ -478,7 +485,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
           position: 'relative', 'pointer-events': 'auto', 'min-width': '180px', padding: '4px', 'border-radius': '10px', 'box-sizing': 'border-box',
           background: colors.background, border: `1px solid ${colors.paneSeparator}`, 'box-shadow': '0 4px 16px rgba(0,0,0,0.18)',
           font: `500 ${size}px ${family}`, color: colors.text, 'flex-shrink': '0',
-          display: 'flex', 'flex-direction': 'column', gap: '2px', 'max-height': `${Math.max(80, pane.height - 8)}px`, 'overflow-y': 'auto',
+          display: 'flex', 'flex-direction': 'column', gap: '2px', 'max-height': `${Math.max(80, pane.height - 8)}px`, 'overflow-y': 'auto', 'overscroll-behavior': 'contain',
         });
         wrap.appendChild(panel); // after the chip in the tab order, drawn to its left (row-reverse)
         panel.setAttribute('role', 'group');
@@ -681,7 +688,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
     alerts: () => list.map(cleanAlert),
     add: addAlert,
     remove: removeAlert,
-    clear() { if (list.length) { list = []; chips.clear(); selected = null; changed(); } },
+    clear() { if (list.length) { list = []; chips.clear(); selected = null; syncTouch(); changed(); } },
     check: (value: number, time?: Time) => fire(value, time),
     rebase() { prev = lastValue(); },
     placements: () => lastPlaced.map(p => ({ ids: p.ids.slice(), y: p.y, line: p.line })),
@@ -691,6 +698,7 @@ export function createPriceAlerts(chart: ChartApi, series: AnySeries, options: P
       list = next;
       for (const a of next) { const m = /^a(\d+)$/.exec(a.id); if (m) counter = Math.max(counter, Number(m[1])); }
       selected = null;
+      syncTouch();
       prev = lastValue();
       changed();
     },

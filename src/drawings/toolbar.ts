@@ -368,7 +368,7 @@ export function createToolbar(chart: ChartApi, ctl: DrawingToolsController, posi
       row.addEventListener('blur', () => focusRing(row));
       const checked = ctl.tool() === t;
       cssReset(row, {
-        display: 'flex', 'align-items': 'center', gap: '10px', height: `${coarse() ? 44 : 32}px`, padding: '0 10px', 'border-radius': '8px',
+        display: 'flex', 'align-items': 'center', gap: '10px', height: `${coarse() ? 44 : 32}px`, 'flex-shrink': '0', padding: '0 10px', 'border-radius': '8px',
         background: checked ? c.text : 'transparent', color: checked ? c.background : c.text, cursor: 'pointer', outline: 'none',
       });
       items.push(row);

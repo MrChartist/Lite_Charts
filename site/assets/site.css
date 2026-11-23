@@ -1013,3 +1013,11 @@ table.sizes td:nth-child(2) { color: var(--body); }
 .window-dots { display: none; }
 .hero-quick { margin-top: 24px; }
 .demo-bar .keys { display: inline-flex; gap: 4px; }
+
+/* Touch, after the quieter sidebar rules above (which would otherwise win): list links reach 44 px, form fields set
+   16 px so iOS Safari does not zoom the page when one takes focus, and the drawer's list keeps its scroll to itself. */
+@media (pointer: coarse) {
+  .nav-list a { min-height: 44px; }
+  input, select, textarea, .cat-filter input { font-size: 16px; }
+}
+.drawer-body { overscroll-behavior: contain; }

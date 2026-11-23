@@ -31,8 +31,9 @@ export interface RangeSwitcherHandle extends Removable {
   applyOptions(options: Partial<RangeSwitcherOptions>): void;
 }
 
-const ITEM_W = 38;
-const ITEM_H = 28;
+// Keys of 38 x 28 px for a mouse, 44 x 44 on a touch screen (pointer: coarse, read when the switcher is made).
+const KEY_W = 38;
+const KEY_H = 28;
 const PAD = 2;
 
 function checkRanges(r: readonly string[]): void {
@@ -67,6 +68,10 @@ export function createRangeSwitcher(chart: ChartApi, options: Partial<RangeSwitc
   const inline = !!opts.container;
   const dom = createHost(chart, 'range-switcher', true, 3, { parent: opts.container, inline });
   const doc = dom.doc;
+  let big = false;
+  try { big = !!doc.defaultView?.matchMedia?.('(pointer: coarse)').matches; } catch { /* no media queries */ }
+  const ITEM_W = big ? 44 : KEY_W;
+  const ITEM_H = big ? 44 : KEY_H;
   const group = make(doc, 'div', {
     position: inline ? 'relative' : 'absolute', left: '0', top: '0', display: 'flex', padding: `${PAD}px`, 'border-radius': '999px', 'pointer-events': 'auto',
     'flex-wrap': 'nowrap', 'overflow-x': 'auto', 'overflow-y': 'hidden', 'scrollbar-width': 'none', 'max-width': '100%',

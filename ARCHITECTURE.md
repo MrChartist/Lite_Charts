@@ -15,6 +15,7 @@ For contributors and stage-2 workers. Public README, licence and contributing gu
 | Rename the npm package | `node scripts/rename-package.mjs <name> [--only package,src,examples,notes,readme,docs,site] [--dry]` (safe to run twice; the name is `lite-charts`; product name and `ChartistLite*` globals stay) |
 | All of the above | `npm run check` |
 | Browser smoke + screenshots | `npm run screenshots` (builds, then runs every `scripts/screenshots*.cjs`; needs Playwright importable on the machine; not a dev dependency, not in CI) |
+| Phone audit | `npm run audit:phone` (builds, then `scripts/phone-audit.cjs`: Playwright device profiles in Chromium with CDP touch, every reachable state checked for 44 px targets, 12 px text, 16 px fields, contrast, clipping, page scroll through the chart, sheets, keyboard, safe areas, rotation, 4x / 6x throttled frame cost; writes `audit-output/phone/report.md`, exit 1 on a high or medium finding) |
 
 ## Modules
 
@@ -247,7 +248,7 @@ Restrained, after iOS / macOS Stocks: calm ink, colour only where it carries dir
   else each series' last bar. Written only when its text changes (`syncLegends`, after each frame). `legend: false` hides it;
   a press on it selects text instead of panning (`isLink`).
 - **Empty chart**: `localization.noDataText` (default 'No data') centred in the top pane.
-- **Pane separator**: a 1 px hairline on the canvas, an 11 px invisible DOM hit area.
+- **Pane separator**: a 1 px hairline on the canvas, an 11 px invisible DOM hit area (44 px under `pointer: coarse`, read when the pane is made).
 
 ## Frame budget (120 Hz / 144 Hz, 2026-11-21)
 
@@ -444,11 +445,20 @@ routed http origin; module script; renamed file; failure and retry; `data-extras
 
 **Chrome.** All DOM in one open shadow root on a host div; `:host { all: initial }`; one tone of flat bars (top bar,
 bottom bar) around the plot, a rounded card inset 6 px. Controls 28 px
-(44 px on a coarse pointer), capsules, inverted ink for the selected state, plain-text interval / range / scale keys
+(44 px on a coarse pointer, where fields are 16 px, switches, swatches and legend-row actions get a 44 px hit area and
+legend rows stand 44 px apart; checked by `scripts/phone-audit.cjs`), capsules, inverted ink for the selected state, plain-text interval / range / scale keys
 (selected in full ink at 600). Responsive: each bar measures its items on a resize (never per frame) and `collapseBar`
 moves the lowest priority into More (top: compare 20, redo 29, undo 30, alert 32, theme 35, screenshot 40, full screen
 42, draw 60 (89 while drawing), settings 70, chart type 85, indicators 88, interval keys 90; with the keys hidden the
-menu button names the interval); under 560 px (or a narrow coarse pointer) menus and dialogs are bottom sheets.
+menu button names the interval); under 560 px (or a narrow coarse pointer) menus and dialogs are bottom sheets
+(`Layers`: closed on the scrim's click, not its press, so a finger's click never lands on the control under it; lifted
+above the visual viewport's bottom, the on-screen keyboard; scrim and sheet chrome `touch-action: none`, sheets
+`overscroll-behavior: contain`), the symbol button is capped (its description ellipsised; 96 px while a drawing's style
+bar needs the room, the interval key then going into More) and the range keys scroll inside their group (`.rg`, a fade
+while more lie beyond). Natural widths are measured with `.ms` (nothing shrinks). The drawing bar is a row only when the
+widget is at least 420 px tall (`trayMode`); a phone held sideways gets the column. Full screen falls back to a fixed
+`.w.pseudo` (iPhone: no element full screen) with `:host([data-fs])` lifting the paint containment, safe-area padding and
+the page's `overflow: hidden` until it ends.
 
 **Drawing bar** (`.lbar` in the stage, `.tbar` a grid row between the stage and the bottom bar). The drawings entry's rail mounted in the chrome
 through `toolbar: { container, variant, styleContainer }`: on a desk a flat left column (`--h` + 16 px wide, the
@@ -508,7 +518,9 @@ groups, their places, the list or the theme change: no DOM read, no layout per f
 drag through a pair). Axis tags: one per alert outside a group, one per group at the mean of its prices; the chart's
 own tag pass (sorted, pushed apart by a tag height, kept in the pane) separates them. The last-price tag is in the
 axis, where chips never go, so it is not passed as an obstacle (passing the moving price would make chips jump).
-`placements()` reports the last layout. Touch: the nearest chip within 22 px takes a press.
+`placements()` reports the last layout. Touch: the nearest chip within 22 px takes a press; a selected alert
+answers `blocksTouch()` (re-read through `setCursor` when the selection changes), so a finger drags it vertically
+instead of the browser scrolling (tap the chip, then drag; a tap on empty space deselects).
 
 **Price alerts in the workspace.** Optional field `alerts: { version: 1, bySymbol: { [symbol]: [{ id, price,
 triggered, direction?, value?, time? }] } }`, per symbol only (a level means nothing for another symbol; the same for

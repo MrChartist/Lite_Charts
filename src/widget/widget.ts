@@ -549,6 +549,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     for (const p of chart.panes()) { tops.push(y); y += p.getHeight() + 1; }
     return tops;
   }
+  /** Legend text in a mark colour: the up / down marks have their own text variants (4.5:1 on the background). */
+  function textTone(c: string): string { const t = colors(); return c === t.up ? t.upText : c === t.down ? t.downText : c; }
   function renderLegend(): void {
     legendLayer.textContent = '';
     legendKey = '';
@@ -570,7 +572,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       for (const o of ind.spec.outputs) {
         if (o.kind === 'band-lower' || !ind.styles[o.key].visible) continue;
         const v = h(doc, 'span', 'v');
-        v.style.setProperty('color', ind.styles[o.key].color);
+        v.style.setProperty('color', textTone(ind.styles[o.key].color));
         ind.values.set(o.key, v);
         row.append(v);
       }
@@ -627,7 +629,9 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const pane = Number(g.dataset.pane);
       g.style.setProperty('left', `${pane === 0 ? left : chart.priceScale('left').width() + 6}px`);
       g.style.setProperty('top', `${(tops[pane] ?? 0) + (pane === 0 ? rowTop0() : 6)}px`);
-      g.classList.toggle('hide', tops[pane] === undefined || (chart.panes()[pane]?.getHeight() ?? 0) < 40);
+      // A pane too short for its rows hides them (on a touch screen, where rows are 44 px apart, by the rows' height).
+      const need = coarseQ?.matches ? (pane === 0 ? rowTop0() : 6) + g.children.length * 44 : 40;
+      g.classList.toggle('hide', tops[pane] === undefined || (chart.panes()[pane]?.getHeight() ?? 0) < need);
     }
   }
   /** Values of the hovered bar (or the last), written only when the text changes. */
@@ -995,7 +999,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       if (destroyed || !main || tools || (!drawingsOn && !hasDrawingsToShow())) return;
       if (!mod || typeof mod.createDrawingTools !== 'function') { drawingsUnavailable(); return; }
       // The column or row must have its size before the rail measures itself.
-      toolsPhone = sheets();
+      toolsPhone = trayMode();
       if (drawingsOn) syncDrawChrome(fadeIn, true);
       const list = toolList(mod);
       let t: ToolsLike;
@@ -1058,7 +1062,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     schedulePersist();
     relayout();
     if (on) {
-      if (tools && sheets() !== toolsPhone && !toolsLoading) dropTools();
+      if (tools && trayMode() !== toolsPhone && !toolsLoading) dropTools();
       if (tools) { tools.setShortcuts?.(true); tools.setToolbarVisible?.(true); syncDrawChrome(true); relayout(); }
       else await ensureTools(true);
       return;
@@ -1242,7 +1246,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     { id: 'status', el: statusEl, pri: 50 },
     { id: 'sepA', el: sep(), pri: 45 },
     { id: 'intervals', el: ivGroup, pri: 90 },
-    { id: 'ivMore', el: ivMore, pri: KEEP },
+    { id: 'ivMore', el: ivMore, pri: KEEP, label: S.interval, icon: 'chevron', run: o => openIntervalMenu(o) },
     { id: 'sepB', el: sep(), pri: 44 },
     { id: 'chartType', el: typeBtn, pri: 85, label: S.chartType, icon: 'candles', run: o => openChartTypeMenu(o) },
     { id: 'indicators', el: indBtn, pri: 88, label: S.indicators, icon: 'indicators', run: o => openIndicators(o) },
@@ -1274,7 +1278,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   }
 
   // ── bottom bar ──
-  const rangeGroup = h(doc, 'div', 'grp', { role: 'radiogroup', 'aria-label': S.ranges });
+  const rangeGroup = h(doc, 'div', 'grp rg', { role: 'radiogroup', 'aria-label': S.ranges });
   const rangeKeys: HTMLButtonElement[] = [];
   for (const k of RANGE_KEYS) {
     const b = h(doc, 'button', 'b k', { type: 'button', role: 'radio', 'aria-checked': 'false', title: k }, [k]);
@@ -1290,6 +1294,9 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if (ev.key === 'ArrowRight') n = (i + 1) % rangeKeys.length; else if (ev.key === 'ArrowLeft') n = (i - 1 + rangeKeys.length) % rangeKeys.length;
     if (n >= 0) { ev.preventDefault(); rangeKeys.forEach((b, j) => { b.tabIndex = j === n ? 0 : -1; }); rangeKeys[n].focus(); }
   });
+  // A fade at the end while more keys lie beyond it (phone widths, where the group scrolls sideways).
+  const rangeFade = (): void => { rangeGroup.classList.toggle('more', rangeGroup.scrollLeft + rangeGroup.clientWidth < rangeGroup.scrollWidth - 1); };
+  rangeGroup.addEventListener('scroll', rangeFade, { passive: true });
   const gotoBtn = btn(doc, { icon: 'calendar', text: S.goTo, label: S.goToDate, attrs: { 'aria-haspopup': 'dialog' }, onClick: ev => openGoTo(ev.currentTarget as HTMLElement) });
   const clockBtn = btn(doc, { icon: 'globe', text: '', label: S.timeZone, cls: 'clk', iconPx: 16, attrs: { 'aria-haspopup': 'menu' }, onClick: ev => openZoneMenu(ev.currentTarget as HTMLElement) });
   const scaleGroup = h(doc, 'div', 'grp', { role: 'group', 'aria-label': S.scaleMode });
@@ -1322,7 +1329,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       const right = chart.priceScale('right').width() + 10;
       const panesH = chart.panes().reduce((a, p) => a + p.getHeight() + 1, -1);
       latestBtn.style.setProperty('right', `${right}px`);
-      latestBtn.style.setProperty('top', `${Math.max(8, panesH - 38)}px`);
+      // From the bottom: the time axis keeps its height when the card is resized (the phone's drawing row opening).
+      latestBtn.style.setProperty('bottom', `${Math.max(8, plot.clientHeight - panesH + 10)}px`);
     }
   };
   chart.timeScale().subscribeRealTimeChange(onRT);
@@ -1379,9 +1387,12 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if (destroyed) return;
     const width = w.clientWidth;
     if (!(width > 0)) return;
+    const narrow = sheets();
+    symBtn.style.removeProperty('max-width');
+    let symCap = 0;
     // The sheet breakpoint flipped while drawing: make the rail again for the other place (drawings kept).
     // (With the rail closed its place does not matter: it is made again when the rail opens.)
-    if (tools && drawingsOn && !toolsLoading && sheets() !== toolsPhone) { dropTools(); void ensureTools(); return; }
+    if (tools && drawingsOn && !toolsLoading && trayMode() !== toolsPhone) { dropTools(); void ensureTools(); return; }
     for (const [defs, partMap, bar, more, overflow] of [[topDef, partOf, top, moreBtn, overflowTop], [botDef, botPart, bottom, botMore, overflowBot]] as const) {
       for (const d of defs) {
         const p = (partMap as Record<string, keyof typeof parts | null>)[d.id];
@@ -1392,15 +1403,24 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       // Measure each enabled item once per relayout (all shown), then collapse.
       for (const d of defs) if ((d.el as HTMLElement & { _en?: boolean })._en && d.id !== 'spacer' && d.id !== 'bspacer') d.el.classList.remove('hide');
       more.classList.remove('hide');
+      // Natural widths: nothing shrinks while measuring (the symbol button and the range keys may shrink after).
+      bar.classList.add('ms');
       measured = new Map();
       const list: BarItem[] = [];
       for (const d of defs) {
         if (!(d.el as HTMLElement & { _en?: boolean })._en || d.el === more) continue;
-        const wd = d.id === 'bspacer' ? 8 : d.id === 'spacer' ? (tools && drawSel ? styleRoom() : 8) : d.el.offsetWidth + 2 + (d.el.classList.contains('sep') ? 12 : 0);
+        let wd = d.id === 'bspacer' ? 8 : d.id === 'spacer' ? (tools && drawSel ? styleRoom() : 8) : d.el.offsetWidth + 2 + (d.el.classList.contains('sep') ? 12 : 0);
+        // Phone widths: the symbol button shrinks (its description ellipsised) and the range keys scroll sideways
+        // inside their group, so neither pushes More out of the bar nor hides the keys in a menu.
+        if (d.id === 'symbol') { const cap = tools && drawSel && narrow ? 96 : Math.max(120, Math.round(width * 0.42)); if (wd > cap) { wd = cap; symCap = cap - 2; } }
+        // (At most five keys' width, and never more than the bar has beside More: at 280 px the group still shows two.)
+        if (d.id === 'ranges' && narrow) wd = Math.min(wd, 5 * (coarseQ?.matches ? 46 : 32), Math.max(2 * 46, bar.clientWidth - 16 - more.offsetWidth - 14));
         measured.set(d.id, wd);
         // While drawing, the pencil (which closes the bar) stays in sight.
-        list.push({ id: d.id, width: wd, priority: d.id === 'draw' && drawingsOn ? 89 : d.pri });
+        // While a drawing is selected on a phone its style bar needs the room: the interval key may go into More.
+        list.push({ id: d.id, width: wd, priority: d.id === 'draw' && drawingsOn ? 89 : d.id === 'ivMore' && tools && drawSel && narrow ? 86 : d.pri });
       }
+      bar.classList.remove('ms');
       const avail = bar.clientWidth - 16;
       const res = collapseBar(list, avail, more.offsetWidth + 2);
       overflow.length = 0;
@@ -1413,11 +1433,15 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
       // Separators next to nothing go too.
       more.classList.toggle('hide', !res.overflow.some(id => defs.find(d => d.id === id)?.run) && !(bar === top && hasExtras()));
     }
+    if (symCap) symBtn.style.setProperty('max-width', `${symCap}px`);
+    // Too narrow for a readable piece of the description: the name alone.
+    symBtn.classList.toggle('tight', symCap > 0 && symCap < 110);
     // With the keys collapsed, the menu button names the interval.
     const ivHidden = overflowTop.includes('intervals');
     ivCur.textContent = interval;
     ivCur.classList.toggle('hide', !ivHidden);
     ivMore.classList.toggle('i', !ivHidden);
+    rangeFade();
     placeLegend(true);
   }
   const RO = (win as Window & typeof globalThis).ResizeObserver;
@@ -1449,6 +1473,8 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
 
   // ── menus ──
   const sheets = (): boolean => useSheets(w.clientWidth, !!coarseQ?.matches);
+  /** The drawing bar as a row above the bottom bar (phones held upright); a short widget (a phone held sideways) keeps the plot's height and gets the column. */
+  const trayMode = (): boolean => sheets() && w.clientHeight >= 420;
   function menuItem(label: string, opts: { icon?: string; checked?: boolean; hint?: string; onPick: () => void; radio?: boolean; disabled?: boolean }): HTMLElement {
     const it = h(doc, 'div', 'mi', { role: opts.radio ? 'menuitemradio' : 'menuitem', tabindex: '-1', 'aria-checked': opts.radio ? String(!!opts.checked) : undefined, 'aria-disabled': opts.disabled ? 'true' : undefined });
     if (opts.icon) it.append(svgIcon(doc, opts.icon, 20));
@@ -1702,8 +1728,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
         s.addEventListener('click', () => { st.color = c; ind.custom.add(o.key); for (const x of Array.from(cl.children)) x.setAttribute('aria-checked', String(x === s)); });
         cl.append(s);
       }
-      const wsel = h(doc, 'select', 'f', { 'aria-label': `${o.label} ${S.lineWidth}` });
-      wsel.style.setProperty('width', '64px');
+      const wsel = h(doc, 'select', 'f fw', { 'aria-label': `${o.label} ${S.lineWidth}` });
       for (const wv of [1, 2, 3, 4]) wsel.append(h(doc, 'option', '', { value: wv, selected: wv === st.width }, [`${wv} px`]));
       wsel.addEventListener('change', () => { st.width = Number(wsel.value) as OutputStyle['width']; });
       const vis = h(doc, 'button', 'sw', { type: 'button', role: 'switch', 'aria-checked': String(st.visible), 'aria-label': `${o.label} ${S.visible}` });
@@ -1839,15 +1864,28 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   // ── full screen ──
   let pseudo = false;
   const isFullscreen = (): boolean => pseudo || doc.fullscreenElement === host;
+  // The fallback where an element cannot go full screen (an iPhone): the chrome fixed over the viewport, the host's
+  // paint containment lifted (it would hold a fixed box inside it) and the page under it kept from scrolling.
+  let pageOverflow: [string, string] | null = null;
+  function setPseudo(on: boolean): void {
+    pseudo = on;
+    w.classList.toggle('pseudo', on);
+    host.toggleAttribute('data-fs', on);
+    const st = doc.documentElement.style;
+    if (on && !pageOverflow) { pageOverflow = [st.getPropertyValue('overflow'), st.getPropertyPriority('overflow')]; st.setProperty('overflow', 'hidden'); }
+    else if (!on && pageOverflow) { if (pageOverflow[0]) st.setProperty('overflow', pageOverflow[0], pageOverflow[1]); else st.removeProperty('overflow'); pageOverflow = null; }
+    syncTop();
+  }
+  cleanups.push(() => { if (pseudo) setPseudo(false); });
   function toggleFullscreen(): void {
     if (isFullscreen()) {
-      if (pseudo) { pseudo = false; w.classList.remove('pseudo'); syncTop(); }
+      if (pseudo) setPseudo(false);
       else void doc.exitFullscreen?.().catch(() => {});
       return;
     }
     const req = host.requestFullscreen?.bind(host);
-    if (req) req().catch(() => { pseudo = true; w.classList.add('pseudo'); syncTop(); });
-    else { pseudo = true; w.classList.add('pseudo'); syncTop(); }
+    if (req) req().catch(() => setPseudo(true));
+    else setPseudo(true);
   }
   listen(doc, 'fullscreenchange', () => { syncTop(); win.requestAnimationFrame(() => { relayout(); chart.paint(); }); });
 

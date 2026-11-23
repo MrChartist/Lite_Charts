@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chartist Lite: the widget in an article</title>
+<style>
+  :root { color-scheme: light; --bg: #FFFFFF; --ink: #1D1D1F; --muted: #5E5E63; --rule: rgba(0,0,0,.1); }
+  :root.dark { color-scheme: dark; --bg: #000000; --ink: #F5F5F7; --muted: #A1A1A6; --rule: rgba(255,255,255,.14); }
+  html { background: var(--bg); color: var(--ink); -webkit-text-size-adjust: 100%; }
+  body { margin: 0; font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+  /* The page gutter grows to the safe-area insets in landscape (notch) and keeps 16 px from the screen edge, so a
+     horizontal swipe on the chart never starts in the system back-swipe zone. */
+  h2 { font-size: 22px; margin: 32px 0 12px; }
+  main { max-width: 720px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  h1 { font-size: 30px; line-height: 1.15; margin: 8px 0 12px; }
+  p { margin: 0 0 16px; }
+  .meta { color: var(--muted); font-size: 15px; }
+  figure { margin: 24px 0; }
+  /* The widget's box: a height in px (it needs one), capped by the dynamic viewport so it never outgrows a phone held
+     sideways. */
+  #w { height: 480px; max-height: calc(100dvh - 32px); min-height: 320px; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px var(--rule); }
+  figcaption { color: var(--muted); font-size: 15px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Nova Industries: a week in charts</h1>
+  <p class="meta">A demo article. The chart below is the ready-made widget, embedded the way most pages will use it.</p>
+  <p>Nova Industries opened the week under its 20-day average and spent three sessions testing the level before buyers stepped in. Scroll past the chart with a vertical swipe; swipe sideways on it to look back in time, pinch to zoom, and tap the controls to change the interval, the chart type or the indicators.</p>
+  <p>The lines below are filler so the page scrolls on every phone, as an article would. They say nothing about any real company: every price on this page is invented by a seeded random walk.</p>
+  <figure>
+    <div id="w"></div>
+    <figcaption>Nova Industries, daily bars (demo data).</figcaption>
+  </figure>
+  <p>After the chart the article goes on. A reader who only wanted to scroll past it should never feel the chart grab the page: a vertical swipe moves the page, a horizontal one moves the chart.</p>
+  <p>Momentum turned up on Thursday, with the relative strength index leaving the lower half of its range for the first time this month. Volume stayed near its average, which leaves the move without strong confirmation.</p>
+  <p>Next week brings the quarterly numbers. The demo data does not know that, and neither does anyone else, because the company does not exist.</p>
+  <h2>What the numbers do not say</h2>
+  <p>Filler for taller screens, so the article scrolls on a tablet as well. A chart in an article is a figure: it has to give the page its scroll back the moment the reader only wants to move on.</p>
+  <p>Long-press the chart to read a bar (with the tooltip turned on in Settings), double-tap to reset the view, and use the full-screen key for a closer look. On a phone, the controls that do not fit in the bars are one tap away in More.</p>
+  <p>Every price here is made up. Nothing on this page is advice of any kind.</p>
+  <p>Thanks for reading.</p>
+</main>
+<script src="../dist/chartist-lite-widget.iife.min.js"></script>
+<script>
+  const W = ChartistLiteWidget;
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+  if (theme === 'dark') document.documentElement.classList.add('dark');
+  // ?perf: 5000 bars, three indicators and ten drawings (the phone audit's frame-cost scene).
+  const perf = params.has('perf');
+  const SYMBOLS = [
+    { symbol: 'NOVA', description: 'Nova Industries (demo)', exchange: 'Demo' },
+    { symbol: 'ORBT', description: 'Orbit Systems (demo)', exchange: 'Demo' },
+    { symbol: 'LUMA', description: 'Luma Energy (demo)', exchange: 'Demo' },
+  ];
+  const lastBar = new Map();
+  const feed = {
+    intervals: ['5m', '15m', '1h', '4h', '1D', '1W'],
+    async getBars({ symbol, interval, limit }) {
+      const bars = W.demoBars(symbol, interval, perf ? 5000 : Math.min(limit || 600, 3000));
+      lastBar.set(symbol + interval, { ...bars[bars.length - 1] });
+      return bars;
+    },
+    subscribeBars({ symbol, interval }, onBar) {
+      window.__push = close => { const last = lastBar.get(symbol + interval); if (!last) return; Object.assign(last, { close, high: Math.max(last.high, close), low: Math.min(last.low, close) }); onBar({ ...last }); };
+      window.__last = () => ({ ...lastBar.get(symbol + interval) });
+      const id = setInterval(() => {
+        const last = lastBar.get(symbol + interval);
+        if (!last || window.__noTicks || perf) return;
+        const c = +(last.close * (1 + (Math.random() - 0.5) * 0.0012)).toFixed(2);
+        Object.assign(last, { close: c, high: Math.max(last.high, c), low: Math.min(last.low, c) });
+        onBar({ ...last });
+      }, 1000);
+      return () => clearInterval(id);
+    },
+    async searchSymbols(q) {
+      const s = q.trim().toLowerCase();
+      return SYMBOLS.filter(x => !s || x.symbol.toLowerCase().includes(s) || x.description.toLowerCase().includes(s));
+    },
+  };
+  const loadScript = (src, global) => new Promise((ok, fail) => {
+    if (window[global]) return ok(window[global]);
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => ok(window[global]); s.onerror = fail;
+    document.head.appendChild(s);
+  });
+  let saved;
+  if (perf) {
+    const bars = W.demoBars('NOVA', '1D', 5000);
+    const drawings = [];
+    for (let i = 0; i < 10; i++) {
+      const a = bars[bars.length - 120 + i * 8], b = bars[bars.length - 60 + i * 5];
+      drawings.push({ tool: i % 2 ? 'trend' : 'rectangle', points: [{ time: a.time, price: a.low }, { time: b.time, price: b.high }] });
+    }
+    saved = JSON.stringify({ format: 'chartist-lite-drawings', version: 2, drawings });
+  }
+  const widget = W.createWidget('w', {
+    symbol: SYMBOLS[0], interval: '1D', theme, feed,
+    indicators: perf ? ['ema', 'bollinger', 'rsi'] : ['ema', 'rsi'],
+    drawings: perf ? { saved } : undefined,
+    settings: perf ? { tooltip: 'floating' } : undefined,
+    load: {
+      drawings: () => loadScript('../dist/chartist-lite-drawings.iife.min.js', 'ChartistLiteDrawings'),
+      extras: () => loadScript('../dist/chartist-lite-extras.iife.min.js', 'ChartistLiteExtras').catch(() => null),
+    },
+  });
+  widget.on('theme', t => document.documentElement.classList.toggle('dark', t === 'dark'));
+  window.__widget = widget;
+</script>
+</body>
+</html>

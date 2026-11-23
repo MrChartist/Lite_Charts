@@ -26,6 +26,8 @@
   :root.mounted #main { display: flex; height: 520px; border-radius: 16px; overflow: hidden; border: 1px solid var(--edge); background: var(--bg); }
   :root.mounted #leftbar { flex: none; width: 52px; }
   :root.mounted #chart { flex: 1 1 auto; height: auto; border: 0; border-radius: 0; min-width: 0; }
+  /* Touch: 44 px targets. */
+  @media (pointer: coarse) { button { height: 44px; } }
 </style>
 </head>
 <body>
