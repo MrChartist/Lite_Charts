@@ -487,11 +487,11 @@ You load what you need: every part is its own entry. Bundled and minified with e
 | `lite-charts/drawings` with `ALL_TOOLS` | All 53 tools in 7 groups | 31.8 KB | 27.5 KB |
 | `lite-charts/live` | `connectLive` and the Coinbase, Binance and Kraken providers | 6.2 KB | 5.6 KB |
 | `lite-charts/transforms` | 16 chart types: Renko, Kagi, point and figure, line break, range bars and more | 12.4 KB | 11.1 KB |
-| `lite-charts/extras` | Tooltips, watermark, alerts, compare, replay, bands, custom series | 26.4 KB | 23.7 KB |
-| `lite-charts/widget` | The ready-made chart (includes the chart); drawings and live load on demand | 91.2 KB | 78.4 KB |
+| `lite-charts/extras` | Tooltips, watermark, alerts, compare, replay, bands, custom series | 29.5 KB | 26.4 KB |
+| `lite-charts/widget` | The ready-made chart (includes the chart); drawings and live load on demand | 94.8 KB | 81.4 KB |
 | `lite-charts/element` | The `<chartist-chart>` tag (includes the chart) | 37.3 KB | 32.8 KB |
 | `lite-charts/react` | A component and a hook (includes the chart) | 33.1 KB | 29.3 KB |
-| `chartist-lite.terminal.iife.min.js` | One script tag: the widget with chart types, live data and drawing tools, and the tags | 132.7 KB | 112.3 KB |
+| `chartist-lite.terminal.iife.min.js` | One script tag: the widget with chart types, live data and drawing tools, and the tags; the extras load on first use from the same folder | 137.2 KB | 116.1 KB |
 
 What three typical pages load:
 
@@ -499,7 +499,7 @@ What three typical pages load:
 |---|---|---|
 | Core only: `createChart` and candlesticks | 28.3 KB | 25.1 KB |
 | Candles, two averages and RSI (`sma`, `ema`, `rsi`) | 30.1 KB | 26.6 KB |
-| The full terminal, one script tag | 132.7 KB | 112.3 KB |
+| The full terminal, one script tag (extras on first use) | 137.2 KB | 116.1 KB |
 
 The core has a 34.6 KB gzip budget that `npm run size` enforces.
 
@@ -511,7 +511,7 @@ Using only figures each project publishes about itself; every figure, its source
 |---|---|---|---|
 | Licence | Apache-2.0 | Apache 2.0 | Apache-2.0 |
 | Size stated | core 33.6 KB gzip, 29.7 KB brotli (measured) | "35 KB" (compression not stated) | core 141.88 kB brotli |
-| Full workspace | 112.3 KB brotli (terminal build) | not stated | 380.39 kB brotli |
+| Full workspace | 116.1 KB brotli (terminal build) | not stated | 380.39 kB brotli |
 | Chart types | 16 | candles, line, bars, area, baseline, histogram, plus custom | 13 |
 | Indicators | 85 | not stated | 112 |
 | Drawing tools | 53 | not stated | 90 |

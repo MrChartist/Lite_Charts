@@ -18,8 +18,8 @@ export {
 } from './range';
 export type { RangeKey, ResolvedRange, Civil } from './range';
 
-export { createPriceAlerts, crossings, snapPrice, nearestLine, alertsToJSON, alertsFromJSON } from './alerts';
-export type { PriceAlertsHandle, PriceAlertsOptions, PriceAlert, AlertTrigger } from './alerts';
+export { createPriceAlerts, crossings, snapPrice, nearestLine, alertsToJSON, alertsFromJSON, layoutAlertChips } from './alerts';
+export type { PriceAlertsHandle, PriceAlertsOptions, PriceAlert, AlertTrigger, PlacedChip } from './alerts';
 
 export { createCompare, percentChange, rebaseFactor, firstVisibleRef, scaleRows, percentText } from './compare';
 export type { CompareHandle, CompareOptions, CompareAddOptions, CompareLine, CompareRow } from './compare';

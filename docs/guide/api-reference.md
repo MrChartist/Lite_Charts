@@ -22,7 +22,7 @@ Every public export, with its signature as written in the source (`src/index.ts`
 | `lite-charts/transforms` | `CHART_TYPES`, `applyChartType`, the transforms and the extra series looks | `chartist-lite-transforms.iife.min.js`, `ChartistLiteTransforms` |
 | `lite-charts/extras` | Tooltips, watermark, go to latest, range switcher, alerts, compare, replay, bands, custom series | `chartist-lite-extras.iife.min.js`, `ChartistLiteExtras` |
 | `lite-charts/widget` | `createWidget`, `<chartist-terminal>`, the widget's helpers | `chartist-lite-widget.iife.min.js`, `ChartistLiteWidget` |
-| The terminal (widget plus live and drawings) | `createWidget` with live data and drawing tools bundled, both tags registered on load | `chartist-lite.terminal.iife.min.js`, `ChartistLiteTerminal` |
+| The terminal (widget plus live and drawings) | `createWidget` with live data and drawing tools bundled, both tags registered on load; the extras loaded on first use from the same folder | `chartist-lite.terminal.iife.min.js`, `ChartistLiteTerminal` |
 | `lite-charts/element` | `defineChartistElement` and the element's parsing helpers | `chartist-lite.element.iife.min.js`, `ChartistLiteElement` (registers `<chartist-chart>` on load) |
 | `lite-charts/drawings` | `createDrawingTools`, `BASIC_TOOLS`, `ALL_TOOLS`, the JSON helpers | `chartist-lite-drawings.iife.min.js`, `ChartistLiteDrawings` |
 | `lite-charts/react` | `createChartistReact` and the controller | none |
@@ -1300,7 +1300,7 @@ createRangeSwitcher(chart, { position: 'top-right' }).select('1Y');
 createPriceAlerts(chart, series, { onTrigger?, onChange?, removeOnTrigger?, addButton?, watch?, lastPrice?, maxAlerts? }?): PriceAlertsHandle
 ```
 
-Alert lines that fire once when the price crosses them on `update()`. A triggered alert keeps `direction`, `value` and `time`. `watch: false` with `lastPrice` lets the host feed prices with `check(value, time)` and `rebase()` after new history. Handle: `add(price)`, `remove(id)`, `clear()`, `alerts()`, `check(value, time?)`, `rebase()`, `exportJSON()`, `importJSON()`, `applyOptions()`, `destroy()`.
+Alert lines that fire once when the price crosses them on `update()`. A triggered alert keeps `direction`, `value` and `time`. `watch: false` with `lastPrice` lets the host feed prices with `check(value, time)` and `rebase()` after new history. Chips never overlap (`layoutAlertChips`, exported, pure); more than five together become one "N alerts" chip with a list. Handle: `add(price)`, `remove(id)`, `clear()`, `alerts()`, `check(value, time?)`, `rebase()`, `placements()`, `exportJSON()`, `importJSON()`, `applyOptions()`, `destroy()`.
 
 ```js
 const alerts = createPriceAlerts(chart, candles, { onTrigger: t => notify(t.price) });
@@ -1395,9 +1395,14 @@ createWidget(el, { feed: { getBars: ({ symbol, interval, limit }) => api.history
 ```sig
 defineTerminalElement(tagName = 'chartist-terminal'): CustomElementConstructor | null
 setTerminalModules(modules): void
+setTerminalLoad(load): void
+// terminal build only:
+ChartistLiteTerminal.setAssetBase(folderUrl | null): void
+ChartistLiteTerminal.loadExtras(): Promise<extras>
+ChartistLiteTerminal.extrasUrl(): string | null
 ```
 
-Registers `<chartist-terminal>` (the terminal build does it on load, with live data and drawings). Also exported: `DEFAULT_STRINGS`, `RANGE_KEYS`, `DEFAULT_INTERVALS`, `CRYPTO_SYMBOLS`, `demoBars`, `readWorkspace`, `migrateWorkspace`, `validateParams`, `defaultSettings`, `WORKSPACE_FORMAT`, `WORKSPACE_VERSION`, the interval helpers, `collapseBar`, `useSheets`, `chartTypeList`, `WIDGET_ICONS` and the types.
+Registers `<chartist-terminal>` (the terminal build does it on load, with live data and drawings, and a loader that fetches the extras on first use: from `setAssetBase`, else the script tag's `data-extras` (a URL, or `off`), else the terminal file's own folder; `data-extras-integrity` adds SRI). Also exported: `DEFAULT_STRINGS`, `RANGE_KEYS`, `DEFAULT_INTERVALS`, `CRYPTO_SYMBOLS`, `demoBars`, `readWorkspace`, `migrateWorkspace`, `validateParams`, `defaultSettings`, `WORKSPACE_FORMAT`, `WORKSPACE_VERSION`, the interval helpers, `collapseBar`, `useSheets`, `chartTypeList`, `WIDGET_ICONS` and the types.
 
 ```html
 <chartist-terminal live symbol="BTC-USD" interval="1h" indicators="ema,rsi" drawings></chartist-terminal>

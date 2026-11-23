@@ -8,7 +8,7 @@
 // data and the extras load only when handed in (`modules`) or first needed (`load: { drawings: () => import(...) }`).
 
 export { createWidget, toBars, toBar, formatValue, offsetLabel, RANGE_KEYS, DEFAULT_INTERVALS } from './widget';
-export { defineTerminalElement, setTerminalModules } from './element';
+export { defineTerminalElement, setTerminalModules, setTerminalLoad } from './element';
 export { DEFAULT_STRINGS } from './strings';
 export type { WidgetStrings } from './strings';
 export { collapseBar, useSheets } from './layout';

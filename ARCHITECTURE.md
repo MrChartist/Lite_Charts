@@ -429,6 +429,19 @@ extras come only through `modules` (handed in) or `load` (`{ drawings: () => imp
 the first time the part is needed: the pencil key, the bell, Replay, a tooltip or watermark setting, live mode). A page
 that never draws never downloads the drawing code (checked in the browser test).
 
+**The terminal's extras, on first use** (`auto.ts`). The terminal IIFE bundles drawings and live data but not the
+extras; it hands every widget (and every `<chartist-terminal>`, through `setTerminalLoad`) `load.extras = loadExtras`.
+URL: `setAssetBase(folder)` wins; then the terminal tag's `data-extras` (a URL, or `off`); then the terminal file's own
+folder (`chartist-lite-extras.iife.min.js` next to it). The tag is `document.currentScript` captured while the IIFE
+runs, else the first script whose file name is the terminal's, else one carrying `data-extras` (a module script or a
+renamed file); with none of these the load rejects with code `extras-url` and the tip says to set `data-extras`. One
+`<script src async>` (no inline, no eval; the tag's `nonce` copied; `data-extras-integrity` adds `integrity` and
+`crossorigin="anonymous"`), one shared promise for every widget and caller; a failure clears it, so the next use
+retries. The widget keeps the last loader error per module (`loadErrors`) for its tip, and shows a quiet tip when the
+extras fail for alerts, tooltips / watermark / session breaks or Replay. The ESM entry's `modules` / `load` are
+unchanged. Checked in `scripts/screenshots-widget.cjs` with `examples/widget-terminal.html` (two tags; file:// and a
+routed http origin; module script; renamed file; failure and retry; `data-extras` URL and `off`) and on the site's hero.
+
 **Chrome.** All DOM in one open shadow root on a host div; `:host { all: initial }`; one tone of flat bars (top bar,
 bottom bar) around the plot, a rounded card inset 6 px. Controls 28 px
 (44 px on a coarse pointer), capsules, inverted ink for the selected state, plain-text interval / range / scale keys
@@ -481,6 +494,21 @@ letters. Interval and range keys are radio groups (one tab stop, arrows).
 **Persist** is opt-in (`persist: { key }`): the workspace JSON (`format: 'chartist-lite-workspace'`, version 2) in
 localStorage under `chartist-lite-workspace:<key>`, written 300 ms after a change; read at start and wins over the
 options. `save()` / `load(json)` do the same by hand.
+
+**Alert chips that crowd** (`createPriceAlerts`, extras). `layoutAlertChips(lines, { height, gap, top, bottom,
+maxStack, obstacles })` (pure, tested) places the chips along the pane: each on its line when free; overlapping ones
+stacked edge to edge around the mean of their lines, inside the pane and out of obstacle bands, in price order (ties:
+insertion order), so the result depends only on the lines (no jitter while prices tick). A stack of more than
+`maxStack` (5) chips, or more than fit, collapses into one group at the mean of its lines. A chip moved more than 2 px
+keeps a thin leader to its line. The dragged alert is left out of the layout and drawn last, on its own line (the
+others settle around the remaining lines; nothing moves under the pointer). Groups are DOM: one "N alerts" button per
+group (44 px on a coarse pointer) in a `createHost` shadow root, opening a list (price, state, remove; keyboard: the
+chip focuses into the list with Tab, Escape returns) on hover, focus or tap. The DOM is rewritten only when the
+groups, their places, the list or the theme change: no DOM read, no layout per frame (checked: zero layout passes in a
+drag through a pair). Axis tags: one per alert outside a group, one per group at the mean of its prices; the chart's
+own tag pass (sorted, pushed apart by a tag height, kept in the pane) separates them. The last-price tag is in the
+axis, where chips never go, so it is not passed as an obstacle (passing the moving price would make chips jump).
+`placements()` reports the last layout. Touch: the nearest chip within 22 px takes a press.
 
 **Price alerts in the workspace.** Optional field `alerts: { version: 1, bySymbol: { [symbol]: [{ id, price,
 triggered, direction?, value?, time? }] } }`, per symbol only (a level means nothing for another symbol; the same for

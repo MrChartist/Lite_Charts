@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertsFromJSON, alertsToJSON, crossings, nearestLine, snapPrice, type PriceAlert } from '../plugins/extras/alerts';
+import { alertsFromJSON, alertsToJSON, crossings, layoutAlertChips, nearestLine, snapPrice, type PriceAlert } from '../plugins/extras/alerts';
 import { firstVisibleRef, percentChange, percentText, rebaseFactor, scaleRows } from '../plugins/extras/compare';
 import { startIndexAt, stepIndex, tickReplay, BASE_BAR_MS } from '../plugins/extras/replay';
 import { describeBar, describeChange, placeFloating, placeTracking } from '../plugins/extras/tooltip';
@@ -325,5 +325,66 @@ describe('contrast', () => {
   it('contrast ratio sanity', () => {
     expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 0);
     expect(contrastRatio('#777777', '#777777')).toBe(1);
+  });
+});
+
+describe('alert chip layout', () => {
+  const H = 22, G = 2, STEP = H + G;
+  const L = (lines: [string, number][], extra: Partial<Parameters<typeof layoutAlertChips>[1]> = {}) => layoutAlertChips(lines.map(([id, y]) => ({ id, y })), { height: H, gap: G, top: 0, bottom: 400, ...extra });
+  const noOverlap = (out: { y: number }[]) => out.every((c, i) => i === 0 || c.y - out[i - 1].y >= STEP - 1e-9);
+  it('a lone chip sits on its line', () => {
+    expect(L([['a', 100]])).toEqual([{ ids: ['a'], y: 100, line: 100 }]);
+  });
+  it('two lines 2 px apart: both shown, edge to edge, centred on them, in price order', () => {
+    const out = L([['a', 102], ['b', 100]]);
+    expect(out.map(c => c.ids[0])).toEqual(['b', 'a']);
+    expect(out[1].y - out[0].y).toBe(STEP);
+    expect((out[0].y + out[1].y) / 2).toBeCloseTo(101 - 0, 6);
+  });
+  it('three close lines stack around their mean; far lines stay put', () => {
+    const out = L([['a', 200], ['b', 204], ['c', 208], ['far', 40]]);
+    expect(out.map(c => c.ids[0])).toEqual(['far', 'a', 'b', 'c']);
+    expect(out[0].y).toBe(40);
+    expect(noOverlap(out)).toBe(true);
+    expect(out[2].y).toBeCloseTo(204, 6);
+  });
+  it('many within 30 px collapse into one group at the mean of their lines', () => {
+    const lines: [string, number][] = Array.from({ length: 10 }, (_, i) => [`a${i}`, 150 + i * 3]);
+    const out = L(lines);
+    expect(out).toHaveLength(1);
+    expect(out[0].ids).toHaveLength(10);
+    expect(out[0].line).toBeCloseTo(163.5, 6);
+    expect(out[0].y).toBeCloseTo(163.5, 6);
+    // Up to five stay stacked.
+    expect(L(lines.slice(0, 5)).map(c => c.ids.length)).toEqual([1, 1, 1, 1, 1]);
+  });
+  it('near the pane edges the stack stays inside', () => {
+    const top = L([['a', 1], ['b', 3], ['c', 5]]);
+    expect(top[0].y).toBe(H / 2);
+    expect(noOverlap(top)).toBe(true);
+    const bot = L([['a', 395], ['b', 398], ['c', 399]]);
+    expect(bot[2].y).toBe(400 - H / 2);
+    expect(noOverlap(bot)).toBe(true);
+    // A pane with room for two: three close lines become one group.
+    expect(L([['a', 20], ['b', 22], ['c', 24]], { bottom: 50 })).toHaveLength(1);
+  });
+  it('the last-price tag (an obstacle band) is kept clear', () => {
+    const out = L([['a', 200], ['b', 203]], { obstacles: [{ y0: 190, y1: 210 }] });
+    for (const c of out) expect(c.y + H / 2 <= 190 - G + 1e-9 || c.y - H / 2 >= 210 + G - 1e-9).toBe(true);
+    expect(noOverlap(out)).toBe(true);
+  });
+  it('order stays the price order while one line moves through the others; the others do not move until it is near', () => {
+    let prevOrder = '';
+    for (let y = 300; y >= 100; y -= 1) {
+      const out = L([['a', 200], ['b', 226], ['m', y]]);
+      const byLine = [...out].sort((p, q) => p.line - q.line).map(c => c.ids.join());
+      expect(out.map(c => c.ids.join())).toEqual(byLine);
+      expect(noOverlap(out)).toBe(true);
+      if (Math.abs(y - 213) > 60) expect(out.find(c => c.ids[0] === 'a')!.y).toBe(200);
+      prevOrder = byLine.join();
+    }
+    expect(prevOrder).toBe('m,a,b');
+    // Same input, same output (no jitter between frames).
+    expect(L([['a', 200], ['b', 201]])).toEqual(L([['a', 200], ['b', 201]]));
   });
 });

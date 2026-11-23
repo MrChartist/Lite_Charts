@@ -8,15 +8,19 @@
 // toolbar-off (comma list of parts to hide). A change of any attribute rebuilds the widget, except symbol, interval,
 // chart-type and theme, which switch in place. Events: `chartist-ready` (detail.widget, detail.chart),
 // `chartist-error` (detail.message). Nothing registers until `defineTerminalElement()` is called; the one-tag build
-// (`chartist-lite.terminal.iife.min.js`) calls it on load with live data and drawings bundled.
+// (`chartist-lite.terminal.iife.min.js`) calls it on load with live data and drawings bundled and the extras loaded
+// on first use from its own folder.
 
 import { parseRows, sortRows } from '../element/parse';
 import { createWidget } from './widget';
 import type { Widget, WidgetModules, WidgetOptions, ToolbarPart } from './types';
 
 let defaults: WidgetModules = {};
-/** Modules every terminal element gets (the one-tag build passes live, drawings and extras here). */
+let loadDefaults: NonNullable<WidgetOptions['load']> = {};
+/** Modules every terminal element gets (the one-tag build passes live and drawings here). */
 export function setTerminalModules(m: WidgetModules): void { defaults = { ...defaults, ...m }; }
+/** Loaders every terminal element gets (the one-tag build passes the extras' loader here: loaded on first use). */
+export function setTerminalLoad(l: WidgetOptions['load']): void { loadDefaults = { ...loadDefaults, ...(l ?? {}) }; }
 
 const OBSERVED = ['symbol', 'description', 'interval', 'intervals', 'chart-type', 'theme', 'time-zone', 'live', 'provider', 'indicators', 'drawings', 'src', 'height', 'persist', 'toolbar-off'];
 const IN_PLACE = new Set(['symbol', 'interval', 'chart-type', 'theme']);
@@ -99,6 +103,7 @@ export function defineTerminalElement(tagName = 'chartist-terminal'): CustomElem
       const token = this.token;
       const opts = terminalOptions(n => this.getAttribute(n), n => this.hasAttribute(n));
       opts.modules = { ...defaults };
+      opts.load = { ...loadDefaults };
       const start = (data?: unknown[]): void => {
         if (token !== this.token) return;
         try {

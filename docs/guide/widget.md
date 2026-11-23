@@ -170,6 +170,15 @@ The one-tag terminal build has the widget, the chart types, live data and the dr
 
 Attributes: `symbol`, `description`, `interval`, `intervals` (a comma list), `chart-type`, `theme`, `time-zone`, `live`, `provider`, `indicators` (catalogue ids), `drawings`, `src` (JSON or CSV rows), `height` (default 560), `persist` (a storage key) and `toolbar-off` (parts to hide). Changing `symbol`, `interval`, `chart-type` or `theme` switches in place; any other change rebuilds the widget. Events: `chartist-ready` (`detail.widget`, `detail.chart`) and `chartist-error`. With the same build, `<chartist-chart widget ...>` is the same workspace, and a plain `<chartist-chart>` still works. The file is {{size.terminal.gzip}} KB gzip.
 
+**The extras on first use.** The price alerts, tooltip modes, watermark, replay and session breaks are not in the terminal file: the first time one is needed (the bell, a saved workspace with alerts for the symbol shown, a tooltip or watermark setting, Replay), the terminal loads `chartist-lite-extras.iife.min.js` (about {{size.extras.gzip}} KB gzip) from the folder its own file came from, once for every terminal on the page. When you host the files yourself, put both next to each other:
+
+```text
+your-site/js/chartist-lite.terminal.iife.min.js
+your-site/js/chartist-lite-extras.iife.min.js     (loaded only when needed)
+```
+
+Elsewhere: `data-extras="https://cdn.example.com/chartist-lite-extras.iife.min.js"` on the terminal's script tag (with `data-extras-integrity="sha384-..."` for subresource integrity), or `ChartistLiteTerminal.setAssetBase('https://cdn.example.com/js/')`, or a per-widget `load: { extras }`. `data-extras="off"` never loads them. It is one `<script src>` element (no inline code, no `eval`; the terminal tag's `nonce` is copied), so a CSP whose `script-src` allows the terminal's origin allows it too. If it fails, a short tip says so and the next use tries again. A terminal file loaded as a module, or renamed, cannot find its folder: set `data-extras` on its tag.
+
 ## Load only what is used
 
 The widget entry brings the chart, the indicator catalogue and the chart types. The drawing tools, live data and the extras come in only through `modules` (handed in) or `load` (called the first time the part is needed: the pencil key, the bell, Replay, a tooltip or watermark setting, live mode):

@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The terminal build loads the extras on first use: the bell, the axis "+", a saved workspace with alerts for the symbol
+  shown, a tooltip mode, the watermark, session breaks or Replay fetch `chartist-lite-extras.iife.min.js` from the
+  terminal file's own folder, once for every widget on the page (`data-extras="url"` or `"off"` on the script tag,
+  `data-extras-integrity`, `ChartistLiteTerminal.setAssetBase(url)`, or `load.extras` per widget; the tag's `nonce` is
+  copied). A failure shows a quiet tip and the next use retries. The terminal file grows by under 1 KB gzip (the loader).
+- Price alerts: chips never overlap. Close ones are stacked edge to edge with a thin leader to their line; more than five
+  together become one "N alerts" chip that opens a list (price, state, remove) on hover, focus or tap, keyboard
+  reachable, 44 px targets on touch. A dragged alert stays on its line, on top. `layoutAlertChips` (pure) and the
+  handle's `placements()` are exported. Axis tags: one per group.
+
 - Widget: price alerts are saved with the workspace (`save()`, `load(json)`, `persist`), per symbol for every interval,
   in an optional `alerts: { version: 1, bySymbol }` field (older saves load unchanged). A triggered alert is saved and
   restored as triggered, with its direction, price and bar time, and never fires again; alerts watch only while the
@@ -86,6 +96,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   included).
 
 ### Changed
+
+- `<chartist-terminal>` element source comment said the one-tag build bundles the extras; it does not (they load on
+  first use).
 
 - `applyChartType` no longer nudges repeated brick times forward (`spreadTimes`) unless `calendarTime: true`;
   `info.shifted` is 0 on the default brick axis. `timeToLogical` / `logicalToTime` on a brick axis give each brick a

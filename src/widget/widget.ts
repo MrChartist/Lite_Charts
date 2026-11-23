@@ -245,8 +245,10 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if (modules[name]) return modules[name] as WidgetModules[K];
     const loader = options.load?.[name];
     if (!loader) return null;
-    try { const m = await loader(); if (m) modules[name] = m as never; return (m as WidgetModules[K]) ?? null; } catch (e) { emit('error', e); return null; }
+    try { const m = await loader(); if (m) modules[name] = m as never; delete loadErrors[name]; return (m as WidgetModules[K]) ?? null; } catch (e) { loadErrors[name] = e; emit('error', e); return null; }
   }
+  /** The last failure of each loader (a failure is not kept: the next use calls the loader again). */
+  const loadErrors: Partial<Record<keyof WidgetModules, unknown>> = {};
   const BUILTIN: TransformsLike = { CHART_TYPES: CHART_TYPES as never, applyChartType };
   const transforms = (): TransformsLike => (modules.transforms as TransformsLike | undefined) ?? BUILTIN;
   const chartTypes = (): readonly ChartTypeInfo[] => chartTypeList(transforms());
@@ -840,7 +842,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     if (destroyed) return;
     const drop = (k: 'tooltip' | 'watermark' | 'breaks'): void => { const hd = extraHandles[k]; if (hd) { try { (hd.remove ?? hd.destroy)?.call(hd); } catch { /* ignore */ } } extraHandles[k] = null; };
     drop('tooltip'); drop('watermark'); drop('breaks');
-    if (!x) return;
+    if (!x) { if (needs && hasExtras()) extrasUnavailable(S.extrasUnavailable); return; }
     try {
       if (settings.tooltip !== 'off' && typeof x.createTooltip === 'function') extraHandles.tooltip = (x.createTooltip as (c: ChartApi, o: unknown) => never)(chart, { mode: settings.tooltip });
       if (settings.watermark && typeof x.createWatermark === 'function') extraHandles.watermark = (x.createWatermark as (c: ChartApi, o: unknown) => never)(chart, { text: options.watermark ?? symbol.symbol, lines: options.watermark ? [] : [[symbol.description, interval].filter(Boolean).join(' · ')] });
@@ -896,10 +898,15 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     alertsImporting++;
     try { h.applyOptions({ maxAlerts: alertRoom() }); h.importJSON({ format: 'chartist-lite-alerts', version: 1, alerts: curAlerts() }); } catch { /* validated already */ } finally { alertsImporting--; }
   }
-  function alertsUnavailable(): void {
-    // Quiet: a tip and the live region; the chart keeps working and the stored alerts stay in the workspace.
-    showTip(S.alertsUnavailable);
-    later(() => showTip(null), 4000);
+  function alertsUnavailable(): void { extrasUnavailable(S.alertsUnavailable); }
+  /**
+   * Quiet: a tip and the live region; the chart keeps working and the stored alerts stay in the workspace. When the
+   * terminal cannot tell where the extras file is, the tip says what to set.
+   */
+  function extrasUnavailable(text: string): void {
+    const code = (loadErrors.extras as { code?: string } | undefined)?.code;
+    showTip(code === 'extras-url' ? S.extrasNoUrl : code === 'extras-off' ? S.extrasOff : text);
+    later(() => showTip(null), 5000);
   }
   function ensureAlerts(): Promise<AlertsLike | null> {
     if (alertsHandle) return Promise.resolve(alertsHandle);
@@ -1517,6 +1524,7 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
   }
   async function startReplay(): Promise<void> {
     const x = await getModule('extras');
+    if (!x && hasExtras()) { extrasUnavailable(S.extrasUnavailable); return; }
     if (!x || typeof x.createReplay !== 'function' || !main || rows.length < 2 || mainKind !== 'series') return;
     replayHandle?.destroy?.();
     const data = (resolveChartType(chartType, rows, transforms()).data) as never;

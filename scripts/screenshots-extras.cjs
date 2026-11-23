@@ -1,8 +1,10 @@
 // Browser checks of the extras plugins (examples/extras.html, examples/custom-series.html) in Chromium with real
 // pointer, touch and keyboard input: tooltip modes (mouse, keyboard inspect, touch long-press), go-to-realtime, range
 // switcher keys, price alert add / drag / trigger / delete, compare re-basing, replay play / step / speed / live, and
-// that every `remove()` leaves nothing in the DOM. Saves docs/screenshots/extras-light.png, extras-dark.png,
-// extras-tooltip.png, extras-replay.png and custom-series.png; fails on any console error.
+// that every `remove()` leaves nothing in the DOM; crowded alert chips (2 px apart, ten in 30 px as one group with a
+// keyboard list, a drag through a pair, 44 px touch targets). Saves docs/screenshots/extras-light.png, extras-dark.png,
+// extras-tooltip.png, extras-replay.png, custom-series.png, alerts-close-light.png, alerts-close-dark.png and
+// alerts-many.png; fails on any console error.
 // The plugin bundles are built from source in memory with the package's esbuild and served over a local http server, so
 // the run does not depend on the state of dist/. Playwright must be importable (it is not a dev dependency):
 // `node scripts/screenshots-extras.cjs`.
@@ -479,6 +481,109 @@ async function bundles() {
     await cp.waitForTimeout(600);
     await cp.screenshot({ path: path.join(out, 'custom-series.png'), fullPage: true });
     await cp.close();
+  }
+
+  // ── alert chips that crowd: two lines 2 px apart, ten within 30 px (one "N alerts" group with a list), a drag
+  //    through a pair; light and dark pictures ──
+  for (const theme of ['light', 'dark']) {
+    const lp = await ctx.newPage();
+    watch(lp);
+    await lp.goto(base + `extras.html?theme=${theme}`);
+    await sleep(lp, 500);
+    const card = lp.locator('#card-alerts');
+    await card.scrollIntoViewIfNeeded();
+    const P = () => lp.evaluate(() => window.__extras.alerts.placements());
+    // Two alerts 2 px apart, around the middle of the pane.
+    await lp.evaluate(() => {
+      const al = window.__extras.alerts, s = window.__extras.alertsCandles;
+      al.clear();
+      const h = window.__extras.alertsChart.panes()[0].getHeight();
+      const y = Math.round(h * 0.45);
+      al.add(+s.coordinateToPrice(y).toFixed(2));
+      al.add(+s.coordinateToPrice(y + 2).toFixed(2));
+      // The price moves up between them: the lower one has fired (both chip kinds in the picture).
+      const [lo, hi] = al.alerts().map(x => x.price).sort((p, q) => p - q);
+      al.check((lo + hi) / 2);
+    });
+    await sleep(lp, 200);
+    const two = await P();
+    check(two.length === 2 && two.every(p => p.ids.length === 1) && Math.abs(two[1].y - two[0].y) >= 24 - 0.01 && Math.abs((two[0].y + two[1].y) / 2 - (two[0].line + two[1].line) / 2) < 1, `${theme}: two alerts 2 px apart: both chips, edge to edge, centred on their lines`, two);
+    await lp.mouse.move(5, 5);
+    await card.screenshot({ path: path.join(out, `alerts-close-${theme}.png`) });
+    if (theme === 'dark') { await lp.close(); continue; }
+    // A drag of a third line through the pair: smooth, the dragged chip on its own line, others never overlap; no layout.
+    const o = await lp.evaluate(() => { const r = window.__extras.alertsChart.element().getBoundingClientRect(); return { x: r.left, y: r.top, w: window.__extras.alertsChart.timeScale().width() }; });
+    const yTop = two[0].line - 60;
+    await lp.evaluate(y => { const s = window.__extras.alertsCandles; window.__extras.alerts.add(+s.coordinateToPrice(y).toFixed(2)); }, yTop);
+    await sleep(lp, 100);
+    const cdp = await lp.context().newCDPSession(lp); await cdp.send('Performance.enable');
+    const layouts = async () => (await cdp.send('Performance.getMetrics')).metrics.find(m => m.name === 'LayoutCount').value;
+    const x = o.x + o.w * 0.4;
+    await lp.mouse.move(x, o.y + yTop);
+    await lp.mouse.down();
+    const l0 = await layouts();
+    let bad = 0, steps = 0, onLine = 0;
+    for (let dy = 0; dy <= 120; dy += 4) {
+      await lp.mouse.move(x, o.y + yTop + dy);
+      await lp.evaluate(() => new Promise(r => requestAnimationFrame(() => r())));
+      const pl = await P();
+      steps++;
+      const others = pl.slice(0, -1);
+      if (!others.every((p, i) => i === 0 || p.y - others[i - 1].y >= 24 - 0.01)) bad++;
+      const d = pl[pl.length - 1];
+      if (d && Math.abs(d.y - Math.max(11, d.line)) < 0.6) onLine++;
+    }
+    const l1 = await layouts();
+    await lp.mouse.up();
+    check(bad === 0 && onLine === steps && l1 - l0 <= 2, 'drag through a pair: the dragged chip stays on its line, on top; the others never overlap; no layout per step', { steps, bad, onLine, layouts: l1 - l0 });
+    // Ten alerts within 30 px: one "10 alerts" group (a DOM button), its list on hover, focus or tap; remove by keyboard.
+    await lp.evaluate(() => {
+      const al = window.__extras.alerts, s = window.__extras.alertsCandles;
+      al.clear();
+      const h = window.__extras.alertsChart.panes()[0].getHeight();
+      for (let i = 0; i < 10; i++) al.add(+s.coordinateToPrice(Math.round(h * 0.4) + i * 3).toFixed(4));
+    });
+    await sleep(lp, 200);
+    const many = await P();
+    const btn = lp.locator('[data-chartist-alert-groups] button[data-group]');
+    check(many.length === 1 && many[0].ids.length === 10 && (await btn.count()) === 1 && (await btn.textContent()) === '10 alerts', 'ten alerts within 30 px collapse into one "10 alerts" chip', many.map(p => p.ids.length));
+    await btn.hover();
+    await sleep(lp, 150);
+    const rows = lp.locator('[data-chartist-alert-groups] [data-panel] button');
+    check((await rows.count()) === 10 && (await btn.getAttribute('aria-expanded')) === 'true', 'hover opens the list: ten rows with a remove control', await rows.count());
+    const tags = await lp.evaluate(() => { const g = window.__extras.alerts; return g.alerts().length; });
+    await card.screenshot({ path: path.join(out, 'alerts-many.png') });
+    // Keyboard: focus the chip, Tab to the first remove control, Enter removes; Escape closes and returns focus.
+    await lp.mouse.move(5, 5);
+    await sleep(lp, 400);
+    await btn.focus();
+    await sleep(lp, 100);
+    await lp.keyboard.press('Tab');
+    const first = await lp.evaluate(() => { const r = document.querySelector('[data-chartist-alert-groups]').shadowRoot; return r.activeElement ? r.activeElement.getAttribute('aria-label') : null; });
+    await lp.keyboard.press('Enter');
+    await sleep(lp, 150);
+    const after = await lp.evaluate(() => window.__extras.alerts.alerts().length);
+    const stillIn = await lp.evaluate(() => { const r = document.querySelector('[data-chartist-alert-groups]').shadowRoot; return !!r.activeElement && !!r.activeElement.closest('[data-panel]'); });
+    await lp.keyboard.press('Escape');
+    await sleep(lp, 100);
+    const back = await lp.evaluate(() => { const r = document.querySelector('[data-chartist-alert-groups]')?.shadowRoot; return r && r.activeElement ? r.activeElement.getAttribute('data-group') !== null : false; });
+    check(/^Remove the alert at /.test(first || '') && after === tags - 1 && stillIn && back, 'keyboard: focus opens the list, Tab reaches a remove control, Enter removes, focus stays in the list, Escape returns to the chip', { first, after, stillIn, back });
+    // Coarse pointer: 44 px targets for the group chip.
+    const coarse = await browser.newContext({ viewport: { width: 1200, height: 900 }, hasTouch: true, isMobile: true });
+    const cp = await coarse.newPage();
+    watch(cp);
+    await cp.goto(base + 'extras.html');
+    await sleep(cp, 500);
+    await cp.evaluate(() => { const al = window.__extras.alerts, s = window.__extras.alertsCandles; al.clear(); const h = window.__extras.alertsChart.panes()[0].getHeight(); for (let i = 0; i < 8; i++) al.add(+s.coordinateToPrice(Math.round(h * 0.4) + i * 2).toFixed(4)); });
+    await sleep(cp, 200);
+    const cb = cp.locator('[data-chartist-alert-groups] button[data-group]');
+    const box = await cb.boundingBox();
+    await cb.tap();
+    await sleep(cp, 150);
+    const rb = await cp.locator('[data-chartist-alert-groups] [data-panel] button').first().boundingBox();
+    check(!!box && box.height >= 44 && !!rb && rb.height >= 44 && rb.width >= 44, 'coarse pointer: the group chip and the remove controls are 44 px; a tap opens the list', { chip: box && box.height, remove: rb && [rb.width, rb.height] });
+    await coarse.close();
+    await lp.close();
   }
 
   await browser.close();

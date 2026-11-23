@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chartist Lite: two terminals, extras on first use</title>
+<style>
+  body { margin: 0; padding: 16px; background: #E9E9EE; font: 14px -apple-system, "Segoe UI", Roboto, sans-serif; display: grid; gap: 16px; }
+  chartist-terminal { border-radius: 12px; overflow: hidden; }
+</style>
+</head>
+<body>
+<!--
+  Two <chartist-terminal> tags and the one-tag terminal build. The extras (price alerts, tooltips, watermark, replay)
+  are not in that file: the first press of a bell loads chartist-lite-extras.iife.min.js from the terminal file's own
+  folder, once for both tags. Query options for the browser check: ?extras=<url or "off"> sets data-extras on the
+  script tag; ?module loads the terminal as a module script (no currentScript: the file is found by its name); ?src=
+  loads it from another URL.
+-->
+<chartist-terminal id="t1" symbol="NOVA" interval="1D" height="420"></chartist-terminal>
+<chartist-terminal id="t2" symbol="ORBT" interval="1D" height="420" theme="dark"></chartist-terminal>
+<script>
+  // Demo rows of our own (the module mode has no global to borrow them from).
+  function bars(seed, n) {
+    let x = seed, c = 50 + seed % 40; const out = []; const t0 = Date.UTC(2025, 0, 1) / 1000;
+    const r = () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+    for (let i = 0; i < n; i++) { const o = c; c = Math.max(1, c * (1 + (r() - 0.5) * 0.04)); out.push({ time: t0 + i * 86400, open: o, high: Math.max(o, c) * (1 + r() * 0.01), low: Math.min(o, c) * (1 - r() * 0.01), close: +c.toFixed(2), volume: Math.round(1000 + r() * 5000) }); }
+    return out;
+  }
+  // Rows go in once the tag is defined (the terminal script, loaded below, defines it).
+  customElements.whenDefined('chartist-terminal').then(() => {
+    document.getElementById('t1').data = bars(7, 300);
+    document.getElementById('t2').data = bars(11, 300);
+  });
+  const params = new URLSearchParams(location.search);
+  const s = document.createElement('script');
+  // ?src= loads the terminal from another file name (the check copies it there: then nothing tells where the extras are).
+  s.src = params.get('src') || '../dist/chartist-lite.terminal.iife.min.js';
+  if (params.has('module')) s.type = 'module';
+  if (params.get('extras')) s.setAttribute('data-extras', params.get('extras'));
+  document.head.appendChild(s);
+</script>
+</body>
+</html>

@@ -9,6 +9,8 @@
 // eye saved; reload with drawings loads the module once, without none; a failing module; touch not blocked; cost.
 // Price alerts in the workspace: bell and axis "+", reload, one trigger saved and never repeated, per symbol, undo
 // order, removal, Renko (true last price), an older save, lazy extras, a failing extras module, no write per tick.
+// The one-tag terminal loads the extras on first use (examples/widget-terminal.html): none before, one after, shared,
+// retried after a failure, data-extras override and "off", module script and renamed file.
 // Writes docs/screenshots/widget-*.png. Needs Playwright and `npm run build`.
 const { chromium } = require('playwright');
 const path = require('node:path');
@@ -820,6 +822,129 @@ const COUNT_LISTENERS = () => {
     errors.length = errs0;
     await page.evaluate(() => localStorage.clear());
     await page.context().close();
+  }
+
+  // ── the one-tag terminal: the extras load on first use, from the terminal file's folder, once for every widget ──
+  {
+    const termReady = p => p.waitForFunction(() => ['t1', 't2'].every(id => document.getElementById(id)?.widget?.chart.panes()[0].getSeries()[0]?.data().length > 50), null, { timeout: 15000 });
+    const termTip = (p, id) => p.evaluate(id => document.getElementById(id).querySelector('[data-chartist-widget]').shadowRoot.querySelector('.tip')?.textContent ?? null, id);
+    const lastClose = (p, id) => p.evaluate(id => { const s = document.getElementById(id).widget.chart.panes()[0].getSeries().find(x => x.seriesType() === 'candlestick'); const d = s.data(); return d[d.length - 1].close; }, id);
+    const bell = (p, id) => p.locator(`#${id} button[aria-label="Price alert"]`).click();
+    const open = async (q = '', opts = {}) => {
+      const p = await newPage(1280, 1000, opts);
+      const req = [];
+      p.on('request', r => { if (r.resourceType() === 'script' && /chartist-lite-extras/.test(r.url())) req.push(r.url()); });
+      return { p, req };
+    };
+    // Plain page: no extras request until the bell; then exactly one, and the alert at the last price; the second
+    // terminal's bell needs no new request.
+    {
+      const { p, req } = await open();
+      await p.goto(url('widget-terminal.html'));
+      await termReady(p);
+      await p.waitForTimeout(600);
+      const before = req.length;
+      await bell(p, 't1');
+      await p.waitForFunction(() => document.getElementById('t1').widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+      const a = await p.evaluate(() => document.getElementById('t1').widget.alerts());
+      const lc = await lastClose(p, 't1');
+      await bell(p, 't2');
+      await p.waitForFunction(() => document.getElementById('t2').widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+      check(before === 0 && req.length === 1 && /\/dist\/chartist-lite-extras\.iife\.min\.js$/.test(req[0]) && a.length === 1 && a[0].price === lc && (await p.evaluate(() => document.getElementById('t2').widget.alerts().length)) === 1, 'terminal: no extras request before the bell; one after, from its own folder; the alert at the last price; the second terminal shares it', { before, requests: req.map(u => u.split('/').slice(-2).join('/')), price: a[0]?.price, last: lc });
+      await p.context().close();
+    }
+    // Two widgets asking at the same moment: one request.
+    {
+      const { p, req } = await open();
+      await p.goto(url('widget-terminal.html'));
+      await termReady(p);
+      const n = await p.evaluate(async () => { const [a, b] = await Promise.all([document.getElementById('t1').widget.addAlert(60), document.getElementById('t2').widget.addAlert(61)]); return [a.price, b.price]; });
+      check(req.length === 1 && n.join() === '60,61', 'terminal: two widgets asking at once make one request', { requests: req.length, n });
+      await p.context().close();
+    }
+    // A failed load: a quiet tip, no alert, the chart works; the next press tries again and succeeds.
+    {
+      const { p, req } = await open();
+      let fail = true;
+      await p.route(/chartist-lite-extras\.iife\.min\.js/, r => (fail ? r.abort() : r.continue()));
+      const e0 = errors.length;
+      await p.goto(url('widget-terminal.html'));
+      await termReady(p);
+      await bell(p, 't1');
+      await p.waitForTimeout(500);
+      const tip = await termTip(p, 't1');
+      const none = await p.evaluate(() => document.getElementById('t1').widget.alerts().length);
+      fail = false;
+      await bell(p, 't1');
+      await p.waitForFunction(() => document.getElementById('t1').widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+      const after = await p.evaluate(() => document.getElementById('t1').widget.alerts().length);
+      check(tip === 'Price alerts could not be loaded' && none === 0 && after === 1 && req.length === 2, 'terminal: a failed load shows a quiet tip; the next press retries and works', { tip, none, after, requests: req.length });
+      errors.length = e0; // the aborted request is the point of this check
+      await p.context().close();
+    }
+    // data-extras: another URL; "off": no request, a tip.
+    {
+      const { p, req } = await open();
+      await p.goto(url('widget-terminal.html', `?extras=${encodeURIComponent('../dist/chartist-lite-extras.iife.min.js?from=override')}`));
+      await termReady(p);
+      await bell(p, 't1');
+      await p.waitForFunction(() => document.getElementById('t1').widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+      check(req.length === 1 && /from=override$/.test(req[0]), 'terminal: data-extras points the load elsewhere', req);
+      await p.context().close();
+      const o = await open();
+      await o.p.goto(url('widget-terminal.html', '?extras=off'));
+      await termReady(o.p);
+      await bell(o.p, 't1');
+      await o.p.waitForTimeout(400);
+      check(o.req.length === 0 && (await termTip(o.p, 't1')) === 'The extras are turned off on this page', 'terminal: data-extras="off" makes no request and says so', o.req);
+      await o.p.context().close();
+    }
+    // Served over http as a module script (no currentScript): the file is found by its name; under another name with
+    // no override the tip says what to set; ChartistLiteTerminal.setAssetBase then works.
+    {
+      const { p, req } = await open();
+      await p.route('http://chartist.test/**', r => {
+        const u = new URL(r.request().url());
+        const rel = u.pathname === '/renamed/t.js' ? 'dist/chartist-lite.terminal.iife.min.js' : u.pathname.slice(1);
+        const f = path.join(root, rel);
+        if (!fs.existsSync(f)) return r.fulfill({ status: 404, body: 'not found' });
+        return r.fulfill({ status: 200, contentType: f.endsWith('.html') ? 'text/html' : 'application/javascript', body: fs.readFileSync(f) });
+      });
+      await p.goto('http://chartist.test/examples/widget-terminal.html?module');
+      await termReady(p);
+      await bell(p, 't1');
+      await p.waitForFunction(() => document.getElementById('t1').widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+      check(req.length === 1 && req[0] === 'http://chartist.test/dist/chartist-lite-extras.iife.min.js', 'terminal as a module script (no currentScript): the extras found next to the terminal file', req);
+      // Renamed and loaded as a module: nothing tells where the extras are; the tip says to set data-extras.
+      req.length = 0;
+      const e0 = errors.length;
+      await p.goto('http://chartist.test/examples/widget-terminal.html?module&src=/renamed/t.js');
+      await termReady(p);
+      await bell(p, 't1');
+      await p.waitForTimeout(400);
+      const tip = await termTip(p, 't1');
+      const r0 = req.length;
+      // With data-extras on that tag, it works.
+      await p.goto(`http://chartist.test/examples/widget-terminal.html?module&src=/renamed/t.js&extras=${encodeURIComponent('/dist/chartist-lite-extras.iife.min.js')}`);
+      await termReady(p);
+      await bell(p, 't1');
+      await p.waitForFunction(() => document.getElementById('t1').widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+      const r1 = req.length;
+      // Renamed as a classic script: the extras are looked for next to it (missing there); setAssetBase points them
+      // elsewhere and the next press works.
+      req.length = 0;
+      await p.goto('http://chartist.test/examples/widget-terminal.html?src=/renamed/t.js');
+      await termReady(p);
+      await bell(p, 't1');
+      await p.waitForTimeout(400);
+      const tip2 = await termTip(p, 't1');
+      await p.evaluate(() => window.ChartistLiteTerminal.setAssetBase('/dist/'));
+      await bell(p, 't1');
+      await p.waitForFunction(() => document.getElementById('t1').widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+      check(/data-extras/.test(tip || '') && r0 === 0 && r1 === 1 && tip2 === 'Price alerts could not be loaded' && req.length === 2 && /\/dist\//.test(req[1]) && (await p.evaluate(() => document.getElementById('t1').widget.alerts().length)) === 1, 'terminal renamed: as a module the tip says to set data-extras (which works); as a script, setAssetBase points elsewhere and the retry works', { tip, r0, r1, tip2, requests: req });
+      errors.length = e0;
+      await p.context().close();
+    }
   }
 
   // ── sizes with the bar open: 1280, 1024, 768 and a 420 px tall widget; light and dark ──

@@ -537,6 +537,22 @@ async function interactive(browser, origin) {
       ok(sent >= 1 && h.last.close === price && h.last.time >= before.time, `live hero: the last bar moves on a stubbed trade (close ${before.close} to ${h.last.close})`);
       const usable = await page.evaluate(() => { const w = document.querySelector('[data-hero-widget]')._hero.widget; const root = w.element.shadowRoot || w.element; return { buttons: root.querySelectorAll('button').length }; });
       ok(usable.buttons > 15, `live hero: the full toolbar is there (${usable.buttons} buttons in the widget)`);
+      // The bell: the extras load from next to the terminal file (this origin), and the alert sits at the last price.
+      {
+        const extrasReq = [];
+        page.on('request', (r) => { if (r.resourceType() === 'script' && /chartist-lite-extras/.test(r.url())) extrasReq.push(r.url()); });
+        const bellBtn = page.locator('[data-hero-widget] [data-chartist-widget] button[aria-label="Price alert"]:not(.hide)');
+        if (await bellBtn.count()) await bellBtn.click();
+        else {
+          await page.locator('[data-hero-widget] [data-chartist-widget] .top button[aria-label="More"]').click();
+          await page.locator('[data-hero-widget] [data-chartist-widget] .menu [role^="menuitem"]', { hasText: 'Price alert' }).first().click();
+        }
+        await page.waitForFunction(() => document.querySelector('[data-hero-widget]')._hero.widget.alerts().length === 1, null, { timeout: 8000 }).catch(() => {});
+        const al = await page.evaluate(() => { const w = document.querySelector('[data-hero-widget]')._hero.widget; const d = w.chart.panes()[0].getSeries()[0].data(); return { alerts: w.alerts(), last: d[d.length - 1].close }; });
+        const local = extrasReq.length <= 1 && extrasReq.every((u) => u.startsWith(`${origin}/assets/chartist-lite-extras.iife.min.js`));
+        ok(al.alerts.length === 1 && al.alerts[0].price === al.last && local && external.length === 0, `live hero: the bell adds an alert at the last price (${al.alerts[0] ? al.alerts[0].price : 'none'}), the extras from this site (${extrasReq.length} request)`);
+        await page.evaluate(() => document.querySelector('[data-hero-widget]')._hero.widget.clearAlerts());
+      }
       // "Use demo data": disconnects, is remembered, and after a reload nothing is requested.
       await page.click('[data-hero-demo]');
       await page.waitForTimeout(400);
@@ -1059,6 +1075,8 @@ async function screenshots(browser, origin) {
   if (process.env.SITE_SHOTS) await screenshots(browser, origin);
 
   await browser.close(); server.close();
+  // The terminal loads the extras on first use from its own folder: the file must sit next to it.
+  if (fs.existsSync(path.join(dist, 'assets', 'chartist-lite.terminal.iife.min.js'))) ok(fs.existsSync(path.join(dist, 'assets', 'chartist-lite-extras.iife.min.js')), 'the extras file sits next to the terminal file in assets/');
   console.log(`\n${assertions} assertions, ${failures.length} failed`);
   if (failures.length) { console.error(failures.map((f) => ' - ' + f).join('\n')); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
