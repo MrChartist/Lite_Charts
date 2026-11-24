@@ -128,6 +128,9 @@ async function runDevice(page, base, ctxName, errors) {
       const more = await ctl('More', which);
       if (!more) continue;
       await tap(more); await settle(350);
+      // The sheet fades in: wait until it is fully shown (an engine may start the fade late after a scroll).
+      const shown = await page.waitForFunction(() => { const m = document.querySelector('[data-chartist-widget]').shadowRoot.querySelector('.menu'); return !m || getComputedStyle(m).opacity === '1'; }, null, { timeout: 4000 }).then(() => true, () => false);
+      if (!shown) console.log(`  diag ${ctxName}: the ${which} More sheet was still not fully shown after 4 s`);
       b = await ctl(label, '.menu');
       if (b) { if (beforeTap) await beforeTap(); await tap(b); await settle(350); return true; }
       console.log(`  diag ${ctxName}: "${label}" not found after tapping ${which} More at ${JSON.stringify(more)}: ` + await page.evaluate(([mx, my]) => {
