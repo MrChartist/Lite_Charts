@@ -56,3 +56,6 @@ jobs:
 
       - name: Draw, pan, zoom and update a chart in each browser
         run: node scripts/smoke-browsers.cjs chromium firefox webkit
+
+      - name: Phone layout (iPhone SE and 14 profiles, touch taps) in each browser
+        run: node scripts/smoke-phone.cjs chromium firefox webkit

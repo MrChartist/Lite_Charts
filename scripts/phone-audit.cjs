@@ -588,6 +588,12 @@ module.exports = { RULES };
         else measures[`draw ${prof.name}`] = 'drag';
         if (n1 !== n0 + 1) find({ ...where('draw-trend'), rule: 'flow', sev: 'high', what: `drawing a trend line by touch made ${n1 - n0}` });
         await page.waitForTimeout(200);
+        // The legend shows the last bar's values (or the crosshair bar's): never an empty value after a touch drawing.
+        const blankLegend = await page.evaluate(() => {
+          const s = document.querySelector('[data-chartist-widget]').shadowRoot;
+          return [...s.querySelectorAll('.lg .row')].filter(r => [...r.querySelectorAll('.v')].some(v => !v.textContent.trim())).map(r => (r.getAttribute('aria-label') || r.textContent).trim());
+        });
+        if (blankLegend.length) find({ ...where('drawing-legend'), rule: 'legend-values', sev: 'medium', what: `legend value empty after a touch drawing: ${blankLegend.join(', ')}` });
         await audit(page, where('drawing-selected'), { within: W, shot: true });
         measures[`style bar ${prof.name}`] = await page.evaluate(() => { const s = document.querySelector('[data-chartist-widget]').shadowRoot; const sym = s.querySelector('.sym'); const sp = s.querySelector('.top .sp'); return { sym: sym.offsetWidth, symMax: sym.style.maxWidth, slot: sp.offsetWidth, bar: (sp.querySelector('*') || {}).offsetWidth, top: [...s.querySelectorAll('.top > *')].filter(e => !e.classList.contains('hide')).map(e => (e.getAttribute('aria-label') || e.className).slice(0, 14)).join('|') }; });
         const ta = await page.evaluate(() => getComputedStyle(window.__widget.chart.element()).touchAction);

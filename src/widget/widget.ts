@@ -62,6 +62,17 @@ export function formatValue(v: number): string {
   return formatPrice(v, a >= 1000 ? 2 : a >= 1 ? 2 : a >= 0.01 ? 4 : 6);
 }
 
+/** The computed value at a bar time (rows are in time order), or undefined where there is none (a warm-up bar, a gap). */
+export function valueAtTime(arr: readonly { time: unknown; value?: number }[] | undefined, t: unknown): number | undefined {
+  let lo = 0, hi = (arr?.length ?? 0) - 1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1, mt = arr![m].time as number;
+    if (mt === t) { const v = arr![m].value; return typeof v === 'number' ? v : undefined; }
+    if (mt < (t as number)) lo = m + 1; else hi = m - 1;
+  }
+  return undefined;
+}
+
 /** Read one input row into a bar (null when unusable). Seconds or milliseconds, 'YYYY-MM-DD' or ISO text. */
 export function toBar(r: WidgetRowInput | null | undefined): WidgetBar | null {
   if (!r || typeof r !== 'object') return null;
@@ -639,9 +650,10 @@ export function createWidget(container: Container, options: WidgetOptions = {}):
     lastCross = p;
     for (const ind of inds) {
       for (const [key, el] of ind.values) {
-        const s = ind.series.get(key);
         let v: number | undefined;
-        if (p && p.time !== undefined && s) v = (p.seriesData.get(s) as { value?: number } | undefined)?.value;
+        // By the bar's time in the computed values, not through the crosshair's series handles: a rebuild (an indicator
+        // added, removed or moved, a chart type change) replaces the handles, and the held crosshair would read blank.
+        if (p && p.time !== undefined) v = valueAtTime(ind.last[key], p.time);
         else { const arr = ind.last[key]; for (let i = (arr?.length ?? 0) - 1; i >= 0 && i >= arr.length - 3; i--) if (typeof arr[i].value === 'number') { v = arr[i].value; break; } }
         const t = v === undefined ? '' : formatValue(v);
         if (el.textContent !== t) el.textContent = t;

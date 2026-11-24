@@ -4,7 +4,7 @@ import { daysFromCivil } from '../core/zone';
 import { collapseBar, KEEP, useSheets } from '../widget/layout';
 import { barsForSpan, intervalForSpan, intervalFromDigits, intervalSeconds, nearestInterval, normalizeInterval, sortIntervals, toLiveInterval } from '../widget/intervals';
 import { ALERT_LIMITS, defaultSettings, migrateWorkspace, normalizeAlerts, readWorkspace, validateParams, WORKSPACE_FORMAT, WORKSPACE_VERSION } from '../widget/workspace';
-import { formatValue, offsetLabel, toBars } from '../widget/widget';
+import { formatValue, offsetLabel, toBars, valueAtTime } from '../widget/widget';
 import { terminalOptions } from '../widget/element';
 import { demoBars } from '../widget/demo';
 import { INDICATORS, getIndicator } from '../indicators/catalog';
@@ -270,5 +270,19 @@ describe('widget helpers', () => {
     expect(a).toEqual(demoBars('BTC-USD', '1h', 50, utc(2025, 1, 1, 10, 30)));
     expect(a[a.length - 1].time).toBe(utc(2025, 1, 1, 10));
     expect(a.every(b => b.low <= Math.min(b.open, b.close) && b.high >= Math.max(b.open, b.close))).toBe(true);
+  });
+});
+
+describe('legend value lookup (valueAtTime)', () => {
+  const rows = [{ time: 10 }, { time: 20, value: 1.5 }, { time: 30, value: 2.5 }, { time: 40, value: Number.NaN }];
+  it('reads the value at a bar time, by time and not by any series handle', () => {
+    expect(valueAtTime(rows, 20)).toBe(1.5);
+    expect(valueAtTime(rows, 30)).toBe(2.5);
+  });
+  it('is undefined for a warm-up bar, a missing time or no rows, so the legend never shows a stale number', () => {
+    expect(valueAtTime(rows, 10)).toBeUndefined();
+    expect(valueAtTime(rows, 25)).toBeUndefined();
+    expect(valueAtTime(undefined, 20)).toBeUndefined();
+    expect(valueAtTime([], 20)).toBeUndefined();
   });
 });

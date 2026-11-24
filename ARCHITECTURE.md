@@ -15,7 +15,8 @@ For contributors and stage-2 workers. Public README, licence and contributing gu
 | Rename the npm package | `node scripts/rename-package.mjs <name> [--only package,src,examples,notes,readme,docs,site] [--dry]` (safe to run twice; the name is `lite-charts`; product name and `ChartistLite*` globals stay) |
 | All of the above | `npm run check` |
 | Browser smoke + screenshots | `npm run screenshots` (builds, then runs every `scripts/screenshots*.cjs`; needs Playwright importable on the machine; not a dev dependency, not in CI) |
-| Phone audit | `npm run audit:phone` (builds, then `scripts/phone-audit.cjs`: Playwright device profiles in Chromium with CDP touch, every reachable state checked for 44 px targets, 12 px text, 16 px fields, contrast, clipping, page scroll through the chart, sheets, keyboard, safe areas, rotation, 4x / 6x throttled frame cost; writes `audit-output/phone/report.md`, exit 1 on a high or medium finding) |
+| Phone smoke (all engines) | `npm run smoke:phone` (`scripts/smoke-phone.cjs [chromium firefox webkit]`; `iPhone SE` and `iPhone 14` profiles, only cross-engine APIs: `page.touchscreen.tap`, `evaluate`, no CDP; on `examples/phone-article.html` it checks load and canvas, no sideways scroll, More inside the viewport, a 16 px search field, a sheet's scrim tap closing it without reaching the control under it, the full-screen fallback and its scroll lock, safe-area padding; run for all three engines by the `browsers` CI job, Firefox without `isMobile`) |
+| Phone audit | `npm run audit:phone` (builds, then `scripts/phone-audit.cjs`: Playwright device profiles in Chromium with CDP touch (Chromium only: the smoke above is the WebKit coverage), every reachable state checked for 44 px targets, 12 px text, 16 px fields, contrast, clipping, page scroll through the chart, sheets, keyboard, safe areas, rotation, 4x / 6x throttled frame cost; writes `audit-output/phone/report.md`, exit 1 on a high or medium finding) |
 
 ## Modules
 

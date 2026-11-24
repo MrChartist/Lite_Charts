@@ -95,8 +95,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Bench scenario `widget` (10k bars, three indicators): crosshair, pan, zoom, tick (script cost only, rasterisation not
   included).
 
+- The CI browsers job runs a phone-layout smoke (`scripts/smoke-phone.cjs`, `npm run smoke:phone`) in Chromium, Firefox
+  and WebKit on the iPhone SE and iPhone 14 profiles with touch taps only.
+
 ### Changed
 
+- Widget legend: with a crosshair held (a touch leaves it where the finger lifted), adding, removing or moving an
+  indicator, or a chart type change, blanked every legend value until the next crosshair move (the held crosshair kept
+  the replaced series). Values are now read by the bar's time from the computed rows.
 - `<chartist-terminal>` element source comment said the one-tag build bundles the extras; it does not (they load on
   first use).
 

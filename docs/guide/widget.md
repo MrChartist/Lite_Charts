@@ -197,7 +197,7 @@ const widget = createWidget(el, {
 A page that never draws never downloads the drawing code. The hero on the home page goes one step further: a static picture first, then the terminal file after the page has loaded.
 
 > [!VERIFY]
-> The widget's own checks run in Chromium, including `npm run audit:phone` (iPhone, Pixel, Galaxy and iPad Mini profiles with real touch input). Firefox, Safari (WebKit), real phones, the on-screen keyboard and screen readers have not been verified for it.
+> The widget's own checks run in Chromium, including `npm run audit:phone` (iPhone, Pixel, Galaxy and iPad Mini profiles with real touch input). A shorter phone-layout smoke (`npm run smoke:phone`: iPhone SE and iPhone 14 profiles, touch taps, no sideways scroll, the search field size, the sheet scrim, full screen) also runs in Firefox and WebKit in CI. Full audit coverage in Firefox and Safari, real phones, the on-screen keyboard and screen readers have not been verified for it.
 
 ---
 
