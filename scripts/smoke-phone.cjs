@@ -130,6 +130,12 @@ async function runDevice(page, base, ctxName, errors) {
       await tap(more); await settle(350);
       b = await ctl(label, '.menu');
       if (b) { if (beforeTap) await beforeTap(); await tap(b); await settle(350); return true; }
+      console.log(`  diag ${ctxName}: "${label}" not found after tapping ${which} More at ${JSON.stringify(more)}: ` + await page.evaluate(([mx, my]) => {
+        const s = document.querySelector('[data-chartist-widget]').shadowRoot;
+        const hit = s.elementFromPoint(mx, my), dh = document.elementFromPoint(mx, my);
+        const names = sel => [...s.querySelectorAll(sel)].map(e => (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 20) + (e.checkVisibility && !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) ? '(hidden)' : ''));
+        return JSON.stringify({ menu: !!s.querySelector('.menu'), dlg: !!s.querySelector('.dlg'), hit: hit && (hit.className + '|' + (hit.getAttribute('aria-label') || '')), docHit: dh && dh.tagName + '.' + dh.className, menuItems: names('.menu button, .menu [role^=menuitem], .menu .mi'), bar: names('.bar button'), vv: [innerWidth, innerHeight, scrollX, scrollY, visualViewport && visualViewport.scale], fs: document.querySelector('[data-chartist-widget]').hasAttribute('data-fs') });
+      }, [more.x, more.y]));
       await page.keyboard.press('Escape'); await closed();
     }
     return false;
@@ -269,8 +275,16 @@ async function runDevice(page, base, ctxName, errors) {
     check(ctxName, fs1.supports, 'the engine does not accept env(safe-area-inset-top) in padding');
     check(ctxName, fs1.pad.every(v => Number.isFinite(v) && v >= 0), `full screen safe-area padding is not a size (${fs1.pad.join(', ')})`);
     check(ctxName, [fs1.l, fs1.t, fs1.w, fs1.h].every(Number.isFinite), 'full screen box has a non-finite size');
-    await tapControl('Exit full screen');
+    const exitAt = await ctl('Exit full screen', '.bar');
+    const exitTapped = await tapControl('Exit full screen');
     await settle(400);
+    if (await page.evaluate(() => document.querySelector('[data-chartist-widget]').hasAttribute('data-fs'))) {
+      console.log(`  diag ${ctxName}: exit tapped=${exitTapped} barControl=${JSON.stringify(exitAt)} ` + await page.evaluate(at => {
+        const s = document.querySelector('[data-chartist-widget]').shadowRoot;
+        const hit = at && s.elementFromPoint(at.x, at.y), dh = at && document.elementFromPoint(at.x, at.y);
+        return JSON.stringify({ hit: hit && (hit.tagName + '.' + hit.className + '|' + (hit.getAttribute('aria-label') || '')), docHit: dh && dh.tagName + '.' + dh.className, layer: !!s.querySelector('.menu, .dlg'), vv: [innerWidth, innerHeight, scrollX, scrollY, visualViewport && visualViewport.scale] });
+      }, exitAt));
+    }
     const post = await page.evaluate(() => ({ sy: window.scrollY, inline: document.documentElement.style.overflow, computed: getComputedStyle(document.documentElement).overflowY, attr: document.querySelector('[data-chartist-widget]').hasAttribute('data-fs') }));
     check(ctxName, !post.attr, 'tapping Exit full screen did not leave full screen');
     check(ctxName, post.inline === pre.inline && post.computed === pre.computed, `exiting full screen did not restore the page overflow (was "${pre.inline}"/${pre.computed}, now "${post.inline}"/${post.computed})`);
