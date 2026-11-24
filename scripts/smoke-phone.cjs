@@ -66,8 +66,8 @@ function findControl([label, scope]) {
     const name = (el.getAttribute('aria-label') || el.textContent || '').trim();
     if (!(name === label || name.startsWith(label + ' (') || name.startsWith(label + ':'))) continue;
     if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
-    // A long sheet scrolls: bring the item into view first, as a finger would.
-    if (el.closest('.menu, .dlg')) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    // A finger only reaches what is on screen: bring the control into view first (a long sheet, a chart below the fold).
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const b = el.getBoundingClientRect();
     if (b.width < 1 || b.height < 1) continue;
     return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height };
@@ -134,7 +134,9 @@ async function runDevice(page, base, ctxName, errors) {
         const s = document.querySelector('[data-chartist-widget]').shadowRoot;
         const hit = s.elementFromPoint(mx, my), dh = document.elementFromPoint(mx, my);
         const names = sel => [...s.querySelectorAll(sel)].map(e => (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 20) + (e.checkVisibility && !e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) ? '(hidden)' : ''));
-        return JSON.stringify({ menu: !!s.querySelector('.menu'), dlg: !!s.querySelector('.dlg'), hit: hit && (hit.className + '|' + (hit.getAttribute('aria-label') || '')), docHit: dh && dh.tagName + '.' + dh.className, menuItems: names('.menu button, .menu [role^=menuitem], .menu .mi'), bar: names('.bar button'), vv: [innerWidth, innerHeight, scrollX, scrollY, visualViewport && visualViewport.scale], fs: document.querySelector('[data-chartist-widget]').hasAttribute('data-fs') });
+        const mi = s.querySelector('.menu button, .menu [role^=menuitem]'); const chain = [];
+        for (let e = mi; e && e.nodeType === 1; e = e.parentElement) { const c = getComputedStyle(e), r = e.getBoundingClientRect(); chain.push([e.tagName + '.' + e.className, c.display, c.visibility, c.opacity, c.contentVisibility, c.position, Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height), e.getAnimations ? e.getAnimations().map(a => a.animationName + ':' + a.playState + ':' + a.currentTime).join(',') : '']); }
+        return JSON.stringify({ chain, cv: mi && [mi.checkVisibility(), mi.checkVisibility({ opacityProperty: true }), mi.checkVisibility({ visibilityProperty: true })], menu: !!s.querySelector('.menu'), dlg: !!s.querySelector('.dlg'), hit: hit && (hit.className + '|' + (hit.getAttribute('aria-label') || '')), docHit: dh && dh.tagName + '.' + dh.className, menuItems: names('.menu button, .menu [role^=menuitem], .menu .mi'), bar: names('.bar button'), vv: [innerWidth, innerHeight, scrollX, scrollY, visualViewport && visualViewport.scale], fs: document.querySelector('[data-chartist-widget]').hasAttribute('data-fs') });
       }, [more.x, more.y]));
       await page.keyboard.press('Escape'); await closed();
     }
